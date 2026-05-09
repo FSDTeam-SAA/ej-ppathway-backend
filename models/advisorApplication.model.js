@@ -1,0 +1,75 @@
+import mongoose from 'mongoose';
+
+const { Schema } = mongoose;
+
+export const APP_STAGES = [
+  'application',
+  'pre_recorded_interview',
+  'live_interview',
+  'contract'
+];
+
+export const APP_STATUSES = [
+  'new',
+  'under_review',
+  'awaiting_submission',
+  'scheduled',
+  'awaiting_signature',
+  'approved',
+  'rejected'
+];
+
+const advisorApplicationSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+
+    // Step 1: basic info / application
+    professionalTitle: { type: String, default: 'I am a professional advisor' },
+    bio: { type: String, default: '' },
+    detailedDescription: { type: String, default: '' },
+    yearsOfExperience: { type: String, default: '' },
+    expertise: { type: [String], default: [] },
+    styles: { type: [String], default: [] },
+    languages: { type: [String], default: ['English'] },
+    introVideoUrl: { type: String, default: '' },
+
+    // Pre-recorded Q&A
+    preRecordedAnswers: [
+      {
+        question: { type: String },
+        answer: { type: String }
+      }
+    ],
+
+    // Live interview
+    liveInterview: {
+      scheduledAt: { type: Date },
+      roomName: { type: String },
+      notes: { type: String }
+    },
+
+    // Contract
+    contract: {
+      sentAt: { type: Date },
+      signedAt: { type: Date },
+      url: { type: String }
+    },
+
+    // Pricing offered (used after approval)
+    pricing: {
+      chatPerMin: { type: Number, default: 0 },
+      callPerMin: { type: Number, default: 0 },
+      videoPerMin: { type: Number, default: 0 }
+    },
+
+    stage: { type: String, enum: APP_STAGES, default: 'application', index: true },
+    status: { type: String, enum: APP_STATUSES, default: 'new', index: true },
+
+    rejectionReason: { type: String },
+    submittedAt: { type: Date, default: Date.now }
+  },
+  { timestamps: true }
+);
+
+const AdvisorApplication = mongoose.model('AdvisorApplication', advisorApplicationSchema);
+export default AdvisorApplication;
