@@ -26,7 +26,10 @@ const reviewSchema = new Schema(
     isAdminShowcase: { type: Boolean, default: false },
     showcaseName: { type: String },
     showcaseLocation: { type: String },
-    showcasePhoto: { type: String }
+    showcasePhoto: { type: String },
+
+    // Admin curates which reviews surface as homepage testimonials
+    isFeaturedTestimonial: { type: Boolean, default: false, index: true }
   },
   { timestamps: true }
 );

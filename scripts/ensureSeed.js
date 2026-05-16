@@ -2,6 +2,7 @@ import User from '../models/user.model.js';
 import Plan from '../models/plan.model.js';
 import CmsPage from '../models/cmsPage.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
+import seedSiteContent from './seed-site-content.js';
 
 export const ensureSeed = async () => {
   // Super admin
@@ -45,6 +46,9 @@ export const ensureSeed = async () => {
 
   // Platform settings
   await getPlatformSettings();
+
+  // Marketing-site default copy (pixel-perfect Figma defaults — admin can override)
+  await seedSiteContent();
 
   console.log('✓ Seed verified');
 };

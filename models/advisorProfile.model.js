@@ -49,6 +49,9 @@ const advisorProfileSchema = new Schema(
     isOnline: { type: Boolean, default: false, index: true },
     lastSeenAt: { type: Date },
 
+    // Admin marks advisors that appear in the homepage "Select a Verified Advisor" rail
+    isFeaturedOnHome: { type: Boolean, default: false, index: true },
+
     // Stats
     tier: { type: String, enum: TIERS, default: 'bronze', index: true },
     totalSessions: { type: Number, default: 0 },

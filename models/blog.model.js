@@ -8,6 +8,7 @@ const blogSchema = new Schema(
     authorTitle: { type: String, default: '' },
     authorPhoto: { type: String, default: '' },
     type: { type: String, default: 'Meditation & Mindfulness' },
+    category: { type: String, default: 'Meditation & Mindfulness', index: true },
     title: { type: String, required: true },
     excerpt: { type: String, default: '' },
     content: { type: String, default: '' },

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { auth, requirePermission } from '../middlewares/auth.js';
-import { imageUpload } from '../middlewares/upload.js';
+import { imageUpload, anyUpload } from '../middlewares/upload.js';
 import {
   listBlogs,
   getBlog,
@@ -15,6 +15,12 @@ import {
   getPage,
   upsertPage
 } from '../controllers/cms.controller.js';
+import {
+  listSiteContent,
+  getSiteContent,
+  upsertSiteContent,
+  uploadSiteContentMedia
+} from '../controllers/siteContent.controller.js';
 
 const router = Router();
 
@@ -53,5 +59,22 @@ router.patch('/faqs/:id', auth('admin', 'sub_admin'), requirePermission('faq.man
 router.delete('/faqs/:id', auth('admin', 'sub_admin'), requirePermission('faq.manage'), deleteFaq);
 
 router.put('/pages/:slug', auth('admin', 'sub_admin'), requirePermission('cms.manage'), upsertPage);
+
+// ===== Site Content (per-page CMS for the marketing website) =====
+router.get('/site-content', listSiteContent);
+router.get('/site-content/:pageSlug', getSiteContent);
+router.put(
+  '/site-content/:pageSlug',
+  auth('admin', 'sub_admin'),
+  requirePermission('cms.manage'),
+  upsertSiteContent
+);
+router.post(
+  '/site-content/:pageSlug/upload',
+  auth('admin', 'sub_admin'),
+  requirePermission('cms.manage'),
+  anyUpload.single('file'),
+  uploadSiteContentMedia
+);
 
 export default router;

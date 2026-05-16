@@ -34,12 +34,23 @@ const populateUser = async (profiles) => {
   return profiles.map((p) => ({ profile: p, user: map.get(String(p.user)) || null }));
 };
 
-// Home featured = top tier+rating
+// Home featured = admin-curated picks, fallback to top tier+rating when none flagged
 export const featured = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = { ...buildFilters(req.query) };
-  const total = await AdvisorProfile.countDocuments(filter);
-  const profiles = await AdvisorProfile.find(filter).sort({ tier: -1, avgRating: -1 }).skip(skip).limit(limit).lean();
+
+  // Prefer admin-curated featured set when present; transparent fallback otherwise.
+  const curatedFilter = { ...filter, isFeaturedOnHome: true };
+  const curatedTotal = await AdvisorProfile.countDocuments(curatedFilter);
+  const useCurated = curatedTotal > 0;
+  const effectiveFilter = useCurated ? curatedFilter : filter;
+
+  const total = useCurated ? curatedTotal : await AdvisorProfile.countDocuments(filter);
+  const profiles = await AdvisorProfile.find(effectiveFilter)
+    .sort({ tier: -1, avgRating: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
   const data = await populateUser(profiles);
   return sendResponse(res, { data, meta: buildMeta({ page, limit, total }) });
 });

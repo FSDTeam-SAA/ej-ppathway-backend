@@ -131,6 +131,23 @@ export const myAdvisorSessions = catchAsync(async (req, res) => {
     .sort({ createdAt: -1 })
     .skip(skip).limit(limit).lean();
 
+  // Attach rating for completed sessions in a single batched query.
+  const completedIds = items
+    .filter((s) => s.status === 'completed')
+    .map((s) => s._id);
+  if (completedIds.length) {
+    const reviews = await Review.find({ session: { $in: completedIds } })
+      .select('session rating')
+      .lean();
+    const ratingBySession = new Map(
+      reviews.map((r) => [String(r.session), r.rating])
+    );
+    for (const s of items) {
+      const r = ratingBySession.get(String(s._id));
+      if (typeof r === 'number') s.rating = r;
+    }
+  }
+
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
 

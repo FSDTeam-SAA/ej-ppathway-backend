@@ -262,3 +262,14 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
 
   return sendResponse(res, { statusCode: StatusCodes.CREATED, message: 'Advisor created', data: user });
 });
+
+export const setAdvisorFeaturedOnHome = catchAsync(async (req, res) => {
+  const isFeaturedOnHome = !!req.body?.isFeaturedOnHome;
+  const profile = await AdvisorProfile.findOneAndUpdate(
+    { user: req.params.id },
+    { isFeaturedOnHome },
+    { new: true }
+  );
+  if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile not found');
+  return sendResponse(res, { data: profile, message: 'Featured flag updated' });
+});

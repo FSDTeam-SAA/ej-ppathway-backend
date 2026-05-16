@@ -22,7 +22,8 @@ import {
   getAdvisor,
   suspendAdvisor,
   unsuspendAdvisor,
-  addAdvisorManually
+  addAdvisorManually,
+  setAdvisorFeaturedOnHome
 } from '../controllers/admin.advisors.controller.js';
 import {
   listSessions,
@@ -70,7 +71,9 @@ import {
 import {
   adminCreateShowcaseReview,
   adminUpdateShowcaseReview,
-  adminDeleteShowcaseReview
+  adminDeleteShowcaseReview,
+  adminSetReviewFeatured,
+  adminListReviewsForCuration
 } from '../controllers/review.controller.js';
 import { imageUpload } from '../middlewares/upload.js';
 
@@ -105,6 +108,7 @@ router.get('/advisors/:id', requirePermission('advisors.manage'), getAdvisor);
 router.post('/advisors/:id/suspend', requirePermission('advisors.manage'), suspendAdvisor);
 router.post('/advisors/:id/unsuspend', requirePermission('advisors.manage'), unsuspendAdvisor);
 router.post('/advisors', requirePermission('advisors.manage'), addAdvisorManually);
+router.patch('/advisors/:id/featured', requirePermission('advisors.manage'), setAdvisorFeaturedOnHome);
 
 // Sessions
 router.get('/sessions', requirePermission('sessions.manage'), listSessions);
@@ -153,5 +157,9 @@ router.delete('/sub-admins/:id', requirePermission('sub_admins.manage'), deleteS
 router.post('/reviews/showcase', requirePermission('reviews.manage'), imageUpload.single('photo'), adminCreateShowcaseReview);
 router.patch('/reviews/showcase/:id', requirePermission('reviews.manage'), imageUpload.single('photo'), adminUpdateShowcaseReview);
 router.delete('/reviews/showcase/:id', requirePermission('reviews.manage'), adminDeleteShowcaseReview);
+
+// Review curation for homepage testimonials
+router.get('/reviews/curation', requirePermission('reviews.manage'), adminListReviewsForCuration);
+router.patch('/reviews/:id/featured', requirePermission('reviews.manage'), adminSetReviewFeatured);
 
 export default router;

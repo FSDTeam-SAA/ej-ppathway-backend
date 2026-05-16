@@ -157,7 +157,12 @@ export const getDashboard = catchAsync(async (req, res) => {
         avgRating: profile?.avgRating || 0,
         repeatClientRate: profile?.repeatClientRate || 0,
         refundRate: profile?.refundRate || 0,
-        sessionCompletion: profile?.completedSessions ?? 0,
+        sessionCompletion: (() => {
+          const c = profile?.completedSessions || 0;
+          const x = profile?.cancelledSessions || 0;
+          const total = c + x;
+          return total > 0 ? Math.round((c / total) * 100) : 0;
+        })(),
         completedSessions: profile?.completedSessions || 0,
         cancelledSessions: profile?.cancelledSessions || 0
       }

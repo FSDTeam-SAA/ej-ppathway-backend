@@ -117,6 +117,43 @@ export const listShowcaseReviews = catchAsync(async (_req, res) => {
   return sendResponse(res, { data: items });
 });
 
+// Homepage "What Our Customers Say" — admin-curated featured reviews (mix of real + showcase)
+export const listFeaturedTestimonials = catchAsync(async (_req, res) => {
+  const items = await Review.find({ isFeaturedTestimonial: true })
+    .populate('user', 'name profilePhoto')
+    .sort({ updatedAt: -1 })
+    .limit(20)
+    .lean();
+  return sendResponse(res, { data: items });
+});
+
+export const adminSetReviewFeatured = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const isFeaturedTestimonial = !!req.body?.isFeaturedTestimonial;
+  const r = await Review.findByIdAndUpdate(id, { isFeaturedTestimonial }, { new: true });
+  if (!r) throw new ApiError(StatusCodes.NOT_FOUND, 'Review not found');
+  return sendResponse(res, { data: r, message: 'Featured flag updated' });
+});
+
+export const adminListReviewsForCuration = catchAsync(async (req, res) => {
+  const { skip, limit, page } = parsePagination(req.query);
+  const filter = {};
+  if (req.query.featured === 'true') filter.isFeaturedTestimonial = true;
+  if (req.query.featured === 'false') filter.isFeaturedTestimonial = { $ne: true };
+  if (req.query.minRating) filter.rating = { $gte: Number(req.query.minRating) };
+  const [items, total] = await Promise.all([
+    Review.find(filter)
+      .populate('user', 'name profilePhoto')
+      .populate('advisor', 'name profilePhoto')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Review.countDocuments(filter)
+  ]);
+  return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
+});
+
 export const adminUpdateShowcaseReview = catchAsync(async (req, res) => {
   const update = {};
   for (const k of ['rating', 'showcaseName', 'showcaseLocation', 'comment']) {
