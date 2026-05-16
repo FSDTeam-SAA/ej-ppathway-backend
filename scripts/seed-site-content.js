@@ -591,27 +591,41 @@ const DEFAULTS = {
   }
 };
 
-export const seedSiteContent = async () => {
+export const seedSiteContent = async ({ overwrite = false } = {}) => {
   let created = 0;
+  let updated = 0;
   for (const [pageSlug, { pageName, sections }] of Object.entries(DEFAULTS)) {
-    const result = await SiteContent.findOneAndUpdate(
+    if (overwrite) {
+      await SiteContent.updateOne(
+        { pageSlug },
+        { $set: { pageSlug, pageName, sections } },
+        { upsert: true }
+      );
+      updated += 1;
+      continue;
+    }
+    const r = await SiteContent.updateOne(
       { pageSlug },
       { $setOnInsert: { pageSlug, pageName, sections } },
-      { upsert: true, new: false, rawResult: true }
+      { upsert: true }
     );
-    if (!result.lastErrorObject?.updatedExisting) created += 1;
+    if (r.upsertedCount > 0) created += 1;
   }
-  if (created > 0) console.log(`✓ Seeded ${created} site-content page(s)`);
-  else console.log('✓ Site content already seeded');
+  if (overwrite) console.log(`✓ Overwrote ${updated} site-content page(s) with defaults`);
+  else if (created > 0) console.log(`✓ Seeded ${created} new site-content page(s)`);
+  else console.log('✓ Site content already seeded (no changes)');
 };
 
-// Allow `node scripts/seed-site-content.js` invocation
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`) {
+// Allow `node scripts/seed-site-content.js` invocation (cross-platform check)
+import { pathToFileURL } from 'url';
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
   const dotenv = await import('dotenv');
   dotenv.config();
   const connectDB = (await import('../config/db.js')).default;
   await connectDB();
-  await seedSiteContent();
+  const overwrite = process.argv.includes('--overwrite') || process.argv.includes('-f');
+  await seedSiteContent({ overwrite });
   process.exit(0);
 }
 
