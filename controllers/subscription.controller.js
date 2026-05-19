@@ -23,8 +23,9 @@ export const myActivePlan = catchAsync(async (req, res) => {
 
 // =========== Subscribe — Stripe checkout (success route flow) ===========
 export const subscribeToPlan = catchAsync(async (req, res) => {
-  const { planId } = req.body;
-  const plan = await Plan.findById(planId);
+  const { planId, tier } = req.body;
+  if (!planId && !tier) throw new ApiError(StatusCodes.BAD_REQUEST, 'planId or tier required');
+  const plan = planId ? await Plan.findById(planId) : await Plan.findOne({ tier });
   if (!plan || !plan.isActive) throw new ApiError(StatusCodes.NOT_FOUND, 'Plan not found');
 
   // Free plan — no Stripe needed

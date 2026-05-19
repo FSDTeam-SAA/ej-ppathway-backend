@@ -65,6 +65,20 @@ const userSchema = new Schema(
 
     fcmTokens: { type: [String], default: [] },
 
+    // Onboarding questionnaire answers ("Help us personalize your experience")
+    preferences: {
+      seekingHelpWith: { type: [String], default: [] },           // step 1 — multi
+      guidanceType: { type: String, default: '' },                // step 2 — single
+      connectionMethods: { type: [String], default: [] },         // step 3 — multi (Text/Voice Call/Video Call)
+      atmosphere: { type: String, default: '' },                  // step 4 — single
+      guidanceFrequency: { type: String, default: '' },           // step 5 — single
+      tailoredAreas: { type: [String], default: [] },             // step 6 — multi
+      guideQualityPriority: { type: String, default: '' },        // step 7 — single
+      usedPlatformBefore: { type: Boolean, default: null },       // step 8 — Yes/No
+      completedAt: { type: Date }
+    },
+    onboardingCompleted: { type: Boolean, default: false, index: true },
+
     lastLoginAt: { type: Date }
   },
   { timestamps: true }

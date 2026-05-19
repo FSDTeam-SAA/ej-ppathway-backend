@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Prophetic Pathway API",
-    "description": "Full frontend-friendly Postman collection for the Prophetic Pathway backend.\n\nHow to use:\n1. Set `baseUrl` to your running backend, usually `http://localhost:5000`.\n2. Run an auth request. Login and OTP verification save `accessToken` and `refreshToken` automatically.\n3. Replace placeholder IDs such as `{{advisorId}}`, `{{sessionId}}`, and `{{planId}}` from previous API responses.\n4. Requests that upload files use form-data and leave file fields empty for you to choose in Postman.\n\nProtected requests inherit Bearer auth from the collection: `Authorization: Bearer {{accessToken}}`.",
+    "description": "Full frontend-friendly Postman collection for the Prophetic Pathway backend.\n\nHow to use:\n1. Set `baseUrl` to your running backend, usually `http://localhost:5000`.\n2. Run an auth request. Login and OTP verification save `accessToken` and `refreshToken` automatically.\n3. Replace placeholder IDs such as `{{advisorId}}`, `{{sessionId}}`, and `{{planId}}` from previous API responses.\n4. Requests that upload files use form-data and leave file fields empty for you to choose in Postman.\n\nProtected requests inherit Bearer auth from the collection: `Authorization: Bearer {{accessToken}}`.\n\nMobile auth flow (matches Figma):\n  Signup → Verify Signup OTP (returns tokens) → Onboarding - Submit Preferences (8-step questionnaire) → List Public Plans → Subscribe To Plan (by tier).\nForgot-password flow:\n  Forgot Password - Send OTP → Verify Reset OTP (returns `resetToken`) → Reset Password.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -54,6 +54,10 @@
     {
       "key": "planId",
       "value": ""
+    },
+    {
+      "key": "planTier",
+      "value": "clarity"
     },
     {
       "key": "subscriptionId",
@@ -1270,6 +1274,90 @@
               "query": []
             },
             "description": ""
+          },
+          "response": []
+        },
+        {
+          "name": "Onboarding - Get Questions (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/onboarding/questions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "onboarding",
+                "questions"
+              ],
+              "query": []
+            },
+            "description": "Public — returns the 8-step questionnaire shown after OTP verification. Use this so the UI stays in sync with the backend's allowed option lists.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Onboarding - Get My Preferences",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/preferences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "preferences"
+              ],
+              "query": []
+            },
+            "description": "Returns the current user's saved questionnaire answers and `onboardingCompleted` flag."
+          },
+          "response": []
+        },
+        {
+          "name": "Onboarding - Submit Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/preferences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "preferences"
+              ],
+              "query": []
+            },
+            "description": "Accepts partial submissions — call once per step or once at the end. `onboardingCompleted` flips to true only when every step has a value.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seekingHelpWith\": [\"Spiritual growth\"],\n  \"guidanceType\": \"Dream interpretation\",\n  \"connectionMethods\": [\"Video Call\"],\n  \"atmosphere\": \"Warm & encouraging\",\n  \"guidanceFrequency\": \"Weekly\",\n  \"tailoredAreas\": [\"Marriage\"],\n  \"guideQualityPriority\": \"Fast responses\",\n  \"usedPlatformBefore\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         }
@@ -2584,12 +2672,28 @@
               ],
               "query": []
             },
-            "description": "",
+            "description": "Public — returns the three tiers shown on the 'Choose Your Path Forward' screen (Instant Access, Clarity Access, Priority Access). Captures the `planTier` plan's _id into {{planId}}.",
             "auth": {
               "type": "noauth"
             }
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && Array.isArray(json.data)) {",
+                  "  const tier = pm.collectionVariables.get('planTier') || 'clarity';",
+                  "  const match = json.data.find((p) => p.tier === tier);",
+                  "  if (match && match._id) pm.collectionVariables.set('planId', match._id);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "My Active Subscription",
@@ -2614,7 +2718,7 @@
           "response": []
         },
         {
-          "name": "Subscribe To Plan",
+          "name": "Subscribe To Plan (by tier)",
           "request": {
             "method": "POST",
             "header": [
@@ -2636,7 +2740,59 @@
               ],
               "query": []
             },
-            "description": "",
+            "description": "Pick a plan from the 'Choose Your Path Forward' screen. Body accepts either `tier` (instant | clarity | priority) or `planId`. Free `instant` tier activates immediately; paid tiers return a Stripe `checkoutUrl`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tier\": \"{{planTier}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.data) {",
+                  "  if (json.data.subId) pm.collectionVariables.set(\"subscriptionId\", json.data.subId);",
+                  "  if (json.data.sessionId) pm.collectionVariables.set(\"stripeSessionId\", json.data.sessionId);",
+                  "  if (json.data._id) pm.collectionVariables.set(\"subscriptionId\", json.data._id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Subscribe To Plan (by planId)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/subscriptions/subscribe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "subscribe"
+              ],
+              "query": []
+            },
+            "description": "Same endpoint as 'by tier' — kept here for the case where the frontend already has a `planId` cached from the plans list.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"planId\": \"{{planId}}\"\n}",
@@ -2658,6 +2814,7 @@
                   "if (json && json.data) {",
                   "  if (json.data.subId) pm.collectionVariables.set(\"subscriptionId\", json.data.subId);",
                   "  if (json.data.sessionId) pm.collectionVariables.set(\"stripeSessionId\", json.data.sessionId);",
+                  "  if (json.data._id) pm.collectionVariables.set(\"subscriptionId\", json.data._id);",
                   "}"
                 ]
               }

@@ -21,17 +21,90 @@ export const ensureSeed = async () => {
     console.log(`✓ Seeded super admin: ${email}`);
   }
 
-  // Default plans
+  // Remove any legacy plans from the old SaaS-employee seed.
+  await Plan.deleteMany({ name: { $in: ['Free', 'Basic', 'Premium'] } });
+
+  // Default plans — three tiers shown on the "Choose Your Path Forward" screen.
   const planSeeds = [
-    { name: 'Free', pricePerMonth: 0, audienceLimit: 'Up to 10 employees', sortOrder: 0,
-      benefits: ['Limited reporting', 'Basic attendance tracking', 'Email support', '7-day data retention'] },
-    { name: 'Basic', pricePerMonth: 347, audienceLimit: 'Up to 50 employees', sortOrder: 1,
-      benefits: ['All Basic features', '90-day data retention', 'Role-based access control', 'Personalized intervention strategies', 'Advanced analytics & reports'] },
-    { name: 'Premium', pricePerMonth: 197, audienceLimit: 'Unlimited employees', sortOrder: 2,
-      benefits: ['All Premium features', 'Custom reporting', 'Unlimited data retention', 'Advanced security features', 'Unlimited Task management'] }
+    {
+      tier: 'instant',
+      name: 'Instant Access',
+      tagline: 'No monthly commitment',
+      pricePerMonth: 0,
+      audienceLimit: 'Best for first-time or occasional users',
+      ctaLabel: 'Start Instantly',
+      benefits: [
+        'Text: $3 / session (15-min active window)',
+        'Voice: $4 / min',
+        'Video: $7/min',
+        'Talk to any available guide instantly',
+        'No subscription required',
+        'Pay only for what you use'
+      ],
+      perUsePricing: {
+        textPerSession: 3,
+        textSessionMinutes: 15,
+        voicePerMinute: 4,
+        videoPerMinute: 7
+      },
+      sortOrder: 0
+    },
+    {
+      tier: 'clarity',
+      name: 'Clarity Access',
+      tagline: 'No long-term commitment',
+      pricePerMonth: 59,
+      audienceLimit: 'Best for: Regular guidance. Includes monthly usage. Continue anytime at discounted member rates.',
+      ctaLabel: 'Choose Clarity',
+      benefits: [
+        '60 text messages',
+        '40 voice minutes',
+        '15 video minutes',
+        '15–20% lower rates on extra usage',
+        'Priority matching',
+        '1 free session recording/month'
+      ],
+      included: {
+        textMessages: 60,
+        voiceMinutes: 40,
+        videoMinutes: 15,
+        recordingsPerMonth: 1
+      },
+      overageDiscountPercent: 20,
+      priorityMatching: true,
+      sortOrder: 1
+    },
+    {
+      tier: 'priority',
+      name: 'Priority Access',
+      tagline: 'Premium, faster access',
+      pricePerMonth: 119,
+      audienceLimit: 'Best for: High-frequency users',
+      ctaLabel: 'Upgrade plan',
+      benefits: [
+        '150 text messages',
+        '90 voice minutes',
+        '40 video minutes',
+        '25% lower rates on extra usage',
+        'Skip the wait (priority queue)',
+        'Top-rated guides access',
+        '3 recordings / month'
+      ],
+      included: {
+        textMessages: 150,
+        voiceMinutes: 90,
+        videoMinutes: 40,
+        recordingsPerMonth: 3
+      },
+      overageDiscountPercent: 25,
+      priorityMatching: true,
+      skipWait: true,
+      topRatedGuidesAccess: true,
+      sortOrder: 2
+    }
   ];
   for (const p of planSeeds) {
-    await Plan.findOneAndUpdate({ name: p.name }, { $setOnInsert: p }, { upsert: true });
+    await Plan.findOneAndUpdate({ tier: p.tier }, { $set: p }, { upsert: true, new: true });
   }
 
   // CMS placeholders
