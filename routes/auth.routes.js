@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   signupUser,
   signupAdvisor,
+  advisorApply,
   verifyOtp,
   resendOtp,
   login,
@@ -12,11 +13,20 @@ import {
   me
 } from '../controllers/auth.controller.js';
 import { auth } from '../middlewares/auth.js';
+import { anyUpload } from '../middlewares/upload.js';
 
 const router = Router();
 
 router.post('/signup', signupUser);
 router.post('/advisor/signup', signupAdvisor);
+router.post(
+  '/advisor-apply',
+  anyUpload.fields([
+    { name: 'introVideo', maxCount: 1 },
+    { name: 'profilePhoto', maxCount: 1 }
+  ]),
+  advisorApply
+);
 router.post('/verify-otp', verifyOtp);
 router.post('/resend-otp', resendOtp);
 router.post('/login', login);

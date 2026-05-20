@@ -28,6 +28,15 @@ export const listMyNotifications = catchAsync(async (req, res) => {
   });
 });
 
+export const myNotificationSummary = catchAsync(async (req, res) => {
+  const [total, unread] = await Promise.all([
+    Notification.countDocuments({ recipient: req.user._id }),
+    Notification.countDocuments({ recipient: req.user._id, read: false })
+  ]);
+
+  return sendResponse(res, { data: { total, unread } });
+});
+
 export const markAsRead = catchAsync(async (req, res) => {
   const n = await Notification.findOneAndUpdate(
     { _id: req.params.id, recipient: req.user._id },

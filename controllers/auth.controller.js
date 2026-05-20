@@ -10,6 +10,7 @@ import { sendOtpEmail } from '../services/email.service.js';
 import User from '../models/user.model.js';
 import Wallet from '../models/wallet.model.js';
 import AdvisorApplication from '../models/advisorApplication.model.js';
+import { uploadBufferToCloudinary } from '../services/upload.service.js';
 
 const OTP_EXPIRES_MIN = 10;
 
@@ -23,6 +24,37 @@ const buildAuthResponse = (user) => {
 };
 
 const hashOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
+
+const parseJsonField = (value, fallback) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
+
+const toArrayField = (value) => {
+  const parsed = parseJsonField(value, value);
+  if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  if (typeof parsed === 'string') {
+    return parsed
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const toPricingField = (body = {}) => {
+  const parsed = parseJsonField(body.pricing, {});
+  return {
+    chatPerMin: Number(parsed?.chatPerMin ?? body.chatPerMin ?? 1),
+    callPerMin: Number(parsed?.callPerMin ?? body.callPerMin ?? 1.2),
+    videoPerMin: Number(parsed?.videoPerMin ?? body.videoPerMin ?? 1.5)
+  };
+};
 
 const issueOtp = async (user, purpose = 'verify') => {
   const otp = generateOTP(4);
@@ -117,6 +149,119 @@ export const signupAdvisor = catchAsync(async (req, res) => {
     statusCode: StatusCodes.CREATED,
     message: 'Advisor signup submitted. OTP sent to email.',
     data: { email: user.email }
+  });
+});
+
+// ========== Public advisor application modal ==========
+export const advisorApply = catchAsync(async (req, res) => {
+  const body = req.body || {};
+  const {
+    name,
+    email,
+    phone,
+    phoneNumber,
+    password,
+    confirmPassword,
+    bio = '',
+    professionalTitle = 'Spiritual Advisor',
+    detailedDescription = '',
+    yearsOfExperience = '',
+    dateOfBirth,
+    address,
+    city,
+    zip,
+    country
+  } = body;
+
+  if (!name || !email || !password) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'name, email and password are required');
+  }
+  if (confirmPassword && password !== confirmPassword) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Passwords do not match');
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  const existing = await User.findOne({ email: normalizedEmail });
+  if (existing && existing.isVerified) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Email already registered');
+  }
+
+  let profilePhoto = existing?.profilePhoto || '';
+  let introVideoUrl = '';
+
+  const photoFile = req.files?.profilePhoto?.[0];
+  if (photoFile) {
+    const uploaded = await uploadBufferToCloudinary(photoFile.buffer, 'advisor-applications/profile-photos', 'image');
+    profilePhoto = uploaded.secure_url;
+  }
+
+  const introFile = req.files?.introVideo?.[0];
+  if (introFile) {
+    const uploaded = await uploadBufferToCloudinary(introFile.buffer, 'advisor-applications/intro-videos', 'video');
+    introVideoUrl = uploaded.secure_url;
+  }
+
+  let user;
+  if (existing && !existing.isVerified) {
+    existing.name = name;
+    existing.phone = phone || phoneNumber || existing.phone;
+    existing.password = password;
+    existing.role = 'advisor';
+    existing.profilePhoto = profilePhoto;
+    existing.location = [city, country].filter(Boolean).join(', ') || address || existing.location;
+    existing.status = 'pending_verification';
+    user = existing;
+  } else {
+    user = new User({
+      name,
+      email: normalizedEmail,
+      phone: phone || phoneNumber,
+      password,
+      role: 'advisor',
+      profilePhoto,
+      location: [city, country].filter(Boolean).join(', ') || address || '',
+      status: 'pending_verification'
+    });
+  }
+
+  await user.save();
+  await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
+
+  const preRecordedAnswers = parseJsonField(body.preRecordedAnswers, []);
+  const applicationUpdate = {
+    professionalTitle,
+    bio,
+    detailedDescription,
+    yearsOfExperience: yearsOfExperience || body.experience || '',
+    expertise: toArrayField(body.expertise || body.type),
+    styles: toArrayField(body.styles || body.style),
+    languages: toArrayField(body.languages || body.language || 'English'),
+    pricing: toPricingField(body),
+    preRecordedAnswers: Array.isArray(preRecordedAnswers) ? preRecordedAnswers : [],
+    stage: 'application',
+    status: 'new',
+    applicantDetails: {
+      dateOfBirth,
+      address,
+      city,
+      zip,
+      country
+    }
+  };
+  if (introVideoUrl) applicationUpdate.introVideoUrl = introVideoUrl;
+
+  const application = await AdvisorApplication.findOneAndUpdate(
+    { user: user._id },
+    { $set: applicationUpdate, $setOnInsert: { user: user._id, submittedAt: new Date() } },
+    { upsert: true, new: true }
+  );
+
+  await issueOtp(user, 'verify');
+
+  return sendResponse(res, {
+    statusCode: StatusCodes.CREATED,
+    message: 'Advisor application submitted. OTP sent to email.',
+    data: { email: user.email, user, application }
   });
 });
 
