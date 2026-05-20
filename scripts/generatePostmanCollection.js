@@ -141,7 +141,12 @@ const collection = {
       '3. Replace placeholder IDs such as `{{advisorId}}`, `{{sessionId}}`, and `{{planId}}` from previous API responses.',
       '4. Requests that upload files use form-data and leave file fields empty for you to choose in Postman.',
       '',
-      'Protected requests inherit Bearer auth from the collection: `Authorization: Bearer {{accessToken}}`.'
+      'Protected requests inherit Bearer auth from the collection: `Authorization: Bearer {{accessToken}}`.',
+      '',
+      'Mobile auth flow:',
+      '  Signup -> Verify Signup OTP (returns tokens) -> Onboarding - Submit Preferences -> List Public Plans -> Subscribe To Plan By Tier.',
+      'Forgot-password flow:',
+      '  Forgot Password - Send OTP -> Verify Reset OTP (returns `resetToken`) -> Reset Password.'
     ].join('\n'),
     schema
   },
@@ -160,14 +165,18 @@ const collection = {
     { key: 'sessionId', value: '' },
     { key: 'chatId', value: '' },
     { key: 'planId', value: '' },
+    { key: 'planTier', value: 'clarity' },
     { key: 'subscriptionId', value: '' },
     { key: 'txId', value: '' },
     { key: 'stripeSessionId', value: '' },
     { key: 'disputeId', value: '' },
     { key: 'complaintId', value: '' },
+    { key: 'contactMessageId', value: '' },
     { key: 'reviewId', value: '' },
     { key: 'blogId', value: '' },
     { key: 'faqId', value: '' },
+    { key: 'cmsPageSlug', value: 'privacy_policy' },
+    { key: 'siteContentSlug', value: 'home' },
     { key: 'notificationId', value: '' },
     { key: 'advisorApplicationId', value: '' },
     { key: 'payoutId', value: '' },
@@ -217,6 +226,35 @@ const collection = {
             { question: 'How do you guide clients?', answer: 'With clarity and care.' }
           ]
         })
+      }),
+      item('Advisor Apply - Website Modal', 'POST', '/api/v1/auth/advisor-apply', {
+        auth: 'noauth',
+        description: 'Multipart endpoint used by the public Join as Advisor modal. Creates/updates an advisor user and application, uploads optional profile photo and intro video, then sends verification OTP.',
+        body: formBody([
+          { key: 'name', value: 'Frontend Advisor' },
+          { key: 'email', value: '{{advisorEmail}}' },
+          { key: 'phone', value: '+15550100002' },
+          { key: 'password', value: '{{password}}' },
+          { key: 'confirmPassword', value: '{{password}}' },
+          { key: 'dateOfBirth', value: '1990-01-01' },
+          { key: 'address', value: '123 Main Street' },
+          { key: 'city', value: 'Austin' },
+          { key: 'zip', value: '73301' },
+          { key: 'country', value: 'USA' },
+          { key: 'yearsOfExperience', value: '5' },
+          { key: 'bio', value: 'Short advisor application bio.' },
+          { key: 'expertise', value: 'Tarot,Life Guidance' },
+          { key: 'styles', value: 'Compassionate,Direct' },
+          { key: 'languages', value: 'English' },
+          { key: 'introVideo', type: 'file', description: 'Optional intro video.' },
+          { key: 'profilePhoto', type: 'file', description: 'Optional profile image.' }
+        ]),
+        tests: `
+const json = pm.response.json();
+if (json && json.data) {
+  if (json.data.user && json.data.user._id) pm.collectionVariables.set("advisorId", json.data.user._id);
+  if (json.data.application && json.data.application._id) pm.collectionVariables.set("advisorApplicationId", json.data.application._id);
+}`
       }),
       item('Verify Signup OTP', 'POST', '/api/v1/auth/verify-otp', {
         auth: 'noauth',
@@ -282,6 +320,23 @@ const collection = {
     ]),
 
     folder('03 - User', 'Authenticated user profile, preferences, FCM token, deactivation, and favorites.', [
+      item('Onboarding - Get Questions (public)', 'GET', '/api/v1/users/onboarding/questions', {
+        auth: 'noauth',
+        description: 'Public endpoint used to render the 8-step onboarding questionnaire.'
+      }),
+      item('Onboarding - Get My Preferences', 'GET', '/api/v1/users/preferences'),
+      item('Onboarding - Submit Preferences', 'PUT', '/api/v1/users/preferences', {
+        body: jsonBody({
+          seekingHelpWith: ['Love & Relationships', 'Career'],
+          guidanceType: 'Tarot Reading',
+          connectionMethods: ['Text', 'Video Call'],
+          atmosphere: 'Warm and compassionate',
+          guidanceFrequency: 'Weekly',
+          tailoredAreas: ['Spiritual Growth'],
+          guideQualityPriority: 'Accuracy',
+          usedPlatformBefore: false
+        })
+      }),
       item('Get Profile', 'GET', '/api/v1/users/profile'),
       item('Update Profile', 'PATCH', '/api/v1/users/profile', {
         body: formBody([
@@ -427,10 +482,23 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("sessionId", 
     ]),
 
     folder('07 - Subscriptions', 'Public plan listing, authenticated subscribe/cancel, and Stripe redirect routes.', [
-      item('List Public Plans', 'GET', '/api/v1/subscriptions/plans', { auth: 'noauth' }),
+      item('List Public Plans', 'GET', '/api/v1/subscriptions/plans', {
+        auth: 'noauth',
+        tests: `
+const json = pm.response.json();
+if (json && Array.isArray(json.data)) {
+  const tier = pm.collectionVariables.get("planTier") || "clarity";
+  const plan = json.data.find((p) => p.tier === tier) || json.data[0];
+  if (plan && plan._id) pm.collectionVariables.set("planId", plan._id);
+}`
+      }),
       item('My Active Subscription', 'GET', '/api/v1/subscriptions/me'),
       item('Subscribe To Plan', 'POST', '/api/v1/subscriptions/subscribe', {
         body: jsonBody({ planId: '{{planId}}' }),
+        tests: checkoutCaptureTest('subId', 'subscriptionId')
+      }),
+      item('Subscribe To Plan By Tier', 'POST', '/api/v1/subscriptions/subscribe', {
+        body: jsonBody({ tier: '{{planTier}}' }),
         tests: checkoutCaptureTest('subId', 'subscriptionId')
       }),
       item('Subscription Success Redirect', 'GET', '/api/v1/subscriptions/checkout/success?subId={{subscriptionId}}&session_id={{stripeSessionId}}', { auth: 'noauth' }),
@@ -483,6 +551,10 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("complaintId"
 
     folder('10 - Reviews', 'Public review lists and authenticated session review submission.', [
       item('Showcase Reviews', 'GET', '/api/v1/reviews/showcase', { auth: 'noauth' }),
+      item('Featured Testimonials', 'GET', '/api/v1/reviews/featured-testimonials', {
+        auth: 'noauth',
+        description: 'Public homepage testimonials curated by admin.'
+      }),
       item('Advisor Reviews', 'GET', '/api/v1/reviews/advisor/{{advisorId}}?page=1&limit=10', { auth: 'noauth' }),
       item('Submit Review', 'POST', '/api/v1/reviews', {
         body: jsonBody({
@@ -510,7 +582,17 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("reviewId", j
       item('List Blogs', 'GET', '/api/v1/cms/blogs?type=Meditation%20%26%20Mindfulness&page=1&limit=10', { auth: 'noauth' }),
       item('Get Blog', 'GET', '/api/v1/cms/blogs/{{blogId}}', { auth: 'noauth' }),
       item('List FAQs', 'GET', '/api/v1/cms/faqs', { auth: 'noauth' }),
+      item('Get CMS Page By Slug', 'GET', '/api/v1/cms/pages/{{cmsPageSlug}}', { auth: 'noauth' }),
       item('Get CMS Page', 'GET', '/api/v1/cms/pages/privacy_policy', { auth: 'noauth' }),
+      item('Get Terms CMS Page', 'GET', '/api/v1/cms/pages/terms_of_service', { auth: 'noauth' }),
+      item('List Site Content Pages', 'GET', '/api/v1/cms/site-content', {
+        auth: 'noauth',
+        description: 'Public/admin helper for listing all per-page marketing content documents.'
+      }),
+      item('Get Site Content Page', 'GET', '/api/v1/cms/site-content/{{siteContentSlug}}', {
+        auth: 'noauth',
+        description: 'Public endpoint used by the marketing website for page sections.'
+      }),
       item('Admin Create Blog', 'POST', '/api/v1/cms/blogs', {
         body: formBody([
           { key: 'authorName', value: 'Admin Author' },
@@ -544,12 +626,61 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("reviewId", j
         body: jsonBody({ question: 'Updated question?', answer: 'Updated answer.', sortOrder: 2, isActive: true })
       }),
       item('Admin Delete FAQ', 'DELETE', '/api/v1/cms/faqs/{{faqId}}'),
+      item('Admin Upsert CMS Page By Slug', 'PUT', '/api/v1/cms/pages/{{cmsPageSlug}}', {
+        body: jsonBody({ title: 'Privacy Policy', content: 'Page content goes here.' })
+      }),
       item('Admin Upsert CMS Page', 'PUT', '/api/v1/cms/pages/privacy_policy', {
         body: jsonBody({ title: 'Privacy Policy', content: 'Page content goes here.' })
+      }),
+      item('Admin Upsert Terms CMS Page', 'PUT', '/api/v1/cms/pages/terms_of_service', {
+        body: jsonBody({ title: 'Terms of Service', content: 'Terms content goes here.' })
+      }),
+      item('Admin Upsert Site Content Page', 'PUT', '/api/v1/cms/site-content/{{siteContentSlug}}', {
+        body: jsonBody({
+          pageName: 'Home',
+          sections: {}
+        })
+      }),
+      item('Admin Upload Site Content Media', 'POST', '/api/v1/cms/site-content/{{siteContentSlug}}/upload', {
+        body: formBody([
+          { key: 'sectionKey', value: 'hero' },
+          { key: 'file', type: 'file', description: 'Image or video file used by CMS sections.' }
+        ])
       })
     ]),
 
-    folder('12 - Notifications', 'Authenticated notification inbox plus admin broadcast.', [
+    folder('12 - Contact', 'Public contact form plus admin inbox management.', [
+      item('Contact Metadata', 'GET', '/api/v1/contact/meta', {
+        auth: 'noauth',
+        description: 'Public helper returning allowed categories and admin statuses.'
+      }),
+      item('Submit Contact Message', 'POST', '/api/v1/contact', {
+        auth: 'noauth',
+        body: jsonBody({
+          firstName: 'Frontend',
+          lastName: 'User',
+          email: '{{userEmail}}',
+          phone: '+15550100001',
+          subject: 'Need help',
+          category: 'General Inquiry',
+          message: 'Hello from the frontend contact form.'
+        }),
+        tests: `
+const json = pm.response.json();
+if (json && json.data && json.data.id) pm.collectionVariables.set("contactMessageId", json.data.id);`
+      }),
+      item('Admin List Contact Messages', 'GET', '/api/v1/contact?status=new&page=1&limit=10'),
+      item('Admin Get Contact Message', 'GET', '/api/v1/contact/{{contactMessageId}}'),
+      item('Admin Update Contact Message', 'PATCH', '/api/v1/contact/{{contactMessageId}}', {
+        body: jsonBody({ status: 'in_progress', adminNote: 'Follow up with this user.' })
+      }),
+      item('Admin Delete Contact Message', 'DELETE', '/api/v1/contact/{{contactMessageId}}')
+    ]),
+
+    folder('13 - Notifications', 'Authenticated notification inbox plus admin broadcast.', [
+      item('Notification Summary', 'GET', '/api/v1/notifications/me', {
+        description: 'Small topbar helper returning { total, unread }.'
+      }),
       item('List Notifications', 'GET', '/api/v1/notifications?unread=true&page=1&limit=10'),
       item('Mark Notification Read', 'PATCH', '/api/v1/notifications/{{notificationId}}/read'),
       item('Mark All Read', 'POST', '/api/v1/notifications/read-all'),
@@ -564,7 +695,7 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("reviewId", j
       })
     ]),
 
-    folder('13 - Chats', 'Authenticated chat discovery, message listing/sending, read receipts, and admin support chat.', [
+    folder('14 - Chats', 'Authenticated chat discovery, message listing/sending, read receipts, and admin support chat.', [
       item('My Chats', 'GET', '/api/v1/chats/mine'),
       item('Admin List Support Chats', 'GET', '/api/v1/chats/admin?q=Frontend&page=1&limit=10'),
       item('Ensure Session Chat', 'POST', '/api/v1/chats/session/{{sessionId}}', {
@@ -588,7 +719,7 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("chatId", jso
       item('Mark Chat Read', 'POST', '/api/v1/chats/{{chatId}}/read')
     ]),
 
-    folder('14 - Uploads', 'Reusable authenticated Cloudinary upload/delete helpers.', [
+    folder('15 - Uploads', 'Reusable authenticated Cloudinary upload/delete helpers.', [
       item('Upload Image', 'POST', '/api/v1/uploads/image', {
         body: formBody([
           { key: 'folder', value: 'postman-images' },
@@ -610,7 +741,7 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("chatId", jso
       })
     ]),
 
-    folder('15 - Admin', 'Admin and sub-admin operations. Use Login - Admin first, or set `accessToken` to an admin/sub-admin token.', [
+    folder('16 - Admin', 'Admin and sub-admin operations. Use Login - Admin first, or set `accessToken` to an admin/sub-admin token.', [
       item('Dashboard Overview', 'GET', '/api/v1/admin/dashboard/overview'),
       item('List Users', 'GET', '/api/v1/admin/users?q=frontend&status=active&page=1&limit=10'),
       item('Get User Details', 'GET', '/api/v1/admin/users/{{currentUserId}}'),
@@ -636,6 +767,9 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("chatId", jso
       item('Get Advisor', 'GET', '/api/v1/admin/advisors/{{advisorId}}'),
       item('Suspend Advisor', 'POST', '/api/v1/admin/advisors/{{advisorId}}/suspend', { body: jsonBody({ reason: 'Policy review.' }) }),
       item('Unsuspend Advisor', 'POST', '/api/v1/admin/advisors/{{advisorId}}/unsuspend'),
+      item('Set Advisor Featured On Home', 'PATCH', '/api/v1/admin/advisors/{{advisorId}}/featured', {
+        body: jsonBody({ isFeaturedOnHome: true })
+      }),
       item('Add Advisor Manually', 'POST', '/api/v1/admin/advisors', {
         body: jsonBody({
           name: 'Manual Advisor',
@@ -686,6 +820,7 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("chatId", jso
       item('Admin List Plans', 'GET', '/api/v1/admin/subscriptions/plans'),
       item('Admin Create Plan', 'POST', '/api/v1/admin/subscriptions/plans', {
         body: jsonBody({
+          tier: 'priority',
           name: 'Premium',
           description: 'Premium monthly plan.',
           audienceLimit: 'Unlimited',
@@ -741,7 +876,11 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("chatId", jso
           { key: 'photo', type: 'file', description: 'Optional showcase photo.' }
         ])
       }),
-      item('Delete Showcase Review', 'DELETE', '/api/v1/admin/reviews/showcase/{{reviewId}}')
+      item('Delete Showcase Review', 'DELETE', '/api/v1/admin/reviews/showcase/{{reviewId}}'),
+      item('Review Curation List', 'GET', '/api/v1/admin/reviews/curation?minRating=4&limit=100'),
+      item('Set Review Featured Testimonial', 'PATCH', '/api/v1/admin/reviews/{{reviewId}}/featured', {
+        body: jsonBody({ isFeaturedTestimonial: true })
+      })
     ])
   ]
 };

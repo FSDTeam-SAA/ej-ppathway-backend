@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
 import {
   listMyNotifications,
+  myNotificationSummary,
   markAsRead,
   markAllRead,
   deleteNotification,
@@ -12,6 +13,7 @@ const router = Router();
 
 router.use(auth());
 
+router.get('/me', myNotificationSummary);
 router.get('/', listMyNotifications);
 router.patch('/:id/read', markAsRead);
 router.post('/read-all', markAllRead);
