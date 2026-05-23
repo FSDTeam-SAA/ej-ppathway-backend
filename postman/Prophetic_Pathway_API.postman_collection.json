@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Prophetic Pathway API",
-    "description": "Full frontend-friendly Postman collection for the Prophetic Pathway backend.\n\nHow to use:\n1. Set `baseUrl` to your running backend, usually `http://localhost:5000`.\n2. Run an auth request. Login and OTP verification save `accessToken` and `refreshToken` automatically.\n3. Replace placeholder IDs such as `{{advisorId}}`, `{{sessionId}}`, and `{{planId}}` from previous API responses.\n4. Requests that upload files use form-data and leave file fields empty for you to choose in Postman.\n\nProtected requests inherit Bearer auth from the collection: `Authorization: Bearer {{accessToken}}`.\n\nMobile auth flow:\n  Signup -> Verify Signup OTP (returns tokens) -> Onboarding - Submit Preferences -> List Public Plans -> Subscribe To Plan By Tier.\nForgot-password flow:\n  Forgot Password - Send OTP -> Verify Reset OTP (returns `resetToken`) -> Reset Password.",
+    "description": "Full frontend-friendly Postman collection for the Prophetic Pathway backend.\n\nHow to use:\n1. Set `baseUrl` to your running backend, usually `http://localhost:5000`.\n2. Run an auth request. Login and OTP verification save `accessToken` and `refreshToken` automatically.\n3. Replace placeholder IDs such as `{{advisorId}}`, `{{sessionId}}`, and `{{planId}}` from previous API responses.\n4. Requests that upload files use form-data and leave file fields empty for you to choose in Postman.\n\nProtected requests inherit Bearer auth from the collection: `Authorization: Bearer {{accessToken}}`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -56,10 +56,6 @@
       "value": ""
     },
     {
-      "key": "planTier",
-      "value": "clarity"
-    },
-    {
       "key": "subscriptionId",
       "value": ""
     },
@@ -80,10 +76,6 @@
       "value": ""
     },
     {
-      "key": "contactMessageId",
-      "value": ""
-    },
-    {
       "key": "reviewId",
       "value": ""
     },
@@ -94,14 +86,6 @@
     {
       "key": "faqId",
       "value": ""
-    },
-    {
-      "key": "cmsPageSlug",
-      "value": "privacy_policy"
-    },
-    {
-      "key": "siteContentSlug",
-      "value": "home"
     },
     {
       "key": "notificationId",
@@ -283,153 +267,6 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "Advisor Apply - Website Modal",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/advisor-apply",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "advisor-apply"
-              ],
-              "query": []
-            },
-            "description": "Multipart endpoint used by the public Join as Advisor modal. Creates/updates an advisor user and application, uploads optional profile photo and intro video, then sends verification OTP.",
-            "auth": {
-              "type": "noauth"
-            },
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "name",
-                  "type": "text",
-                  "value": "Frontend Advisor",
-                  "description": ""
-                },
-                {
-                  "key": "email",
-                  "type": "text",
-                  "value": "{{advisorEmail}}",
-                  "description": ""
-                },
-                {
-                  "key": "phone",
-                  "type": "text",
-                  "value": "+15550100002",
-                  "description": ""
-                },
-                {
-                  "key": "password",
-                  "type": "text",
-                  "value": "{{password}}",
-                  "description": ""
-                },
-                {
-                  "key": "confirmPassword",
-                  "type": "text",
-                  "value": "{{password}}",
-                  "description": ""
-                },
-                {
-                  "key": "dateOfBirth",
-                  "type": "text",
-                  "value": "1990-01-01",
-                  "description": ""
-                },
-                {
-                  "key": "address",
-                  "type": "text",
-                  "value": "123 Main Street",
-                  "description": ""
-                },
-                {
-                  "key": "city",
-                  "type": "text",
-                  "value": "Austin",
-                  "description": ""
-                },
-                {
-                  "key": "zip",
-                  "type": "text",
-                  "value": "73301",
-                  "description": ""
-                },
-                {
-                  "key": "country",
-                  "type": "text",
-                  "value": "USA",
-                  "description": ""
-                },
-                {
-                  "key": "yearsOfExperience",
-                  "type": "text",
-                  "value": "5",
-                  "description": ""
-                },
-                {
-                  "key": "bio",
-                  "type": "text",
-                  "value": "Short advisor application bio.",
-                  "description": ""
-                },
-                {
-                  "key": "expertise",
-                  "type": "text",
-                  "value": "Tarot,Life Guidance",
-                  "description": ""
-                },
-                {
-                  "key": "styles",
-                  "type": "text",
-                  "value": "Compassionate,Direct",
-                  "description": ""
-                },
-                {
-                  "key": "languages",
-                  "type": "text",
-                  "value": "English",
-                  "description": ""
-                },
-                {
-                  "key": "introVideo",
-                  "type": "file",
-                  "src": [],
-                  "description": "Optional intro video."
-                },
-                {
-                  "key": "profilePhoto",
-                  "type": "file",
-                  "src": [],
-                  "description": "Optional profile image."
-                }
-              ]
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (json && json.data) {",
-                  "  if (json.data.user && json.data.user._id) pm.collectionVariables.set(\"advisorId\", json.data.user._id);",
-                  "  if (json.data.application && json.data.application._id) pm.collectionVariables.set(\"advisorApplicationId\", json.data.application._id);",
-                  "}"
-                ]
-              }
-            }
-          ]
         },
         {
           "name": "Verify Signup OTP",
@@ -1153,90 +990,6 @@
       "name": "03 - User",
       "description": "Authenticated user profile, preferences, FCM token, deactivation, and favorites.",
       "item": [
-        {
-          "name": "Onboarding - Get Questions (public)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/users/onboarding/questions",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "users",
-                "onboarding",
-                "questions"
-              ],
-              "query": []
-            },
-            "description": "Public endpoint used to render the 8-step onboarding questionnaire.",
-            "auth": {
-              "type": "noauth"
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Onboarding - Get My Preferences",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/users/preferences",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "users",
-                "preferences"
-              ],
-              "query": []
-            },
-            "description": ""
-          },
-          "response": []
-        },
-        {
-          "name": "Onboarding - Submit Preferences",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/users/preferences",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "users",
-                "preferences"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"seekingHelpWith\": [\n    \"Love & Relationships\",\n    \"Career\"\n  ],\n  \"guidanceType\": \"Tarot Reading\",\n  \"connectionMethods\": [\n    \"Text\",\n    \"Video Call\"\n  ],\n  \"atmosphere\": \"Warm and compassionate\",\n  \"guidanceFrequency\": \"Weekly\",\n  \"tailoredAreas\": [\n    \"Spiritual Growth\"\n  ],\n  \"guideQualityPriority\": \"Accuracy\",\n  \"usedPlatformBefore\": false\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
         {
           "name": "Get Profile",
           "request": {
@@ -2836,23 +2589,7 @@
               "type": "noauth"
             }
           },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (json && Array.isArray(json.data)) {",
-                  "  const tier = pm.collectionVariables.get(\"planTier\") || \"clarity\";",
-                  "  const plan = json.data.find((p) => p.tier === tier) || json.data[0];",
-                  "  if (plan && plan._id) pm.collectionVariables.set(\"planId\", plan._id);",
-                  "}"
-                ]
-              }
-            }
-          ]
+          "response": []
         },
         {
           "name": "My Active Subscription",
@@ -2903,57 +2640,6 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"planId\": \"{{planId}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (json && json.data) {",
-                  "  if (json.data.subId) pm.collectionVariables.set(\"subscriptionId\", json.data.subId);",
-                  "  if (json.data.sessionId) pm.collectionVariables.set(\"stripeSessionId\", json.data.sessionId);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Subscribe To Plan By Tier",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/subscriptions/subscribe",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "subscriptions",
-                "subscribe"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"tier\": \"{{planTier}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3436,31 +3122,6 @@
           "response": []
         },
         {
-          "name": "Featured Testimonials",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/reviews/featured-testimonials",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "reviews",
-                "featured-testimonials"
-              ],
-              "query": []
-            },
-            "description": "Public homepage testimonials curated by admin.",
-            "auth": {
-              "type": "noauth"
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Advisor Reviews",
           "request": {
             "method": "GET",
@@ -3648,32 +3309,6 @@
           "response": []
         },
         {
-          "name": "Get CMS Page By Slug",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/cms/pages/{{cmsPageSlug}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "cms",
-                "pages",
-                "{{cmsPageSlug}}"
-              ],
-              "query": []
-            },
-            "description": "",
-            "auth": {
-              "type": "noauth"
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Get CMS Page",
           "request": {
             "method": "GET",
@@ -3693,83 +3328,6 @@
               "query": []
             },
             "description": "",
-            "auth": {
-              "type": "noauth"
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Terms CMS Page",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/cms/pages/terms_of_service",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "cms",
-                "pages",
-                "terms_of_service"
-              ],
-              "query": []
-            },
-            "description": "",
-            "auth": {
-              "type": "noauth"
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List Site Content Pages",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/cms/site-content",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "cms",
-                "site-content"
-              ],
-              "query": []
-            },
-            "description": "Public/admin helper for listing all per-page marketing content documents.",
-            "auth": {
-              "type": "noauth"
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Site Content Page",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/cms/site-content/{{siteContentSlug}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "cms",
-                "site-content",
-                "{{siteContentSlug}}"
-              ],
-              "query": []
-            },
-            "description": "Public endpoint used by the marketing website for page sections.",
             "auth": {
               "type": "noauth"
             }
@@ -4070,43 +3628,6 @@
           "response": []
         },
         {
-          "name": "Admin Upsert CMS Page By Slug",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/cms/pages/{{cmsPageSlug}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "cms",
-                "pages",
-                "{{cmsPageSlug}}"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Privacy Policy\",\n  \"content\": \"Page content goes here.\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Admin Upsert CMS Page",
           "request": {
             "method": "PUT",
@@ -4142,351 +3663,13 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "Admin Upsert Terms CMS Page",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/cms/pages/terms_of_service",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "cms",
-                "pages",
-                "terms_of_service"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Terms of Service\",\n  \"content\": \"Terms content goes here.\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Admin Upsert Site Content Page",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/cms/site-content/{{siteContentSlug}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "cms",
-                "site-content",
-                "{{siteContentSlug}}"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"pageName\": \"Home\",\n  \"sections\": {}\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Admin Upload Site Content Media",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/cms/site-content/{{siteContentSlug}}/upload",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "cms",
-                "site-content",
-                "{{siteContentSlug}}",
-                "upload"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "sectionKey",
-                  "type": "text",
-                  "value": "hero",
-                  "description": ""
-                },
-                {
-                  "key": "file",
-                  "type": "file",
-                  "src": [],
-                  "description": "Image or video file used by CMS sections."
-                }
-              ]
-            }
-          },
-          "response": []
         }
       ]
     },
     {
-      "name": "12 - Contact",
-      "description": "Public contact form plus admin inbox management.",
-      "item": [
-        {
-          "name": "Contact Metadata",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/contact/meta",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "contact",
-                "meta"
-              ],
-              "query": []
-            },
-            "description": "Public helper returning allowed categories and admin statuses.",
-            "auth": {
-              "type": "noauth"
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Submit Contact Message",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/contact",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "contact"
-              ],
-              "query": []
-            },
-            "description": "",
-            "auth": {
-              "type": "noauth"
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"firstName\": \"Frontend\",\n  \"lastName\": \"User\",\n  \"email\": \"{{userEmail}}\",\n  \"phone\": \"+15550100001\",\n  \"subject\": \"Need help\",\n  \"category\": \"General Inquiry\",\n  \"message\": \"Hello from the frontend contact form.\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (json && json.data && json.data.id) pm.collectionVariables.set(\"contactMessageId\", json.data.id);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Admin List Contact Messages",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/contact?status=new&page=1&limit=10",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "contact"
-              ],
-              "query": [
-                {
-                  "key": "status",
-                  "value": "new",
-                  "description": "",
-                  "disabled": false
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "description": "",
-                  "disabled": false
-                },
-                {
-                  "key": "limit",
-                  "value": "10",
-                  "description": "",
-                  "disabled": false
-                }
-              ]
-            },
-            "description": ""
-          },
-          "response": []
-        },
-        {
-          "name": "Admin Get Contact Message",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/contact/{{contactMessageId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "contact",
-                "{{contactMessageId}}"
-              ],
-              "query": []
-            },
-            "description": ""
-          },
-          "response": []
-        },
-        {
-          "name": "Admin Update Contact Message",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/contact/{{contactMessageId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "contact",
-                "{{contactMessageId}}"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"status\": \"in_progress\",\n  \"adminNote\": \"Follow up with this user.\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Admin Delete Contact Message",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/contact/{{contactMessageId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "contact",
-                "{{contactMessageId}}"
-              ],
-              "query": []
-            },
-            "description": ""
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "13 - Notifications",
+      "name": "12 - Notifications",
       "description": "Authenticated notification inbox plus admin broadcast.",
       "item": [
-        {
-          "name": "Notification Summary",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/notifications/me",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "notifications",
-                "me"
-              ],
-              "query": []
-            },
-            "description": "Small topbar helper returning { total, unread }."
-          },
-          "response": []
-        },
         {
           "name": "List Notifications",
           "request": {
@@ -4634,7 +3817,7 @@
       ]
     },
     {
-      "name": "14 - Chats",
+      "name": "13 - Chats",
       "description": "Authenticated chat discovery, message listing/sending, read receipts, and admin support chat.",
       "item": [
         {
@@ -4893,7 +4076,7 @@
       ]
     },
     {
-      "name": "15 - Uploads",
+      "name": "14 - Uploads",
       "description": "Reusable authenticated Cloudinary upload/delete helpers.",
       "item": [
         {
@@ -5039,7 +4222,7 @@
       ]
     },
     {
-      "name": "16 - Admin",
+      "name": "15 - Admin",
       "description": "Admin and sub-admin operations. Use Login - Admin first, or set `accessToken` to an admin/sub-admin token.",
       "item": [
         {
@@ -5651,44 +4834,6 @@
               "query": []
             },
             "description": ""
-          },
-          "response": []
-        },
-        {
-          "name": "Set Advisor Featured On Home",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/admin/advisors/{{advisorId}}/featured",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "advisors",
-                "{{advisorId}}",
-                "featured"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"isFeaturedOnHome\": true\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
           },
           "response": []
         },
@@ -6427,7 +5572,7 @@
             "description": "",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"tier\": \"priority\",\n  \"name\": \"Premium\",\n  \"description\": \"Premium monthly plan.\",\n  \"audienceLimit\": \"Unlimited\",\n  \"pricePerMonth\": 29,\n  \"benefits\": [\n    \"Priority advisors\",\n    \"Monthly credits\"\n  ],\n  \"sortOrder\": 3,\n  \"isActive\": true\n}",
+              "raw": "{\n  \"name\": \"Premium\",\n  \"description\": \"Premium monthly plan.\",\n  \"audienceLimit\": \"Unlimited\",\n  \"pricePerMonth\": 29,\n  \"benefits\": [\n    \"Priority advisors\",\n    \"Monthly credits\"\n  ],\n  \"sortOrder\": 3,\n  \"isActive\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -6868,80 +6013,6 @@
               "query": []
             },
             "description": ""
-          },
-          "response": []
-        },
-        {
-          "name": "Review Curation List",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/admin/reviews/curation?minRating=4&limit=100",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "reviews",
-                "curation"
-              ],
-              "query": [
-                {
-                  "key": "minRating",
-                  "value": "4",
-                  "description": "",
-                  "disabled": false
-                },
-                {
-                  "key": "limit",
-                  "value": "100",
-                  "description": "",
-                  "disabled": false
-                }
-              ]
-            },
-            "description": ""
-          },
-          "response": []
-        },
-        {
-          "name": "Set Review Featured Testimonial",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/admin/reviews/{{reviewId}}/featured",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "reviews",
-                "{{reviewId}}",
-                "featured"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"isFeaturedTestimonial\": true\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
           },
           "response": []
         }
