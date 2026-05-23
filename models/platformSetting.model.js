@@ -17,9 +17,9 @@ const platformSettingSchema = new Schema(
       gold: { sessions: { type: Number, default: 300 }, ratings: { type: Number, default: 4.8 }, retention: { type: Number, default: 85 } }
     },
     promotionPlans: {
-      basic: { price: { type: Number, default: 29 }, days: { type: Number, default: 7 } },
-      pro: { price: { type: Number, default: 79 }, days: { type: Number, default: 14 } },
-      premium: { price: { type: Number, default: 149 }, days: { type: Number, default: 30 } }
+      basic: { price: { type: Number, default: 29 }, days: { type: Number, default: 7 }, impressionsPerDay: { type: Number, default: 100 } },
+      pro: { price: { type: Number, default: 79 }, days: { type: Number, default: 14 }, impressionsPerDay: { type: Number, default: 500 } },
+      premium: { price: { type: Number, default: 149 }, days: { type: Number, default: 30 }, impressionsPerDay: { type: Number, default: 0 } }
     },
     minWithdrawal: { type: Number, default: 50 },
     sessionLowBalanceThresholdMin: { type: Number, default: 2 }
