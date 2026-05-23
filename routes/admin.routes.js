@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { auth, requirePermission } from '../middlewares/auth.js';
 import { dashboardOverview } from '../controllers/admin.dashboard.controller.js';
+import { onboardingAnalytics } from '../controllers/admin.onboarding.controller.js';
 import {
   listUsers,
   getUserDetails,
@@ -23,14 +24,17 @@ import {
   suspendAdvisor,
   unsuspendAdvisor,
   addAdvisorManually,
-  setAdvisorFeaturedOnHome
+  setAdvisorFeaturedOnHome,
+  deleteApplication,
+  deleteAdvisor
 } from '../controllers/admin.advisors.controller.js';
 import {
   listSessions,
   getSession,
   adminCancelSession,
   adminFlagSession,
-  adminResolveDisputed
+  adminResolveDisputed,
+  adminDeleteSession
 } from '../controllers/admin.sessions.controller.js';
 import {
   overview as financeOverview,
@@ -40,7 +44,8 @@ import {
   rejectPayout,
   updateCommissions,
   getCommissions,
-  updateMinWithdrawal
+  updateMinWithdrawal,
+  deleteTransaction
 } from '../controllers/admin.finance.controller.js';
 import {
   createPlan,
@@ -66,7 +71,8 @@ import {
 } from '../controllers/dispute.controller.js';
 import {
   adminListComplaints,
-  adminUpdateComplaintStatus
+  adminUpdateComplaintStatus,
+  adminDeleteComplaint
 } from '../controllers/complaint.controller.js';
 import {
   adminCreateShowcaseReview,
@@ -87,6 +93,9 @@ router.use(auth('admin', 'sub_admin'));
 // Dashboard
 router.get('/dashboard/overview', dashboardOverview);
 
+// Onboarding analytics
+router.get('/onboarding-analytics', onboardingAnalytics);
+
 // Users
 router.get('/users', requirePermission('users.manage'), listUsers);
 router.get('/users/:id', requirePermission('users.manage'), getUserDetails);
@@ -104,6 +113,7 @@ router.post('/advisor-applications/:id/interview-token', requirePermission('advi
 router.post('/advisor-applications/:id/contract', requirePermission('advisors.approve'), sendContract);
 router.post('/advisor-applications/:id/approve', requirePermission('advisors.approve'), approveApplication);
 router.post('/advisor-applications/:id/reject', requirePermission('advisors.approve'), rejectApplication);
+router.delete('/advisor-applications/:id', requirePermission('advisors.approve'), deleteApplication);
 
 // Advisors
 router.get('/advisors', requirePermission('advisors.manage'), listAdvisors);
@@ -112,6 +122,7 @@ router.post('/advisors/:id/suspend', requirePermission('advisors.manage'), suspe
 router.post('/advisors/:id/unsuspend', requirePermission('advisors.manage'), unsuspendAdvisor);
 router.post('/advisors', requirePermission('advisors.manage'), addAdvisorManually);
 router.patch('/advisors/:id/featured', requirePermission('advisors.manage'), setAdvisorFeaturedOnHome);
+router.delete('/advisors/:id', requirePermission('advisors.manage'), deleteAdvisor);
 
 // Sessions
 router.get('/sessions', requirePermission('sessions.manage'), listSessions);
@@ -119,10 +130,12 @@ router.get('/sessions/:id', requirePermission('sessions.manage'), getSession);
 router.post('/sessions/:id/cancel', requirePermission('sessions.manage'), adminCancelSession);
 router.post('/sessions/:id/flag', requirePermission('sessions.manage'), adminFlagSession);
 router.post('/sessions/:id/resolve', requirePermission('sessions.manage'), adminResolveDisputed);
+router.delete('/sessions/:id', requirePermission('sessions.manage'), adminDeleteSession);
 
 // Compliance
 router.get('/complaints', requirePermission('compliance.manage'), adminListComplaints);
 router.patch('/complaints/:id', requirePermission('compliance.manage'), adminUpdateComplaintStatus);
+router.delete('/complaints/:id', requirePermission('compliance.manage'), adminDeleteComplaint);
 
 // Disputes
 router.get('/disputes', requirePermission('compliance.manage'), adminListDisputes);
@@ -133,6 +146,7 @@ router.post('/disputes/:id/reject', requirePermission('compliance.manage'), admi
 // Finance
 router.get('/finance/overview', requirePermission('finance.manage'), financeOverview);
 router.get('/finance/transactions', requirePermission('finance.manage'), listTransactions);
+router.delete('/finance/transactions/:id', requirePermission('finance.manage'), deleteTransaction);
 router.get('/finance/payouts', requirePermission('finance.manage'), listPayouts);
 router.post('/finance/payouts/:id/approve', requirePermission('finance.manage'), approvePayout);
 router.post('/finance/payouts/:id/reject', requirePermission('finance.manage'), rejectPayout);

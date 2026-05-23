@@ -96,6 +96,12 @@ export const adminListComplaints = catchAsync(async (req, res) => {
   });
 });
 
+export const adminDeleteComplaint = catchAsync(async (req, res) => {
+  const c = await Complaint.findByIdAndDelete(req.params.id);
+  if (!c) throw new ApiError(StatusCodes.NOT_FOUND, 'Complaint not found');
+  return sendResponse(res, { message: 'Complaint deleted' });
+});
+
 export const adminUpdateComplaintStatus = catchAsync(async (req, res) => {
   const { status, note } = req.body;
   if (!COMPLAINT_STATUSES.includes(status)) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid status');

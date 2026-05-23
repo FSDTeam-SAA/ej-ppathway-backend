@@ -43,6 +43,16 @@ export const overview = catchAsync(async (req, res) => {
   });
 });
 
+export const deleteTransaction = catchAsync(async (req, res) => {
+  const tx = await Transaction.findById(req.params.id);
+  if (!tx) throw new ApiError(StatusCodes.NOT_FOUND, 'Transaction not found');
+  if (tx.type === 'advisor_payout' && tx.withdrawalStatus === 'requested') {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Cannot delete a pending payout');
+  }
+  await tx.deleteOne();
+  return sendResponse(res, { message: 'Transaction deleted' });
+});
+
 export const listTransactions = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = {};

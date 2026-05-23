@@ -79,6 +79,28 @@ const userSchema = new Schema(
     },
     onboardingCompleted: { type: Boolean, default: false, index: true },
 
+    // Per-step funnel + paywall tracking for admin analytics
+    onboarding: {
+      startedAt: { type: Date, index: true },
+      completedAt: { type: Date, index: true },
+      device: { type: String, enum: ['mobile_app', 'mobile_web', 'desktop'], default: null, index: true },
+      lastStep: { type: Number, default: 0 },                      // highest step completed (0..8)
+      stepCompletedAt: {                                           // when each step was first completed
+        s1: { type: Date }, s2: { type: Date }, s3: { type: Date }, s4: { type: Date },
+        s5: { type: Date }, s6: { type: Date }, s7: { type: Date }, s8: { type: Date }
+      },
+      paywall: {
+        reachedAt: { type: Date, index: true },
+        action: {
+          type: String,
+          enum: ['wallet_selected', 'subscription_selected', 'payment_completed', 'abandoned'],
+          default: null,
+          index: true
+        },
+        actionAt: { type: Date }
+      }
+    },
+
     lastLoginAt: { type: Date }
   },
   { timestamps: true }

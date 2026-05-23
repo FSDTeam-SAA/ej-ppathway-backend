@@ -107,6 +107,28 @@ export const getPreferences = catchAsync(async (req, res) => {
   });
 });
 
+// Each step's "is answered" predicate, in step order.
+const STEP_ANSWERED = [
+  (p) => Array.isArray(p.seekingHelpWith) && p.seekingHelpWith.length > 0,
+  (p) => !!p.guidanceType,
+  (p) => Array.isArray(p.connectionMethods) && p.connectionMethods.length > 0,
+  (p) => !!p.atmosphere,
+  (p) => !!p.guidanceFrequency,
+  (p) => Array.isArray(p.tailoredAreas) && p.tailoredAreas.length > 0,
+  (p) => !!p.guideQualityPriority,
+  (p) => typeof p.usedPlatformBefore === 'boolean'
+];
+
+const detectDevice = (req) => {
+  const explicit = (req.body?.device || req.get('x-onboarding-device') || '').toLowerCase();
+  if (['mobile_app', 'mobile_web', 'desktop'].includes(explicit)) return explicit;
+  const ua = (req.get('user-agent') || '').toLowerCase();
+  if (!ua) return null;
+  // Native app should send X-Onboarding-Device: mobile_app explicitly.
+  if (/mobile|android|iphone|ipad|ipod/.test(ua)) return 'mobile_web';
+  return 'desktop';
+};
+
 export const submitPreferences = catchAsync(async (req, res) => {
   const {
     seekingHelpWith,
@@ -119,71 +141,152 @@ export const submitPreferences = catchAsync(async (req, res) => {
     usedPlatformBefore
   } = req.body;
 
-  const update = { preferences: {} };
+  const incoming = {};
 
   if (typeof seekingHelpWith !== 'undefined') {
     validateArray('seekingHelpWith', seekingHelpWith);
-    update.preferences.seekingHelpWith = seekingHelpWith;
+    incoming.seekingHelpWith = seekingHelpWith;
   }
   if (typeof guidanceType !== 'undefined') {
     validateSingle('guidanceType', guidanceType);
-    update.preferences.guidanceType = guidanceType;
+    incoming.guidanceType = guidanceType;
   }
   if (typeof connectionMethods !== 'undefined') {
     validateArray('connectionMethods', connectionMethods);
-    update.preferences.connectionMethods = connectionMethods;
+    incoming.connectionMethods = connectionMethods;
   }
   if (typeof atmosphere !== 'undefined') {
     validateSingle('atmosphere', atmosphere);
-    update.preferences.atmosphere = atmosphere;
+    incoming.atmosphere = atmosphere;
   }
   if (typeof guidanceFrequency !== 'undefined') {
     validateSingle('guidanceFrequency', guidanceFrequency);
-    update.preferences.guidanceFrequency = guidanceFrequency;
+    incoming.guidanceFrequency = guidanceFrequency;
   }
   if (typeof tailoredAreas !== 'undefined') {
     validateArray('tailoredAreas', tailoredAreas);
-    update.preferences.tailoredAreas = tailoredAreas;
+    incoming.tailoredAreas = tailoredAreas;
   }
   if (typeof guideQualityPriority !== 'undefined') {
     validateSingle('guideQualityPriority', guideQualityPriority);
-    update.preferences.guideQualityPriority = guideQualityPriority;
+    incoming.guideQualityPriority = guideQualityPriority;
   }
   if (typeof usedPlatformBefore !== 'undefined') {
     if (typeof usedPlatformBefore !== 'boolean') {
       throw new ApiError(StatusCodes.BAD_REQUEST, 'usedPlatformBefore must be boolean');
     }
-    update.preferences.usedPlatformBefore = usedPlatformBefore;
+    incoming.usedPlatformBefore = usedPlatformBefore;
   }
 
   // Merge with existing answers so partial submissions (per-step) work too.
   const existing = await User.findById(req.user._id).lean();
   if (!existing) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
-  const merged = { ...(existing.preferences || {}), ...update.preferences };
 
-  // Mark complete only when every required step has been answered.
-  const completed =
-    Array.isArray(merged.seekingHelpWith) && merged.seekingHelpWith.length > 0 &&
-    !!merged.guidanceType &&
-    Array.isArray(merged.connectionMethods) && merged.connectionMethods.length > 0 &&
-    !!merged.atmosphere &&
-    !!merged.guidanceFrequency &&
-    Array.isArray(merged.tailoredAreas) && merged.tailoredAreas.length > 0 &&
-    !!merged.guideQualityPriority &&
-    typeof merged.usedPlatformBefore === 'boolean';
+  const before = existing.preferences || {};
+  const merged = { ...before, ...incoming };
 
-  if (completed) merged.completedAt = new Date();
+  const now = new Date();
+  const onboarding = existing.onboarding || {};
+  const stepCompletedAt = { ...(onboarding.stepCompletedAt || {}) };
 
-  const user = await User.findByIdAndUpdate(
-    req.user._id,
-    { preferences: merged, onboardingCompleted: completed },
-    { new: true }
-  );
+  // Stamp the first time each step transitions from unanswered to answered.
+  let highestNewlyCompleted = onboarding.lastStep || 0;
+  for (let i = 0; i < STEP_ANSWERED.length; i++) {
+    const stepNum = i + 1;
+    const key = `s${stepNum}`;
+    const wasAnswered = STEP_ANSWERED[i](before);
+    const isAnswered = STEP_ANSWERED[i](merged);
+    if (!wasAnswered && isAnswered) {
+      stepCompletedAt[key] = now;
+      if (stepNum > highestNewlyCompleted) highestNewlyCompleted = stepNum;
+    }
+  }
+
+  const completed = STEP_ANSWERED.every((fn) => fn(merged));
+  if (completed) merged.completedAt = merged.completedAt || now;
+
+  const update = {
+    preferences: merged,
+    onboardingCompleted: completed,
+    'onboarding.lastStep': highestNewlyCompleted,
+    'onboarding.stepCompletedAt': stepCompletedAt
+  };
+
+  if (!onboarding.startedAt) update['onboarding.startedAt'] = now;
+  if (!onboarding.device) {
+    const dev = detectDevice(req);
+    if (dev) update['onboarding.device'] = dev;
+  }
+  if (completed && !onboarding.completedAt) update['onboarding.completedAt'] = now;
+
+  const user = await User.findByIdAndUpdate(req.user._id, update, { new: true });
 
   return sendResponse(res, {
     message: completed ? 'Onboarding complete' : 'Preferences saved',
     data: { preferences: user.preferences, onboardingCompleted: user.onboardingCompleted }
   });
+});
+
+// Marks that the user opened the onboarding flow. Idempotent: only sets values
+// the first time. Useful for measuring "Onboarding Started" independently of
+// step submissions.
+export const startOnboarding = catchAsync(async (req, res) => {
+  const existing = await User.findById(req.user._id).lean();
+  if (!existing) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+
+  const update = {};
+  if (!existing.onboarding?.startedAt) update['onboarding.startedAt'] = new Date();
+  if (!existing.onboarding?.device) {
+    const dev = detectDevice(req);
+    if (dev) update['onboarding.device'] = dev;
+  }
+
+  if (Object.keys(update).length) {
+    await User.updateOne({ _id: req.user._id }, update);
+  }
+  return sendResponse(res, { message: 'Onboarding started' });
+});
+
+const PAYWALL_ACTIONS = ['wallet_selected', 'subscription_selected', 'payment_completed', 'abandoned'];
+
+// Records the user's interaction with the paywall shown after onboarding.
+// - `reached: true` (without action) → user just landed on the paywall.
+// - `action` → records a terminal choice. `payment_completed` also marks
+//   wallet/subscription steps as implicitly fulfilled.
+export const trackPaywall = catchAsync(async (req, res) => {
+  const { reached, action } = req.body || {};
+
+  const existing = await User.findById(req.user._id).lean();
+  if (!existing) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+
+  const update = {};
+  const now = new Date();
+
+  if (reached && !existing.onboarding?.paywall?.reachedAt) {
+    update['onboarding.paywall.reachedAt'] = now;
+  }
+
+  if (typeof action !== 'undefined') {
+    if (!PAYWALL_ACTIONS.includes(action)) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, `action must be one of ${PAYWALL_ACTIONS.join(', ')}`);
+    }
+    // Only let the action upgrade towards completion — don't overwrite a paid user
+    // with `abandoned` if they come back later.
+    const current = existing.onboarding?.paywall?.action;
+    const RANK = { abandoned: 0, wallet_selected: 1, subscription_selected: 2, payment_completed: 3 };
+    if (!current || (RANK[action] ?? -1) > (RANK[current] ?? -1)) {
+      update['onboarding.paywall.action'] = action;
+      update['onboarding.paywall.actionAt'] = now;
+    }
+    if (!existing.onboarding?.paywall?.reachedAt) {
+      update['onboarding.paywall.reachedAt'] = now;
+    }
+  }
+
+  if (Object.keys(update).length) {
+    await User.updateOne({ _id: req.user._id }, update);
+  }
+  return sendResponse(res, { message: 'Paywall event recorded' });
 });
 
 // ===== Favorites =====

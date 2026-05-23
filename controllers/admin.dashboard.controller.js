@@ -6,10 +6,11 @@ import Transaction from '../models/transaction.model.js';
 import Session from '../models/session.model.js';
 
 export const dashboardOverview = catchAsync(async (_req, res) => {
-  const [totalUsers, totalAdvisors, totalActiveSubs] = await Promise.all([
+  const [totalUsers, totalAdvisors, totalActiveSubs, totalSessions] = await Promise.all([
     User.countDocuments({ role: 'user' }),
     User.countDocuments({ role: 'advisor' }),
-    UserSubscription.countDocuments({ status: 'active' })
+    UserSubscription.countDocuments({ status: 'active' }),
+    Session.countDocuments({})
   ]);
 
   const totalRevenueAgg = await Transaction.aggregate([
@@ -57,18 +58,27 @@ export const dashboardOverview = catchAsync(async (_req, res) => {
     { $limit: 5 }
   ]);
 
+  const recentTransactions = await Transaction.find({})
+    .populate('user', 'name profilePhoto email')
+    .populate('advisor', 'name profilePhoto email')
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .lean();
+
   return sendResponse(res, {
     data: {
       totals: {
         users: totalUsers,
         advisors: totalAdvisors,
         subscriptions: totalActiveSubs,
+        sessions: totalSessions,
         revenue: totalRevenueAgg[0]?.t || 0
       },
       usersByDay,
       advisorsByCategory,
       revenueByMonth,
-      popularCategories
+      popularCategories,
+      recentTransactions
     }
   });
 });

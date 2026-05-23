@@ -84,3 +84,11 @@ export const adminResolveDisputed = catchAsync(async (req, res) => {
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   return sendResponse(res, { message: 'Marked as resolved', data: session });
 });
+
+export const adminDeleteSession = catchAsync(async (req, res) => {
+  const session = await Session.findById(req.params.id);
+  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+  if (session.status === 'live') throw new ApiError(StatusCodes.BAD_REQUEST, 'Cannot delete a live session');
+  await session.deleteOne();
+  return sendResponse(res, { message: 'Session deleted' });
+});

@@ -13,7 +13,9 @@ import {
   listFavorites,
   getOnboardingQuestions,
   getPreferences,
-  submitPreferences
+  submitPreferences,
+  startOnboarding,
+  trackPaywall
 } from '../controllers/user.controller.js';
 
 const router = Router();
@@ -33,6 +35,8 @@ router.post('/deactivate', deactivateAccount);
 // Onboarding preferences (8-step questionnaire after OTP verify, before plan pick)
 router.get('/preferences', getPreferences);
 router.put('/preferences', submitPreferences);
+router.post('/onboarding/start', startOnboarding);
+router.post('/onboarding/paywall', trackPaywall);
 
 router.post('/favorites/:advisorId', addFavorite);
 router.delete('/favorites/:advisorId', removeFavorite);

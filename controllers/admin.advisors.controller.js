@@ -263,6 +263,20 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
   return sendResponse(res, { statusCode: StatusCodes.CREATED, message: 'Advisor created', data: user });
 });
 
+export const deleteApplication = catchAsync(async (req, res) => {
+  const app = await AdvisorApplication.findByIdAndDelete(req.params.id);
+  if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+  return sendResponse(res, { message: 'Application deleted' });
+});
+
+export const deleteAdvisor = catchAsync(async (req, res) => {
+  const user = await User.findOne({ _id: req.params.id, role: 'advisor' });
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+  user.status = 'deactivated';
+  await user.save();
+  return sendResponse(res, { message: 'Advisor deactivated' });
+});
+
 export const setAdvisorFeaturedOnHome = catchAsync(async (req, res) => {
   const isFeaturedOnHome = !!req.body?.isFeaturedOnHome;
   const profile = await AdvisorProfile.findOneAndUpdate(
