@@ -62,8 +62,16 @@ export const subscribeToPlan = catchAsync(async (req, res) => {
     pricePerMonth: plan.pricePerMonth
   });
 
-  const successUrl = `${process.env.STRIPE_SUCCESS_URL || (process.env.SERVER_URL + '/api/v1/subscriptions/checkout/success')}?subId=${pendingSub._id}&session_id={CHECKOUT_SESSION_ID}`;
-  const cancelUrl = `${process.env.STRIPE_CANCEL_URL || (process.env.SERVER_URL + '/api/v1/subscriptions/checkout/cancel')}?subId=${pendingSub._id}`;
+  const successBase =
+    process.env.STRIPE_SUBSCRIPTION_SUCCESS_URL ||
+    process.env.STRIPE_SUCCESS_URL ||
+    (process.env.SERVER_URL + '/api/v1/subscriptions/checkout/success');
+  const cancelBase =
+    process.env.STRIPE_SUBSCRIPTION_CANCEL_URL ||
+    process.env.STRIPE_CANCEL_URL ||
+    (process.env.SERVER_URL + '/api/v1/subscriptions/checkout/cancel');
+  const successUrl = `${successBase}?subId=${pendingSub._id}&session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl = `${cancelBase}?subId=${pendingSub._id}`;
 
   // We use a simple "payment" mode for the first month and rely on success route to activate.
   // For production-grade recurring billing you'd typically use mode: 'subscription' + a Stripe Price.

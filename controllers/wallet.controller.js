@@ -12,9 +12,88 @@ import Plan from '../models/plan.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
+const recentDate = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+const topupRedirectBase = (kind) => {
+  if (kind === 'success') {
+    return (
+      process.env.STRIPE_WALLET_SUCCESS_URL ||
+      process.env.STRIPE_SUCCESS_URL ||
+      `${process.env.SERVER_URL}/api/v1/wallet/topup/success`
+    );
+  }
+  return (
+    process.env.STRIPE_WALLET_CANCEL_URL ||
+    process.env.STRIPE_CANCEL_URL ||
+    `${process.env.SERVER_URL}/api/v1/wallet/topup/cancel`
+  );
+};
+
+const syncTopupWithStripe = async ({ tx, sessionId }) => {
+  const sid = (sessionId || tx.stripeCheckoutSessionId || '').trim();
+  if (!sid) {
+    return { tx, wallet: null, session: null };
+  }
+
+  const session = await stripe.checkout.sessions.retrieve(sid, {
+    expand: ['payment_intent'],
+  });
+  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Stripe session not found');
+
+  if (tx.status !== 'completed' && session.payment_status === 'paid') {
+    const amountPaid = (session.amount_total || 0) / 100;
+    if (amountPaid <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid Stripe amount');
+
+    const wallet = await Wallet.findOneAndUpdate(
+      { user: tx.user },
+      { $inc: { balance: amountPaid } },
+      { new: true, upsert: true },
+    );
+
+    tx.status = 'completed';
+    tx.amount = amountPaid;
+    tx.stripeCheckoutSessionId = tx.stripeCheckoutSessionId || session.id;
+    tx.stripePaymentIntentId =
+      typeof session.payment_intent === 'string'
+        ? session.payment_intent
+        : session.payment_intent?.id;
+    tx.stripeChargeId = session.payment_intent?.latest_charge || undefined;
+    await tx.save();
+
+    return { tx, wallet, session };
+  }
+
+  if (tx.status === 'pending' && session.status === 'expired') {
+    tx.status = 'cancelled';
+    await tx.save();
+  }
+
+  return { tx, wallet: null, session };
+};
+
+const syncRecentPendingTopupsForUser = async (userId) => {
+  const pendingTopups = await Transaction.find({
+    user: userId,
+    type: 'wallet_topup',
+    status: 'pending',
+    createdAt: { $gte: recentDate(2) },
+    stripeCheckoutSessionId: { $exists: true, $ne: '' },
+  })
+    .sort({ createdAt: -1 })
+    .limit(10);
+
+  for (const tx of pendingTopups) {
+    try {
+      await syncTopupWithStripe({ tx });
+    } catch (_e) {
+      // Keep wallet endpoints resilient even if a single Stripe lookup fails.
+    }
+  }
+};
 
 // ===== User wallet =====
 export const getMyWallet = catchAsync(async (req, res) => {
+  await syncRecentPendingTopupsForUser(req.user._id);
+
   const wallet = await Wallet.findOneAndUpdate(
     { user: req.user._id },
     { $setOnInsert: { user: req.user._id } },
@@ -33,6 +112,8 @@ export const getMyWallet = catchAsync(async (req, res) => {
 });
 
 export const getMyTransactions = catchAsync(async (req, res) => {
+  await syncRecentPendingTopupsForUser(req.user._id);
+
   const { skip, limit, page } = parsePagination(req.query);
   const filter = { $or: [{ user: req.user._id }, { advisor: req.user._id }] };
   if (req.query.type) filter.type = req.query.type;
@@ -67,8 +148,8 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
     description: `Wallet top-up of $${value}`
   });
 
-  const successUrl = `${process.env.STRIPE_SUCCESS_URL || (process.env.SERVER_URL + '/api/v1/wallet/topup/success')}?txId=${tx._id}&session_id={CHECKOUT_SESSION_ID}`;
-  const cancelUrl = `${process.env.STRIPE_CANCEL_URL || (process.env.SERVER_URL + '/api/v1/wallet/topup/cancel')}?txId=${tx._id}`;
+  const successUrl = `${topupRedirectBase('success')}?txId=${tx._id}&session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl = `${topupRedirectBase('cancel')}?txId=${tx._id}`;
 
   const checkout = await stripe.checkout.sessions.create({
     mode: 'payment',
@@ -108,11 +189,12 @@ export const stripeTopupSuccess = catchAsync(async (req, res) => {
     return sendResponse(res, { message: 'Already credited', data: tx });
   }
 
-  // Re-verify with Stripe
-  const session = await stripe.checkout.sessions.retrieve(session_id, { expand: ['payment_intent'] });
-  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Stripe session not found');
+  const { tx: syncedTx, wallet, session } = await syncTopupWithStripe({
+    tx,
+    sessionId: String(session_id),
+  });
 
-  if (session.payment_status !== 'paid') {
+  if (!session || session.payment_status !== 'paid') {
     return sendResponse(res, {
       statusCode: StatusCodes.PAYMENT_REQUIRED,
       success: false,
@@ -120,22 +202,10 @@ export const stripeTopupSuccess = catchAsync(async (req, res) => {
     });
   }
 
-  const amountPaid = (session.amount_total || 0) / 100;
-  if (amountPaid <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid Stripe amount');
-
-  const wallet = await Wallet.findOneAndUpdate(
-    { user: tx.user },
-    { $inc: { balance: amountPaid } },
-    { new: true, upsert: true }
-  );
-
-  tx.status = 'completed';
-  tx.amount = amountPaid;
-  tx.stripePaymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id;
-  tx.stripeChargeId = session.payment_intent?.latest_charge || undefined;
-  await tx.save();
-
-  return sendResponse(res, { message: 'Wallet credited', data: { transaction: tx, wallet } });
+  return sendResponse(res, {
+    message: 'Wallet credited',
+    data: { transaction: syncedTx, wallet },
+  });
 });
 
 export const stripeTopupCancel = catchAsync(async (req, res) => {
@@ -144,6 +214,45 @@ export const stripeTopupCancel = catchAsync(async (req, res) => {
     await Transaction.findByIdAndUpdate(txId, { status: 'cancelled' });
   }
   return sendResponse(res, { message: 'Top-up cancelled' });
+});
+
+export const getTopupStatus = catchAsync(async (req, res) => {
+  const txId = (req.query.txId || '').toString().trim();
+  const sessionId =
+    (req.query.sessionId || req.query.session_id || '').toString().trim();
+  if (!txId) throw new ApiError(StatusCodes.BAD_REQUEST, 'txId is required');
+
+  const tx = await Transaction.findOne({ _id: txId, user: req.user._id });
+  if (!tx) throw new ApiError(StatusCodes.NOT_FOUND, 'Transaction not found');
+
+  let wallet = await Wallet.findOne({ user: req.user._id });
+  let syncedTx = tx;
+  let session = null;
+
+  if (tx.status !== 'completed' && (sessionId || tx.stripeCheckoutSessionId)) {
+    const synced = await syncTopupWithStripe({ tx, sessionId });
+    syncedTx = synced.tx;
+    session = synced.session;
+    wallet = synced.wallet || wallet;
+  }
+
+  if (!wallet) {
+    wallet = await Wallet.findOneAndUpdate(
+      { user: req.user._id },
+      { $setOnInsert: { user: req.user._id } },
+      { new: true, upsert: true },
+    );
+  }
+
+  return sendResponse(res, {
+    data: {
+      txId: String(syncedTx._id),
+      status: syncedTx.status,
+      amount: syncedTx.amount || 0,
+      walletBalance: wallet?.balance || 0,
+      stripePaymentStatus: session?.payment_status || null,
+    },
+  });
 });
 
 // ===== Withdrawal =====

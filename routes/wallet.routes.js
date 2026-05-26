@@ -4,6 +4,7 @@ import {
   getMyWallet,
   getMyTransactions,
   createTopupCheckout,
+  getTopupStatus,
   stripeTopupSuccess,
   stripeTopupCancel,
   requestWithdrawal,
@@ -26,6 +27,7 @@ router.use(auth());
 router.get('/me', getMyWallet);
 router.get('/transactions', getMyTransactions);
 router.post('/topup', createTopupCheckout);
+router.get('/topup/status', getTopupStatus);
 
 // Advisor earnings + withdrawals
 router.get('/advisor/overview', myEarningsOverview);

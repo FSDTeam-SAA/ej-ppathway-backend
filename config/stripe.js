@@ -4,9 +4,13 @@ let _stripe = null;
 
 const getStripe = () => {
   if (_stripe) return _stripe;
-  const key = process.env.STRIPE_SECRET_KEY;
+  const rawKey = process.env.STRIPE_SECRET_KEY;
+  const key = rawKey?.trim().replace(/^['"]|['"]$/g, '');
   if (!key) {
     throw new Error('STRIPE_SECRET_KEY is not configured');
+  }
+  if (key.includes('replace') || !/^sk_(test|live)_/.test(key)) {
+    throw new Error('STRIPE_SECRET_KEY is invalid. Use a real Stripe secret key (sk_test_... or sk_live_...).');
   }
   _stripe = new Stripe(key, { apiVersion: '2024-11-20.acacia' });
   return _stripe;
