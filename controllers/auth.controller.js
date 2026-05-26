@@ -63,7 +63,10 @@ const issueOtp = async (user, purpose = 'verify') => {
   user.otpExpiresAt = new Date(Date.now() + OTP_EXPIRES_MIN * 60 * 1000);
   user.otpAttempts = 0;
   await user.save();
-  await sendOtpEmail(user.email, otp, purpose);
+  // Fire-and-forget — never let email failure block the signup response
+  sendOtpEmail(user.email, otp, purpose).catch((err) =>
+    console.error(`[email] Failed to send OTP to ${user.email}:`, err.message)
+  );
   return otp;
 };
 
