@@ -90,6 +90,8 @@ export const signupUser = catchAsync(async (req, res) => {
     existing.name = name;
     existing.phone = phoneNumber || existing.phone;
     existing.password = password;
+    existing.isVerified = true;
+    existing.status = 'active';
     user = existing;
   } else {
     user = new User({
@@ -98,17 +100,17 @@ export const signupUser = catchAsync(async (req, res) => {
       phone: phoneNumber,
       password,
       role: 'user',
-      status: 'pending_verification'
+      isVerified: true,
+      status: 'active'
     });
   }
   await user.save();
   await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
-  await issueOtp(user, 'verify');
 
   return sendResponse(res, {
     statusCode: StatusCodes.CREATED,
-    message: 'Signup successful. OTP sent to email.',
-    data: { email: user.email }
+    message: 'Signup successful.',
+    data: buildAuthResponse(user)
   });
 });
 
@@ -127,6 +129,8 @@ export const signupAdvisor = catchAsync(async (req, res) => {
     existing.phone = phoneNumber || existing.phone;
     existing.password = password;
     existing.role = 'advisor';
+    existing.isVerified = true;
+    existing.status = 'active';
     user = existing;
   } else {
     user = new User({
@@ -135,7 +139,8 @@ export const signupAdvisor = catchAsync(async (req, res) => {
       phone: phoneNumber,
       password,
       role: 'advisor',
-      status: 'pending_verification'
+      isVerified: true,
+      status: 'active'
     });
   }
   await user.save();
@@ -146,12 +151,10 @@ export const signupAdvisor = catchAsync(async (req, res) => {
     { upsert: true, new: true }
   );
 
-  await issueOtp(user, 'verify');
-
   return sendResponse(res, {
     statusCode: StatusCodes.CREATED,
-    message: 'Advisor signup submitted. OTP sent to email.',
-    data: { email: user.email }
+    message: 'Advisor signup submitted.',
+    data: buildAuthResponse(user)
   });
 });
 
@@ -212,7 +215,8 @@ export const advisorApply = catchAsync(async (req, res) => {
     existing.role = 'advisor';
     existing.profilePhoto = profilePhoto;
     existing.location = [city, country].filter(Boolean).join(', ') || address || existing.location;
-    existing.status = 'pending_verification';
+    existing.isVerified = true;
+    existing.status = 'active';
     user = existing;
   } else {
     user = new User({
@@ -223,7 +227,8 @@ export const advisorApply = catchAsync(async (req, res) => {
       role: 'advisor',
       profilePhoto,
       location: [city, country].filter(Boolean).join(', ') || address || '',
-      status: 'pending_verification'
+      isVerified: true,
+      status: 'active'
     });
   }
 
@@ -259,11 +264,9 @@ export const advisorApply = catchAsync(async (req, res) => {
     { upsert: true, new: true }
   );
 
-  await issueOtp(user, 'verify');
-
   return sendResponse(res, {
     statusCode: StatusCodes.CREATED,
-    message: 'Advisor application submitted. OTP sent to email.',
+    message: 'Advisor application submitted.',
     data: { email: user.email, user, application }
   });
 });
@@ -332,11 +335,6 @@ export const login = catchAsync(async (req, res) => {
 
   const ok = await user.comparePassword(password);
   if (!ok) throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials');
-
-  if (!user.isVerified) {
-    await issueOtp(user, 'verify');
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Account not verified. OTP re-sent to email.');
-  }
 
   user.lastLoginAt = new Date();
   await user.save();
