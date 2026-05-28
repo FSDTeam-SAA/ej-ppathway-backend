@@ -72,12 +72,25 @@ import {
   subscriptionStats
 } from '../controllers/admin.subscriptions.controller.js';
 
+import {
+  adminListComplaints,
+  adminDeleteComplaint,
+  adminUpdateComplaintStatus
+} from '../controllers/complaint.controller.js';
+
+import {
+  adminListDisputes,
+  adminResolveDispute,
+  adminRejectDispute,
+  adminMarkInvestigating
+} from '../controllers/dispute.controller.js';
+
 const router = Router();
 
 router.use(auth('admin', 'sub_admin'));
 
 // Dashboard
-router.get('/dashboard', requirePermission(), dashboardOverview);
+router.get('/dashboard/overview', requirePermission(), dashboardOverview);
 router.get('/onboarding-analytics', onboardingAnalytics);
 
 // Users
@@ -90,21 +103,21 @@ router.patch('/users/:id/reset-password', requirePermission('users.manage'), adm
 router.delete('/users/:id', requirePermission('users.manage'), deleteUser);
 
 // Advisor applications
-router.get('/applications', requirePermission('advisors.approve'), listApplications);
-router.get('/applications/:id', requirePermission('advisors.approve'), getApplication);
-router.post('/applications/:id/schedule-interview', requirePermission('advisors.approve'), scheduleLiveInterview);
-router.get('/applications/:id/interview-token', interviewToken);
-router.post('/applications/:id/send-contract', requirePermission('advisors.approve'), sendContract);
-router.post('/applications/:id/approve', requirePermission('advisors.approve'), approveApplication);
-router.post('/applications/:id/reject', requirePermission('advisors.approve'), rejectApplication);
-router.delete('/applications/:id', requirePermission('advisors.approve'), deleteApplication);
+router.get('/advisor-applications', requirePermission('advisors.approve'), listApplications);
+router.get('/advisor-applications/:id', requirePermission('advisors.approve'), getApplication);
+router.post('/advisor-applications/:id/schedule-interview', requirePermission('advisors.approve'), scheduleLiveInterview);
+router.get('/advisor-applications/:id/interview-token', interviewToken);
+router.post('/advisor-applications/:id/contract', requirePermission('advisors.approve'), sendContract);
+router.post('/advisor-applications/:id/approve', requirePermission('advisors.approve'), approveApplication);
+router.post('/advisor-applications/:id/reject', requirePermission('advisors.approve'), rejectApplication);
+router.delete('/advisor-applications/:id', requirePermission('advisors.approve'), deleteApplication);
 
 // Advisors
 router.get('/advisors', requirePermission('advisors.manage'), listAdvisors);
 router.get('/advisors/:id', requirePermission('advisors.manage'), getAdvisor);
 router.post('/advisors', requirePermission('advisors.manage'), addAdvisorManually);
-router.patch('/advisors/:id/suspend', requirePermission('advisors.manage'), suspendAdvisor);
-router.patch('/advisors/:id/unsuspend', requirePermission('advisors.manage'), unsuspendAdvisor);
+router.post('/advisors/:id/suspend', requirePermission('advisors.manage'), suspendAdvisor);
+router.post('/advisors/:id/unsuspend', requirePermission('advisors.manage'), unsuspendAdvisor);
 router.patch('/advisors/:id/featured', requirePermission('advisors.manage'), setAdvisorFeaturedOnHome);
 router.delete('/advisors/:id', requirePermission('advisors.manage'), deleteAdvisor);
 
@@ -125,18 +138,30 @@ router.post('/finance/payouts/:id/approve', requirePermission('finance.manage'),
 router.post('/finance/payouts/:id/reject', requirePermission('finance.manage'), rejectPayout);
 router.get('/finance/commissions', requirePermission('finance.manage'), getCommissions);
 router.patch('/finance/commissions', requirePermission('finance.manage'), updateCommissions);
+router.put('/finance/commissions', requirePermission('finance.manage'), updateCommissions);
 router.patch('/finance/min-withdrawal', requirePermission('finance.manage'), updateMinWithdrawal);
 
 // Subscription plans
-router.get('/plans', requirePermission('subscriptions.manage'), listPlans);
-router.post('/plans', requirePermission('subscriptions.manage'), createPlan);
-router.patch('/plans/:id', requirePermission('subscriptions.manage'), updatePlan);
-router.delete('/plans/:id', requirePermission('subscriptions.manage'), deletePlan);
+router.get('/subscriptions/plans', requirePermission('subscriptions.manage'), listPlans);
+router.post('/subscriptions/plans', requirePermission('subscriptions.manage'), createPlan);
+router.patch('/subscriptions/plans/:id', requirePermission('subscriptions.manage'), updatePlan);
+router.delete('/subscriptions/plans/:id', requirePermission('subscriptions.manage'), deletePlan);
 router.get('/subscriptions/stats', requirePermission('subscriptions.manage'), subscriptionStats);
+
+// Compliance - Complaints
+router.get('/complaints', requirePermission('compliance.manage'), adminListComplaints);
+router.delete('/complaints/:id', requirePermission('compliance.manage'), adminDeleteComplaint);
+router.patch('/complaints/:id', requirePermission('compliance.manage'), adminUpdateComplaintStatus);
+
+// Compliance - Disputes
+router.get('/disputes', requirePermission('compliance.manage'), adminListDisputes);
+router.post('/disputes/:id/investigating', requirePermission('compliance.manage'), adminMarkInvestigating);
+router.post('/disputes/:id/resolve', requirePermission('compliance.manage'), adminResolveDispute);
+router.post('/disputes/:id/reject', requirePermission('compliance.manage'), adminRejectDispute);
 
 // Sub-admins
 router.get('/sub-admins', requirePermission('sub_admins.manage'), listSubAdmins);
-router.get('/sub-admins/permissions-list', getPermissionsList);
+router.get('/sub-admins/permissions', getPermissionsList);
 router.post('/sub-admins', requirePermission('sub_admins.manage'), createSubAdmin);
 router.patch('/sub-admins/:id', requirePermission('sub_admins.manage'), updateSubAdmin);
 router.patch('/sub-admins/:id/suspend', requirePermission('sub_admins.manage'), suspendSubAdmin);

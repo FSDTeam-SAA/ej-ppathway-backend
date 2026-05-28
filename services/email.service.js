@@ -68,4 +68,18 @@ export const sendAdvisorDecisionEmail = async (to, { name, approved, reason }) =
   return sendEmail({ to, subject, html: wrap(subject, body) });
 };
 
-export default { sendEmail, sendOtpEmail, sendInterviewScheduledEmail, sendAdvisorContractEmail, sendAdvisorDecisionEmail };
+export const sendAdvisorWelcomeEmail = async (to, { name, email, password, loginUrl }) => {
+  const subject = 'Your Advisor Account Is Ready';
+  const body = `
+    <p>Hi ${name || ''},</p>
+    <p>An advisor account has been created for you on Prophetic Pathway. You can log in immediately using the credentials below.</p>
+    <table style="margin:16px 0;border-collapse:collapse;">
+      <tr><td style="padding:6px 12px;font-weight:bold;color:#4a5568;">Email</td><td style="padding:6px 12px;">${email}</td></tr>
+      <tr><td style="padding:6px 12px;font-weight:bold;color:#4a5568;">Password</td><td style="padding:6px 12px;">${password}</td></tr>
+    </table>
+    ${loginUrl ? `<p><a href="${loginUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Login to Advisor Dashboard</a></p>` : ''}
+    <p style="color:#718096;font-size:13px;">Please change your password after your first login.</p>`;
+  return sendEmail({ to, subject, html: wrap(subject, body) });
+};
+
+export default { sendEmail, sendOtpEmail, sendInterviewScheduledEmail, sendAdvisorContractEmail, sendAdvisorDecisionEmail, sendAdvisorWelcomeEmail };

@@ -14,7 +14,8 @@ import { generateLiveKitToken, createRoom } from '../config/livekit.js';
 import {
   sendInterviewScheduledEmail,
   sendAdvisorContractEmail,
-  sendAdvisorDecisionEmail
+  sendAdvisorDecisionEmail,
+  sendAdvisorWelcomeEmail
 } from '../services/email.service.js';
 import { createNotification } from '../services/notification.service.js';
 
@@ -259,6 +260,13 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
     styles: style ? [style] : []
   });
   await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
+
+  sendAdvisorWelcomeEmail(user.email, {
+    name: user.name,
+    email: user.email,
+    password,
+    loginUrl: `${process.env.ADVISOR_DASHBOARD_URL || ''}/login`
+  }).catch((err) => console.error(`[email] Failed to send welcome email to ${user.email}:`, err.message));
 
   return sendResponse(res, { statusCode: StatusCodes.CREATED, message: 'Advisor created', data: user });
 });
