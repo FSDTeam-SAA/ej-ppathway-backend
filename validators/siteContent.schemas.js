@@ -279,6 +279,7 @@ const joinAsAdvisorSections = z
             z
               .object({
                 name: z.string().optional(),
+                quote: z.string().optional(),
                 videoUrl: z.string().optional(),
                 thumbnail: image
               })

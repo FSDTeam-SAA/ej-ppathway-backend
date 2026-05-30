@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import { auth, requirePermission } from '../middlewares/auth.js';
+import { auth } from '../middlewares/auth.js';
+import { imageUpload } from '../middlewares/upload.js';
 
-// Controllers
 import { dashboardOverview } from '../controllers/admin.dashboard.controller.js';
-import { onboardingAnalytics } from '../controllers/admin.onboarding.controller.js';
 
 import {
   listUsers,
@@ -23,12 +22,12 @@ import {
   sendContract,
   approveApplication,
   rejectApplication,
+  deleteApplication,
   listAdvisors,
   getAdvisor,
+  addAdvisorManually,
   suspendAdvisor,
   unsuspendAdvisor,
-  addAdvisorManually,
-  deleteApplication,
   deleteAdvisor,
   setAdvisorFeaturedOnHome
 } from '../controllers/admin.advisors.controller.js';
@@ -45,12 +44,12 @@ import {
 import {
   overview,
   listTransactions,
+  deleteTransaction,
   listPayouts,
   approvePayout,
   rejectPayout,
-  deleteTransaction,
-  updateCommissions,
   getCommissions,
+  updateCommissions,
   updateMinWithdrawal
 } from '../controllers/admin.finance.controller.js';
 
@@ -65,12 +64,14 @@ import {
 } from '../controllers/admin.subadmins.controller.js';
 
 import {
+  listPlans,
   createPlan,
   updatePlan,
   deletePlan,
-  listPlans,
   subscriptionStats
 } from '../controllers/admin.subscriptions.controller.js';
+
+import { onboardingAnalytics } from '../controllers/admin.onboarding.controller.js';
 
 import {
   adminListComplaints,
@@ -80,92 +81,123 @@ import {
 
 import {
   adminListDisputes,
+  adminMarkInvestigating,
   adminResolveDispute,
-  adminRejectDispute,
-  adminMarkInvestigating
+  adminRejectDispute
 } from '../controllers/dispute.controller.js';
+
+import {
+  adminListReviewsForCuration,
+  adminSetReviewFeatured,
+  listShowcaseReviews,
+  adminCreateShowcaseReview,
+  adminUpdateShowcaseReview,
+  adminDeleteShowcaseReview
+} from '../controllers/review.controller.js';
+
+import {
+  adminListContactMessages,
+  adminGetContactMessage,
+  adminUpdateContactMessage,
+  adminDeleteContactMessage
+} from '../controllers/contact.controller.js';
 
 const router = Router();
 
 router.use(auth('admin', 'sub_admin'));
 
 // Dashboard
-router.get('/dashboard/overview', requirePermission(), dashboardOverview);
-router.get('/onboarding-analytics', onboardingAnalytics);
+router.get('/dashboard/overview', dashboardOverview);
 
 // Users
-router.get('/users', requirePermission('users.manage'), listUsers);
-router.get('/users/:id', requirePermission('users.manage'), getUserDetails);
-router.post('/users/:id/free-credits', requirePermission('users.manage'), giveFreeCredits);
-router.patch('/users/:id/suspend', requirePermission('users.manage'), suspendUser);
-router.patch('/users/:id/unsuspend', requirePermission('users.manage'), unsuspendUser);
-router.patch('/users/:id/reset-password', requirePermission('users.manage'), adminResetUserPassword);
-router.delete('/users/:id', requirePermission('users.manage'), deleteUser);
+router.get('/users', listUsers);
+router.get('/users/:id', getUserDetails);
+router.post('/users/:id/credits', giveFreeCredits);
+router.patch('/users/:id/suspend', suspendUser);
+router.patch('/users/:id/unsuspend', unsuspendUser);
+router.patch('/users/:id/reset-password', adminResetUserPassword);
+router.delete('/users/:id', deleteUser);
 
 // Advisor applications
-router.get('/advisor-applications', requirePermission('advisors.approve'), listApplications);
-router.get('/advisor-applications/:id', requirePermission('advisors.approve'), getApplication);
-router.post('/advisor-applications/:id/schedule-interview', requirePermission('advisors.approve'), scheduleLiveInterview);
+router.get('/advisor-applications', listApplications);
+router.get('/advisor-applications/:id', getApplication);
+router.patch('/advisor-applications/:id/schedule-interview', scheduleLiveInterview);
 router.get('/advisor-applications/:id/interview-token', interviewToken);
-router.post('/advisor-applications/:id/contract', requirePermission('advisors.approve'), sendContract);
-router.post('/advisor-applications/:id/approve', requirePermission('advisors.approve'), approveApplication);
-router.post('/advisor-applications/:id/reject', requirePermission('advisors.approve'), rejectApplication);
-router.delete('/advisor-applications/:id', requirePermission('advisors.approve'), deleteApplication);
+router.patch('/advisor-applications/:id/contract', sendContract);
+router.patch('/advisor-applications/:id/approve', approveApplication);
+router.patch('/advisor-applications/:id/reject', rejectApplication);
+router.delete('/advisor-applications/:id', deleteApplication);
 
 // Advisors
-router.get('/advisors', requirePermission('advisors.manage'), listAdvisors);
-router.get('/advisors/:id', requirePermission('advisors.manage'), getAdvisor);
-router.post('/advisors', requirePermission('advisors.manage'), addAdvisorManually);
-router.post('/advisors/:id/suspend', requirePermission('advisors.manage'), suspendAdvisor);
-router.post('/advisors/:id/unsuspend', requirePermission('advisors.manage'), unsuspendAdvisor);
-router.patch('/advisors/:id/featured', requirePermission('advisors.manage'), setAdvisorFeaturedOnHome);
-router.delete('/advisors/:id', requirePermission('advisors.manage'), deleteAdvisor);
+router.get('/advisors', listAdvisors);
+router.get('/advisors/:id', getAdvisor);
+router.post('/advisors', addAdvisorManually);
+router.patch('/advisors/:id/suspend', suspendAdvisor);
+router.patch('/advisors/:id/unsuspend', unsuspendAdvisor);
+router.patch('/advisors/:id/featured', setAdvisorFeaturedOnHome);
+router.delete('/advisors/:id', deleteAdvisor);
 
 // Sessions
-router.get('/sessions', requirePermission('sessions.manage'), listSessions);
-router.get('/sessions/:id', requirePermission('sessions.manage'), getSession);
-router.post('/sessions/:id/cancel', requirePermission('sessions.manage'), adminCancelSession);
-router.patch('/sessions/:id/flag', requirePermission('sessions.manage'), adminFlagSession);
-router.patch('/sessions/:id/resolve', requirePermission('sessions.manage'), adminResolveDisputed);
-router.delete('/sessions/:id', requirePermission('sessions.manage'), adminDeleteSession);
+router.get('/sessions', listSessions);
+router.get('/sessions/:id', getSession);
+router.patch('/sessions/:id/cancel', adminCancelSession);
+router.patch('/sessions/:id/flag', adminFlagSession);
+router.patch('/sessions/:id/resolve', adminResolveDisputed);
+router.delete('/sessions/:id', adminDeleteSession);
 
 // Finance
-router.get('/finance/overview', requirePermission('finance.manage'), overview);
-router.get('/finance/transactions', requirePermission('finance.manage'), listTransactions);
-router.delete('/finance/transactions/:id', requirePermission('finance.manage'), deleteTransaction);
-router.get('/finance/payouts', requirePermission('finance.manage'), listPayouts);
-router.post('/finance/payouts/:id/approve', requirePermission('finance.manage'), approvePayout);
-router.post('/finance/payouts/:id/reject', requirePermission('finance.manage'), rejectPayout);
-router.get('/finance/commissions', requirePermission('finance.manage'), getCommissions);
-router.patch('/finance/commissions', requirePermission('finance.manage'), updateCommissions);
-router.put('/finance/commissions', requirePermission('finance.manage'), updateCommissions);
-router.patch('/finance/min-withdrawal', requirePermission('finance.manage'), updateMinWithdrawal);
-
-// Subscription plans
-router.get('/subscriptions/plans', requirePermission('subscriptions.manage'), listPlans);
-router.post('/subscriptions/plans', requirePermission('subscriptions.manage'), createPlan);
-router.patch('/subscriptions/plans/:id', requirePermission('subscriptions.manage'), updatePlan);
-router.delete('/subscriptions/plans/:id', requirePermission('subscriptions.manage'), deletePlan);
-router.get('/subscriptions/stats', requirePermission('subscriptions.manage'), subscriptionStats);
-
-// Compliance - Complaints
-router.get('/complaints', requirePermission('compliance.manage'), adminListComplaints);
-router.delete('/complaints/:id', requirePermission('compliance.manage'), adminDeleteComplaint);
-router.patch('/complaints/:id', requirePermission('compliance.manage'), adminUpdateComplaintStatus);
-
-// Compliance - Disputes
-router.get('/disputes', requirePermission('compliance.manage'), adminListDisputes);
-router.post('/disputes/:id/investigating', requirePermission('compliance.manage'), adminMarkInvestigating);
-router.post('/disputes/:id/resolve', requirePermission('compliance.manage'), adminResolveDispute);
-router.post('/disputes/:id/reject', requirePermission('compliance.manage'), adminRejectDispute);
+router.get('/finance/overview', overview);
+router.get('/finance/transactions', listTransactions);
+router.delete('/finance/transactions/:id', deleteTransaction);
+router.get('/finance/payouts', listPayouts);
+router.patch('/finance/payouts/:id/approve', approvePayout);
+router.patch('/finance/payouts/:id/reject', rejectPayout);
+router.get('/finance/commissions', getCommissions);
+router.patch('/finance/commissions', updateCommissions);
+router.patch('/finance/min-withdrawal', updateMinWithdrawal);
 
 // Sub-admins
-router.get('/sub-admins', requirePermission('sub_admins.manage'), listSubAdmins);
 router.get('/sub-admins/permissions', getPermissionsList);
-router.post('/sub-admins', requirePermission('sub_admins.manage'), createSubAdmin);
-router.patch('/sub-admins/:id', requirePermission('sub_admins.manage'), updateSubAdmin);
-router.patch('/sub-admins/:id/suspend', requirePermission('sub_admins.manage'), suspendSubAdmin);
-router.patch('/sub-admins/:id/unsuspend', requirePermission('sub_admins.manage'), unsuspendSubAdmin);
-router.delete('/sub-admins/:id', requirePermission('sub_admins.manage'), deleteSubAdmin);
+router.get('/sub-admins', listSubAdmins);
+router.post('/sub-admins', createSubAdmin);
+router.patch('/sub-admins/:id', updateSubAdmin);
+router.patch('/sub-admins/:id/suspend', suspendSubAdmin);
+router.patch('/sub-admins/:id/unsuspend', unsuspendSubAdmin);
+router.delete('/sub-admins/:id', deleteSubAdmin);
+
+// Subscription plans
+router.get('/subscriptions/stats', subscriptionStats);
+router.get('/subscriptions/plans', listPlans);
+router.post('/subscriptions/plans', createPlan);
+router.patch('/subscriptions/plans/:id', updatePlan);
+router.delete('/subscriptions/plans/:id', deletePlan);
+
+// Onboarding analytics
+router.get('/onboarding-analytics', onboardingAnalytics);
+
+// Complaints & safety reports
+router.get('/complaints', adminListComplaints);
+router.patch('/complaints/:id', adminUpdateComplaintStatus);
+router.delete('/complaints/:id', adminDeleteComplaint);
+
+// Disputes
+router.get('/disputes', adminListDisputes);
+router.patch('/disputes/:id/investigating', adminMarkInvestigating);
+router.patch('/disputes/:id/resolve', adminResolveDispute);
+router.patch('/disputes/:id/reject', adminRejectDispute);
+
+// Reviews — curation & showcase
+router.get('/reviews/curation', adminListReviewsForCuration);
+router.patch('/reviews/:id/featured', adminSetReviewFeatured);
+router.get('/reviews/showcase', listShowcaseReviews);
+router.post('/reviews/showcase', imageUpload.single('photo'), adminCreateShowcaseReview);
+router.patch('/reviews/showcase/:id', imageUpload.single('photo'), adminUpdateShowcaseReview);
+router.delete('/reviews/showcase/:id', adminDeleteShowcaseReview);
+
+// Contact messages
+router.get('/contact', adminListContactMessages);
+router.get('/contact/:id', adminGetContactMessage);
+router.patch('/contact/:id', adminUpdateContactMessage);
+router.delete('/contact/:id', adminDeleteContactMessage);
 
 export default router;
