@@ -58,6 +58,13 @@ export const deleteNotification = catchAsync(async (req, res) => {
   return sendResponse(res, { message: 'Deleted' });
 });
 
+export const bulkDeleteNotifications = catchAsync(async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  if (ids.length === 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'ids array is required');
+  const result = await Notification.deleteMany({ _id: { $in: ids }, recipient: req.user._id });
+  return sendResponse(res, { message: `Deleted ${result.deletedCount}`, data: { deletedCount: result.deletedCount } });
+});
+
 // Admin broadcast
 export const adminBroadcast = catchAsync(async (req, res) => {
   const { audience = 'all', title, body, data } = req.body;
