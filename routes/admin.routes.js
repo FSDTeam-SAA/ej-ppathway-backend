@@ -72,6 +72,13 @@ import {
   subscriptionStats
 } from '../controllers/admin.subscriptions.controller.js';
 
+import {
+  adminListCurrencies,
+  createCurrency,
+  updateCurrency,
+  deleteCurrency
+} from '../controllers/currency.controller.js';
+
 import { onboardingAnalytics } from '../controllers/admin.onboarding.controller.js';
 
 import {
@@ -173,6 +180,12 @@ router.get('/subscriptions/plans', listPlans);
 router.post('/subscriptions/plans', createPlan);
 router.patch('/subscriptions/plans/:id', updatePlan);
 router.delete('/subscriptions/plans/:id', deletePlan);
+
+// Currencies / country pricing config
+router.get('/currencies', adminListCurrencies);
+router.post('/currencies', createCurrency);
+router.patch('/currencies/:id', updateCurrency);
+router.delete('/currencies/:id', deleteCurrency);
 
 // Onboarding analytics
 router.get('/onboarding-analytics', onboardingAnalytics);
