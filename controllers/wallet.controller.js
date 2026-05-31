@@ -10,6 +10,10 @@ import User from '../models/user.model.js';
 import UserSubscription from '../models/userSubscription.model.js';
 import Plan from '../models/plan.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
+import { detectCountry } from '../utils/geo.js';
+import { convertUsd, toProviderMinorUnits } from '../services/pricing.service.js';
+import { createPaypalOrder, capturePaypalOrder } from '../services/paypal.service.js';
+import { isPaypalConfigured } from '../config/paypal.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const recentDate = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -40,17 +44,18 @@ const syncTopupWithStripe = async ({ tx, sessionId }) => {
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Stripe session not found');
 
   if (tx.status !== 'completed' && session.payment_status === 'paid') {
-    const amountPaid = (session.amount_total || 0) / 100;
-    if (amountPaid <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid Stripe amount');
+    // Wallet is denominated in USD credit. The Stripe charge was in the user's
+    // local currency, so credit the USD-equivalent we recorded at checkout time.
+    const creditUsd = tx.amountUsd != null ? tx.amountUsd : (session.amount_total || 0) / 100;
+    if (creditUsd <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid Stripe amount');
 
     const wallet = await Wallet.findOneAndUpdate(
       { user: tx.user },
-      { $inc: { balance: amountPaid } },
+      { $inc: { balance: creditUsd } },
       { new: true, upsert: true },
     );
 
     tx.status = 'completed';
-    tx.amount = amountPaid;
     tx.stripeCheckoutSessionId = tx.stripeCheckoutSessionId || session.id;
     tx.stripePaymentIntentId =
       typeof session.payment_intent === 'string'
@@ -123,30 +128,78 @@ export const getMyTransactions = catchAsync(async (req, res) => {
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
 
-// ===== Stripe Checkout for top-up (no webhook flow) =====
+// ===== Checkout for top-up (Stripe or PayPal, no webhook flow) =====
+// `amount` is the USD credit the user wants added to their wallet. They are
+// charged the local-currency equivalent for their country; the wallet is credited
+// the USD amount so internal (USD-based) session pricing stays consistent.
 export const createTopupCheckout = catchAsync(async (req, res) => {
   const { amount } = req.body;
+  const provider = (req.body.provider || 'stripe').toLowerCase();
   const value = Number(amount);
   if (!value || value <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid amount');
   if (value < 1) throw new ApiError(StatusCodes.BAD_REQUEST, 'Minimum top-up is $1');
-
-  const user = await User.findById(req.user._id);
-
-  // ensure stripe customer
-  if (!user.stripeCustomerId) {
-    const customer = await stripe.customers.create({ email: user.email, name: user.name });
-    user.stripeCustomerId = customer.id;
-    await user.save();
+  if (!['stripe', 'paypal'].includes(provider)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'provider must be "stripe" or "paypal"');
   }
+
+  const country = detectCountry(req, { user: req.user });
+  const local = await convertUsd(value, country); // { currency, symbol, amount, ... }
 
   // create a pending transaction first
   const tx = await Transaction.create({
     type: 'wallet_topup',
     status: 'pending',
+    provider,
     user: req.user._id,
-    amount: value,
+    amount: local.amount,
+    currency: local.currency.toLowerCase(),
+    country: local.country,
+    amountUsd: value,
     description: `Wallet top-up of $${value}`
   });
+
+  // ---- PayPal branch ----
+  if (provider === 'paypal') {
+    if (!isPaypalConfigured()) throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'PayPal is not configured');
+    const successBase =
+      process.env.PAYPAL_WALLET_SUCCESS_URL ||
+      `${process.env.SERVER_URL}/api/v1/wallet/paypal/success`;
+    const cancelBase =
+      process.env.PAYPAL_WALLET_CANCEL_URL ||
+      `${process.env.SERVER_URL}/api/v1/wallet/paypal/cancel`;
+
+    const order = await createPaypalOrder({
+      amount: local.amount,
+      currency: local.currency,
+      description: `Wallet top-up of $${value}`,
+      referenceId: tx._id,
+      returnUrl: `${successBase}?txId=${tx._id}`,
+      cancelUrl: `${cancelBase}?txId=${tx._id}`
+    });
+
+    tx.paypalOrderId = order.orderId;
+    await tx.save();
+
+    return sendResponse(res, {
+      data: {
+        provider: 'paypal',
+        checkoutUrl: order.approveUrl,
+        orderId: order.orderId,
+        txId: tx._id,
+        currency: local.currency,
+        amount: local.amount,
+        amountUsd: value
+      }
+    });
+  }
+
+  // ---- Stripe branch ----
+  const user = await User.findById(req.user._id);
+  if (!user.stripeCustomerId) {
+    const customer = await stripe.customers.create({ email: user.email, name: user.name });
+    user.stripeCustomerId = customer.id;
+    await user.save();
+  }
 
   const successUrl = `${topupRedirectBase('success')}?txId=${tx._id}&session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl = `${topupRedirectBase('cancel')}?txId=${tx._id}`;
@@ -157,8 +210,8 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
     line_items: [
       {
         price_data: {
-          currency: 'usd',
-          unit_amount: Math.round(value * 100),
+          currency: local.currency.toLowerCase(),
+          unit_amount: toProviderMinorUnits(local.amount, local.currency),
           product_data: { name: 'Wallet Top-up' }
         },
         quantity: 1
@@ -173,8 +226,59 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
   await tx.save();
 
   return sendResponse(res, {
-    data: { checkoutUrl: checkout.url, sessionId: checkout.id, txId: tx._id }
+    data: {
+      provider: 'stripe',
+      checkoutUrl: checkout.url,
+      sessionId: checkout.id,
+      txId: tx._id,
+      currency: local.currency,
+      amount: local.amount,
+      amountUsd: value
+    }
   });
+});
+
+// ===== PayPal top-up success/cancel routes =====
+export const paypalTopupSuccess = catchAsync(async (req, res) => {
+  const txId = req.query.txId;
+  const orderId = req.query.orderId || req.query.token;
+  if (!txId) throw new ApiError(StatusCodes.BAD_REQUEST, 'Missing txId');
+
+  const tx = await Transaction.findById(txId);
+  if (!tx) throw new ApiError(StatusCodes.NOT_FOUND, 'Transaction not found');
+  if (tx.status === 'completed') {
+    const w = await Wallet.findOne({ user: tx.user });
+    return sendResponse(res, { message: 'Already credited', data: { transaction: tx, wallet: w } });
+  }
+
+  const capture = await capturePaypalOrder(orderId || tx.paypalOrderId);
+  if (!capture.paid) {
+    return sendResponse(res, {
+      statusCode: StatusCodes.PAYMENT_REQUIRED,
+      success: false,
+      message: 'Payment not completed yet'
+    });
+  }
+
+  const creditUsd = tx.amountUsd != null ? tx.amountUsd : tx.amount;
+  const wallet = await Wallet.findOneAndUpdate(
+    { user: tx.user },
+    { $inc: { balance: creditUsd } },
+    { new: true, upsert: true }
+  );
+
+  tx.status = 'completed';
+  tx.paypalOrderId = tx.paypalOrderId || orderId;
+  tx.paypalCaptureId = capture.captureId;
+  await tx.save();
+
+  return sendResponse(res, { message: 'Wallet credited', data: { transaction: tx, wallet } });
+});
+
+export const paypalTopupCancel = catchAsync(async (req, res) => {
+  const { txId } = req.query;
+  if (txId) await Transaction.findByIdAndUpdate(txId, { status: 'cancelled' });
+  return sendResponse(res, { message: 'Top-up cancelled' });
 });
 
 // Stripe success route — verifies session, credits wallet (idempotent)

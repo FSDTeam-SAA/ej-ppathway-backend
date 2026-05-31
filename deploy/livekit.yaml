@@ -1,0 +1,39 @@
+# LiveKit server config.
+# Replace the API key/secret below and keep them identical to the backend .env
+# (LIVEKIT_API_KEY / LIVEKIT_API_SECRET) and to egress.yaml.
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  # On a VPS with a public IP, let LiveKit auto-detect it. If detection fails,
+  # set this to your server's public IP string instead of `true`.
+  use_external_ip: true
+
+redis:
+  address: 127.0.0.1:6379
+
+keys:
+  # <API_KEY>: <API_SECRET>
+  REPLACE_API_KEY: REPLACE_API_SECRET_AT_LEAST_32_CHARS
+
+# Built-in TURN for clients on restrictive networks. Requires a domain + TLS cert.
+# Leave disabled to start; enable once you've pointed a domain at this server.
+turn:
+  enabled: false
+  # domain: livekit.yourdomain.com
+  # tls_port: 5349
+  # cert_file: /etc/letsencrypt/live/livekit.yourdomain.com/fullchain.pem
+  # key_file: /etc/letsencrypt/live/livekit.yourdomain.com/privkey.pem
+
+# Egress completion callbacks land here so the backend can store recordingUrl.
+# Point this at your PUBLIC backend URL.
+webhook:
+  api_key: REPLACE_API_KEY
+  urls:
+    - https://your-backend-domain/api/v1/webhooks/livekit
+
+logging:
+  level: info

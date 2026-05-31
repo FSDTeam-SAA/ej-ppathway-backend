@@ -40,6 +40,31 @@ export const auth = (...allowedRoles) => async (req, _res, next) => {
   }
 };
 
+// Attaches req.user when a valid Bearer token is present, but never blocks the
+// request when it is missing/invalid. Used by endpoints that personalize their
+// response for logged-in users yet must also work for anonymous callers.
+export const optionalAuth = () => async (req, _res, next) => {
+  try {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) return next();
+    let decoded;
+    try {
+      decoded = verifyAccessToken(token);
+    } catch {
+      return next();
+    }
+    const user = await User.findById(decoded.sub).lean();
+    if (user && user.status !== 'suspended' && user.status !== 'deactivated') {
+      req.user = user;
+      req.tokenPayload = decoded;
+    }
+    next();
+  } catch {
+    next();
+  }
+};
+
 export const requirePermission = (...perms) => (req, _res, next) => {
   if (!req.user) return next(new ApiError(StatusCodes.UNAUTHORIZED, 'Not authenticated'));
   if (req.user.role === 'admin') return next();

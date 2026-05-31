@@ -26,7 +26,7 @@ export const getProfile = catchAsync(async (req, res) => {
 });
 
 export const updateProfile = catchAsync(async (req, res) => {
-  const allowed = ['name', 'phone', 'location', 'timezone', 'language', 'profilePhoto'];
+  const allowed = ['name', 'phone', 'location', 'country', 'currency', 'timezone', 'language', 'profilePhoto'];
   const update = {};
   for (const key of allowed) {
     if (typeof req.body[key] !== 'undefined') update[key] = req.body[key];

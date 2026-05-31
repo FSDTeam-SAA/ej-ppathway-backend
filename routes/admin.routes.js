@@ -34,6 +34,7 @@ import {
 
 import {
   listSessions,
+  listRecordings,
   getSession,
   adminCancelSession,
   adminFlagSession,
@@ -70,6 +71,13 @@ import {
   deletePlan,
   subscriptionStats
 } from '../controllers/admin.subscriptions.controller.js';
+
+import {
+  adminListCurrencies,
+  createCurrency,
+  updateCurrency,
+  deleteCurrency
+} from '../controllers/currency.controller.js';
 
 import { onboardingAnalytics } from '../controllers/admin.onboarding.controller.js';
 
@@ -139,6 +147,7 @@ router.delete('/advisors/:id', deleteAdvisor);
 
 // Sessions
 router.get('/sessions', listSessions);
+router.get('/sessions/recordings', listRecordings); // must precede '/sessions/:id'
 router.get('/sessions/:id', getSession);
 router.patch('/sessions/:id/cancel', adminCancelSession);
 router.patch('/sessions/:id/flag', adminFlagSession);
@@ -172,6 +181,12 @@ router.post('/subscriptions/plans', createPlan);
 router.patch('/subscriptions/plans/:id', updatePlan);
 router.delete('/subscriptions/plans/:id', deletePlan);
 
+// Currencies / country pricing config
+router.get('/currencies', adminListCurrencies);
+router.post('/currencies', createCurrency);
+router.patch('/currencies/:id', updateCurrency);
+router.delete('/currencies/:id', deleteCurrency);
+
 // Onboarding analytics
 router.get('/onboarding-analytics', onboardingAnalytics);
 
@@ -200,4 +215,4 @@ router.get('/contact/:id', adminGetContactMessage);
 router.patch('/contact/:id', adminUpdateContactMessage);
 router.delete('/contact/:id', adminDeleteContactMessage);
 
-export default router;
+export default router;      

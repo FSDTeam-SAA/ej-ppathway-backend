@@ -37,6 +37,23 @@ const planSchema = new Schema(
       videoPerMinute: { type: Number, default: null }                      // $7/min
     },
 
+    // Manual per-country price overrides (set by admin based on local earning
+    // power). When present for a user's country these win over FX conversion of
+    // pricePerMonth. `pricePerMonth` above is always the base USD price.
+    countryPrices: {
+      type: [
+        new Schema(
+          {
+            country: { type: String, required: true, uppercase: true, trim: true }, // ISO-3166 alpha-2
+            currency: { type: String, uppercase: true, trim: true },                // optional; defaults to the country's currency
+            pricePerMonth: { type: Number, required: true, min: 0 }                  // price in local currency units
+          },
+          { _id: false }
+        )
+      ],
+      default: []
+    },
+
     // Discount applied to extra usage beyond the included allotment.
     overageDiscountPercent: { type: Number, default: 0 },                  // 0, 15, 20, 25
 

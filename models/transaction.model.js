@@ -33,8 +33,11 @@ const transactionSchema = new Schema(
     subscription: { type: Schema.Types.ObjectId, ref: 'UserSubscription' },
     plan: { type: Schema.Types.ObjectId, ref: 'Plan' },
 
-    amount: { type: Number, required: true },           // positive amount (sign depends on type)
-    currency: { type: String, default: 'usd' },
+    amount: { type: Number, required: true },           // amount actually charged, in `currency`
+    currency: { type: String, default: 'usd' },         // ISO-4217 (lowercase ok)
+    country: { type: String, uppercase: true, trim: true },
+    amountUsd: { type: Number },                        // equivalent base USD amount (for reporting)
+    provider: { type: String, enum: ['stripe', 'paypal', 'internal'], default: 'stripe', index: true },
     description: { type: String, default: '' },
 
     // Stripe links
@@ -42,6 +45,10 @@ const transactionSchema = new Schema(
     stripeCheckoutSessionId: { type: String, index: true, sparse: true },
     stripeChargeId: { type: String },
     stripeRefundId: { type: String },
+
+    // PayPal links
+    paypalOrderId: { type: String, index: true, sparse: true },
+    paypalCaptureId: { type: String },
 
     // Withdrawal
     withdrawalMethod: { type: String, default: 'stripe_connect' },

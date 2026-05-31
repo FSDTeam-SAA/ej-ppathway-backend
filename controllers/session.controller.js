@@ -264,9 +264,11 @@ export const advisorStartSession = catchAsync(async (req, res) => {
 
   // Optionally start recording if consented + video/call
   if (session.recordingConsented && (session.type === 'call' || session.type === 'video')) {
-    const filename = `recordings/${session._id}-${Date.now()}.mp4`;
-    const egress = await startRoomRecording(session.livekitRoom || `session_${session._id}`, filename);
+    const fileName = `${session._id}-${Date.now()}.mp4`;
+    const egress = await startRoomRecording(session.livekitRoom || `session_${session._id}`, fileName);
     if (egress?.egressId) session.egressId = egress.egressId;
+    // Best-effort URL now (S3 only); confirmed/overwritten by the LiveKit egress webhook on completion.
+    if (egress?.recordingUrl) session.recordingUrl = egress.recordingUrl;
   }
 
   await session.save();
