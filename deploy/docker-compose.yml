@@ -1,18 +1,18 @@
-# Self-hosted LiveKit stack for EJ Pathway (calls + video + recording).
+# Self-hosted EJ Pathway stack (backend + calls + video + recording) for one VPS.
 #
 # Services:
-#   redis    - required coordination bus between LiveKit and Egress
+#   redis    - coordination bus between LiveKit and Egress
 #   livekit  - the SFU media server (handles all audio/video routing + ICE/TURN)
-#   egress   - records room composites to a shared local volume (./data/recordings)
+#   egress   - records room composites into the shared `recordings` volume
+#   backend  - this Express API (fresh deploy, isolated from anything else on the box)
 #
-# The Node backend reads finished recordings from the SAME ./data/recordings
-# volume and uploads them to Cloudinary (or you set EGRESS_S3_* to upload to S3
-# directly and skip the local hop). Run the backend on this VPS so it shares the
-# volume — see the optional `backend` service at the bottom.
+# The backend reads finished recordings from the shared `recordings` volume and
+# uploads them to Cloudinary (default), or set EGRESS_S3_* to upload to S3 directly.
 #
-# 1. Copy .env.example -> .env  and fill in the values referenced below.
-# 2. Open the firewall: 7880/tcp, 7881/tcp, 50000-60000/udp (and 443 if you add TLS).
-# 3. docker compose up -d
+# Steps:
+#   1. Put your real values in ../.env  and in livekit.yaml + egress.yaml (same key/secret).
+#   2. Open firewall: 7880/tcp, 7881/tcp, 50000-60000/udp. (Backend + LiveKit ws sit behind nginx TLS.)
+#   3. docker compose up -d --build
 
 services:
   redis:
@@ -27,8 +27,8 @@ services:
     command: --config /etc/livekit.yaml
     depends_on: [redis]
     ports:
-      - "7880:7880"                # signaling (ws/http) — put behind TLS reverse proxy in prod
-      - "7881:7881"                # RTC over TCP fallback
+      - "7880:7880"                    # signaling (ws/http) — fronted by nginx TLS
+      - "7881:7881"                    # RTC over TCP fallback
       - "50000-60000:50000-60000/udp"  # RTC media (UDP)
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
@@ -42,24 +42,27 @@ services:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
     volumes:
       - ./egress.yaml:/etc/egress.yaml:ro
-      # Recordings land here; the backend mounts the SAME host path.
-      - ./data/recordings:/recordings
-    # Egress runs a headless Chromium; it needs a larger shm.
-    shm_size: "1gb"
+      - recordings:/recordings         # shared with backend; matches EGRESS_OUTPUT_DIR=/recordings
+    shm_size: "1gb"                     # headless Chromium needs a larger /dev/shm
     networks: [lk]
 
-  # ---- Optional: run the API backend here so it shares the recordings volume ----
-  # backend:
-  #   build: ..                 # path to Ej-backend
-  #   restart: unless-stopped
-  #   env_file: ../.env
-  #   environment:
-  #     EGRESS_OUTPUT_DIR: /recordings
-  #   ports:
-  #     - "5001:5001"
-  #   volumes:
-  #     - ./data/recordings:/recordings
-  #   networks: [lk]
+  backend:
+    build: ..                          # builds Ej-backend/Dockerfile
+    restart: unless-stopped
+    depends_on: [redis, livekit]
+    env_file: ../.env
+    environment:
+      NODE_ENV: production
+      PORT: 5001
+      EGRESS_OUTPUT_DIR: /recordings
+    ports:
+      - "5055:5001"                    # host 5055 (free) -> container 5001; nginx proxies to 5055
+    volumes:
+      - recordings:/recordings         # same volume egress writes to (for Cloudinary upload)
+    networks: [lk]
+
+volumes:
+  recordings:
 
 networks:
   lk:
