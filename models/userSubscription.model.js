@@ -19,7 +19,11 @@ const userSubscriptionSchema = new Schema(
     renewsAt: { type: Date },
     cancelledAt: { type: Date },
 
-    pricePerMonth: { type: Number, default: 0 },
+    pricePerMonth: { type: Number, default: 0 },        // charged amount in `currency`
+    currency: { type: String, uppercase: true, trim: true, default: 'USD' },
+    country: { type: String, uppercase: true, trim: true },
+    pricePerMonthUsd: { type: Number, default: 0 },     // equivalent base USD (for reporting)
+    provider: { type: String, enum: ['stripe', 'paypal', 'internal'], default: 'stripe' },
 
     // Usage counters (resets on renewal)
     usage: {
@@ -29,7 +33,8 @@ const userSubscriptionSchema = new Schema(
     },
 
     stripeSubscriptionId: { type: String, index: true, sparse: true },
-    stripeCheckoutSessionId: { type: String, index: true, sparse: true }
+    stripeCheckoutSessionId: { type: String, index: true, sparse: true },
+    paypalOrderId: { type: String, index: true, sparse: true }
   },
   { timestamps: true }
 );

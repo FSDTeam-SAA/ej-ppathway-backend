@@ -30,6 +30,10 @@ const userSchema = new Schema(
 
     profilePhoto: { type: String, default: '' },
     location: { type: String, default: '' },
+    // ISO-3166 alpha-2 country code + the local currency it maps to. Drives which
+    // currency/price the user sees and is auto-detected then persisted (overridable).
+    country: { type: String, uppercase: true, trim: true, default: '' },
+    currency: { type: String, uppercase: true, trim: true, default: '' },
     timezone: { type: String, default: 'UTC' },
     language: { type: String, default: 'English' },
 

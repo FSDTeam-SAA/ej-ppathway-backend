@@ -16,6 +16,7 @@ import advisorRoutes from './routes/advisor.routes.js';
 import sessionRoutes from './routes/session.routes.js';
 import walletRoutes from './routes/wallet.routes.js';
 import subscriptionRoutes from './routes/subscription.routes.js';
+import currencyRoutes from './routes/currency.routes.js';
 import disputeRoutes from './routes/dispute.routes.js';
 import complaintRoutes from './routes/complaint.routes.js';
 import reviewRoutes from './routes/review.routes.js';
@@ -72,6 +73,7 @@ app.use('/api/v1/advisor', advisorRoutes);            // logged-in advisor self
 app.use('/api/v1/sessions', sessionRoutes);
 app.use('/api/v1/wallet', walletRoutes);
 app.use('/api/v1/subscriptions', subscriptionRoutes);
+app.use('/api/v1/currencies', currencyRoutes);
 app.use('/api/v1/disputes', disputeRoutes);
 app.use('/api/v1/complaints', complaintRoutes);
 app.use('/api/v1/reviews', reviewRoutes);

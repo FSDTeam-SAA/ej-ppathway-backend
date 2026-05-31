@@ -7,6 +7,8 @@ import {
   getTopupStatus,
   stripeTopupSuccess,
   stripeTopupCancel,
+  paypalTopupSuccess,
+  paypalTopupCancel,
   requestWithdrawal,
   myEarningsOverview,
   myEarningsHistory,
@@ -17,9 +19,11 @@ import {
 
 const router = Router();
 
-// Public Stripe success/cancel routes (no auth — Stripe redirects user)
+// Public success/cancel routes (no auth — provider redirects user back)
 router.get('/topup/success', stripeTopupSuccess);
 router.get('/topup/cancel', stripeTopupCancel);
+router.get('/paypal/success', paypalTopupSuccess);
+router.get('/paypal/cancel', paypalTopupCancel);
 
 router.use(auth());
 

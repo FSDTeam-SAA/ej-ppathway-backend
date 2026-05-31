@@ -1,7 +1,9 @@
 import User from '../models/user.model.js';
 import Plan from '../models/plan.model.js';
 import CmsPage from '../models/cmsPage.model.js';
+import Currency from '../models/currency.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
+import { DEFAULT_CURRENCIES } from '../utils/geo.js';
 import seedSiteContent from './seed-site-content.js';
 
 export const ensureSeed = async () => {
@@ -115,6 +117,16 @@ export const ensureSeed = async () => {
   ];
   for (const p of pages) {
     await CmsPage.findOneAndUpdate({ slug: p.slug }, { $setOnInsert: { ...p, content: '' } }, { upsert: true });
+  }
+
+  // Supported currencies — seed the default catalog only for countries the admin
+  // hasn't already configured (so edited rates/prices are never overwritten).
+  for (const c of DEFAULT_CURRENCIES) {
+    await Currency.updateOne(
+      { country: c.country },
+      { $setOnInsert: c },
+      { upsert: true }
+    );
   }
 
   // Platform settings

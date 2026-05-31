@@ -11,6 +11,8 @@ import User from '../models/user.model.js';
 import Wallet from '../models/wallet.model.js';
 import AdvisorApplication from '../models/advisorApplication.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
+import { detectCountry } from '../utils/geo.js';
+import { getCurrencyForCountry } from '../services/pricing.service.js';
 
 const OTP_EXPIRES_MIN = 10;
 
@@ -85,11 +87,18 @@ export const signupUser = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.CONFLICT, 'Email already registered');
   }
 
+  // Auto-detect the signup country so prices show in the right currency from the
+  // first session (app may pass `country`, or send X-Country / be behind a geo CDN).
+  const country = detectCountry(req);
+  const cur = await getCurrencyForCountry(country);
+
   let user;
   if (existing && !existing.isVerified) {
     existing.name = name;
     existing.phone = phoneNumber || existing.phone;
     existing.password = password;
+    existing.country = existing.country || cur.country;
+    existing.currency = existing.currency || cur.currency;
     existing.isVerified = true;
     existing.status = 'active';
     user = existing;
@@ -100,6 +109,8 @@ export const signupUser = catchAsync(async (req, res) => {
       phone: phoneNumber,
       password,
       role: 'user',
+      country: cur.country,
+      currency: cur.currency,
       isVerified: true,
       status: 'active'
     });
