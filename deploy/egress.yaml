@@ -1,0 +1,20 @@
+# LiveKit Egress config (recorder).
+# api_key / api_secret / ws_url must match the LiveKit server (livekit.yaml).
+
+redis:
+  address: redis:6379
+
+api_key: REPLACE_API_KEY
+api_secret: REPLACE_API_SECRET_AT_LEAST_32_CHARS
+
+# Internal websocket URL to the LiveKit server (compose service name).
+ws_url: ws://livekit:7880
+
+# Where local recordings are written when the egress request has no S3 target.
+# This maps to /recordings in the container (shared volume), which the backend
+# also mounts so it can forward files to Cloudinary.
+log_level: info
+
+# Limit concurrent recordings to protect the VPS (each uses a headless Chrome).
+cpu_cost:
+  room_composite_cpu_cost: 3

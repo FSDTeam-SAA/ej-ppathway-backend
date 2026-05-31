@@ -34,6 +34,7 @@ import {
 
 import {
   listSessions,
+  listRecordings,
   getSession,
   adminCancelSession,
   adminFlagSession,
@@ -96,10 +97,6 @@ import {
 } from '../controllers/review.controller.js';
 
 import {
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-
   adminListContactMessages,
   adminGetContactMessage,
   adminUpdateContactMessage,
@@ -143,6 +140,7 @@ router.delete('/advisors/:id', deleteAdvisor);
 
 // Sessions
 router.get('/sessions', listSessions);
+router.get('/sessions/recordings', listRecordings); // must precede '/sessions/:id'
 router.get('/sessions/:id', getSession);
 router.patch('/sessions/:id/cancel', adminCancelSession);
 router.patch('/sessions/:id/flag', adminFlagSession);

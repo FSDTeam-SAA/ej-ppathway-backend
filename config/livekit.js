@@ -1,4 +1,11 @@
-import { AccessToken, RoomServiceClient, EgressClient, EncodedFileType } from 'livekit-server-sdk';
+import path from 'path';
+import {
+  AccessToken,
+  RoomServiceClient,
+  EgressClient,
+  EncodedFileType,
+  WebhookReceiver
+} from 'livekit-server-sdk';
 
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
@@ -13,6 +20,57 @@ const roomService = LIVEKIT_URL
 const egressClient = LIVEKIT_URL
   ? new EgressClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
   : null;
+
+const webhookReceiver = LIVEKIT_API_KEY && LIVEKIT_API_SECRET
+  ? new WebhookReceiver(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+  : null;
+
+export const isLiveKitConfigured = () => !!LIVEKIT_URL;
+
+/**
+ * S3-compatible storage config for egress recordings.
+ * Works with AWS S3, MinIO, Cloudflare R2, Wasabi, etc.
+ * When unset, egress falls back to writing to the egress container's local filesystem.
+ */
+const EGRESS_S3 = {
+  accessKey: process.env.EGRESS_S3_ACCESS_KEY,
+  secret: process.env.EGRESS_S3_SECRET,
+  bucket: process.env.EGRESS_S3_BUCKET,
+  region: process.env.EGRESS_S3_REGION || 'us-east-1',
+  endpoint: process.env.EGRESS_S3_ENDPOINT, // e.g. https://minio.yourvps.com  (omit for AWS)
+  forcePathStyle: String(process.env.EGRESS_S3_FORCE_PATH_STYLE || 'true') === 'true'
+};
+
+export const hasS3 = () => !!(EGRESS_S3.accessKey && EGRESS_S3.secret && EGRESS_S3.bucket);
+
+/**
+ * Directory (inside the egress container) where recordings are written when NOT using S3.
+ * This path is mounted to a shared volume so the backend can read the file and forward it
+ * to Cloudinary. Both containers must mount the same host directory at this path.
+ */
+export const EGRESS_OUTPUT_DIR = (process.env.EGRESS_OUTPUT_DIR || '/recordings').replace(/\/+$/, '');
+
+/**
+ * Public base URL where recordings can be streamed from (CDN / public bucket / proxy).
+ * Used to build a best-effort recordingUrl immediately at start time. The authoritative
+ * URL is later confirmed by the LiveKit egress webhook (see webhook.controller.js).
+ */
+const RECORDING_PUBLIC_BASE = (process.env.RECORDING_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+
+/**
+ * Build a public URL for a recording given its storage filepath.
+ */
+export const getRecordingPublicUrl = (filepath) => {
+  if (!filepath) return '';
+  const clean = String(filepath).replace(/^\/+/, '');
+  if (RECORDING_PUBLIC_BASE) return `${RECORDING_PUBLIC_BASE}/${clean}`;
+  // Fall back to a path-style S3/MinIO URL when an endpoint is configured.
+  if (EGRESS_S3.endpoint && EGRESS_S3.bucket) {
+    const base = EGRESS_S3.endpoint.replace(/\/+$/, '');
+    return `${base}/${EGRESS_S3.bucket}/${clean}`;
+  }
+  return clean;
+};
 
 /**
  * Generate access token for a participant joining a LiveKit room
@@ -80,17 +138,52 @@ export const removeParticipant = async (roomName, identity) => {
 };
 
 /**
- * Start recording the room. Saves to local file path config OR cloud storage as configured.
- * For simplicity we use built-in EncodedFileOutput pointing to local; in production wire to S3/Cloudinary.
+ * Start a room-composite recording.
+ *
+ * Storage is chosen by what is configured in the environment:
+ *   - EGRESS_S3_* present  -> egress uploads straight to S3-compatible storage
+ *                             (AWS S3, MinIO, Cloudflare R2, Wasabi, …)
+ *   - otherwise            -> egress writes to a local file on a shared volume,
+ *                             which the webhook handler forwards to Cloudinary
+ *                             (or serves directly if neither is configured).
+ *
+ * `nameOnly` is just the file name (e.g. "<sessionId>-<ts>.mp4").
+ * Returns { egressId, filepath, storage, recordingUrl } or null on failure.
  */
-export const startRoomRecording = async (roomName, filepath) => {
+export const startRoomRecording = async (roomName, nameOnly) => {
   if (!egressClient) return null;
   try {
+    const useS3 = hasS3();
+    // S3: key within the bucket. Local: absolute path inside the shared egress volume.
+    const filepath = useS3
+      ? `recordings/${nameOnly}`
+      : path.posix.join(EGRESS_OUTPUT_DIR, nameOnly);
+
     const fileOutput = {
       fileType: EncodedFileType.MP4,
       filepath
     };
-    return await egressClient.startRoomCompositeEgress(roomName, { file: fileOutput });
+
+    if (useS3) {
+      // protobuf-es flattens the oneof: set the `s3` field directly.
+      fileOutput.s3 = {
+        accessKey: EGRESS_S3.accessKey,
+        secret: EGRESS_S3.secret,
+        bucket: EGRESS_S3.bucket,
+        region: EGRESS_S3.region,
+        ...(EGRESS_S3.endpoint ? { endpoint: EGRESS_S3.endpoint } : {}),
+        forcePathStyle: EGRESS_S3.forcePathStyle
+      };
+    }
+
+    const info = await egressClient.startRoomCompositeEgress(roomName, { file: fileOutput });
+    return {
+      egressId: info?.egressId,
+      filepath,
+      storage: useS3 ? 's3' : 'local',
+      // Only S3 has a stable public URL up front; local→Cloudinary resolves on the webhook.
+      recordingUrl: useS3 ? getRecordingPublicUrl(filepath) : ''
+    };
   } catch (e) {
     console.error('startRoomRecording error', e?.message);
     return null;
@@ -106,12 +199,26 @@ export const stopEgress = async (egressId) => {
   }
 };
 
+/**
+ * Validate and parse an incoming LiveKit webhook request.
+ * `body` must be the raw request body (string or Buffer); `authHeader` is the Authorization header.
+ * Returns the decoded event, or null when not verifiable.
+ */
+export const receiveWebhookEvent = async (body, authHeader) => {
+  if (!webhookReceiver) return null;
+  const raw = Buffer.isBuffer(body) ? body.toString('utf8') : body;
+  return webhookReceiver.receive(raw, authHeader);
+};
+
 export default {
+  isLiveKitConfigured,
   generateLiveKitToken,
   createRoom,
   deleteRoom,
   listParticipants,
   removeParticipant,
   startRoomRecording,
-  stopEgress
+  stopEgress,
+  getRecordingPublicUrl,
+  receiveWebhookEvent
 };

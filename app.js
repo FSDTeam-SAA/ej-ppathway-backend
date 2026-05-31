@@ -25,11 +25,17 @@ import notificationRoutes from './routes/notification.routes.js';
 import chatRoutes from './routes/chat.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import contactRoutes from './routes/contact.routes.js';
+import webhookRoutes from './routes/webhook.routes.js';
 
 const app = express();
 
 app.use(helmet());
 app.use(cors({ origin: true, credentials: true }));
+
+// Webhooks must be mounted BEFORE express.json() so their raw body is preserved
+// for signature verification (LiveKit egress recording callbacks).
+app.use('/api/v1/webhooks', webhookRoutes);
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use(cookieParser());

@@ -34,6 +34,35 @@ export const listSessions = catchAsync(async (req, res) => {
   });
 });
 
+// ============= Recordings list =============
+export const listRecordings = catchAsync(async (req, res) => {
+  const { skip, limit, page } = parsePagination(req.query);
+
+  const filter = {
+    recordingUrl: { $exists: true, $nin: [null, ''] }
+  };
+  if (req.query.type && ['call', 'video'].includes(req.query.type)) {
+    filter.type = req.query.type;
+  }
+
+  const total = await Session.countDocuments(filter);
+  const items = await Session.find(filter)
+    .select(
+      'sessionCode type status user advisor recordingUrl actualDurationSec startedAt endedAt createdAt'
+    )
+    .populate('user', 'name profilePhoto email')
+    .populate('advisor', 'name profilePhoto email')
+    .sort({ endedAt: -1, createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+  return sendResponse(res, {
+    data: items,
+    meta: buildMeta({ page, limit, total })
+  });
+});
+
 export const getSession = catchAsync(async (req, res) => {
   const session = await Session.findById(req.params.id)
     .populate('user', 'name profilePhoto email')

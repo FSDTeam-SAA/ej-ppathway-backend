@@ -1,0 +1,66 @@
+# Self-hosted LiveKit stack for EJ Pathway (calls + video + recording).
+#
+# Services:
+#   redis    - required coordination bus between LiveKit and Egress
+#   livekit  - the SFU media server (handles all audio/video routing + ICE/TURN)
+#   egress   - records room composites to a shared local volume (./data/recordings)
+#
+# The Node backend reads finished recordings from the SAME ./data/recordings
+# volume and uploads them to Cloudinary (or you set EGRESS_S3_* to upload to S3
+# directly and skip the local hop). Run the backend on this VPS so it shares the
+# volume — see the optional `backend` service at the bottom.
+#
+# 1. Copy .env.example -> .env  and fill in the values referenced below.
+# 2. Open the firewall: 7880/tcp, 7881/tcp, 50000-60000/udp (and 443 if you add TLS).
+# 3. docker compose up -d
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 20 1 --loglevel warning
+    networks: [lk]
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    depends_on: [redis]
+    ports:
+      - "7880:7880"                # signaling (ws/http) — put behind TLS reverse proxy in prod
+      - "7881:7881"                # RTC over TCP fallback
+      - "50000-60000:50000-60000/udp"  # RTC media (UDP)
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    networks: [lk]
+
+  egress:
+    image: livekit/egress:latest
+    restart: unless-stopped
+    depends_on: [redis, livekit]
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+      # Recordings land here; the backend mounts the SAME host path.
+      - ./data/recordings:/recordings
+    # Egress runs a headless Chromium; it needs a larger shm.
+    shm_size: "1gb"
+    networks: [lk]
+
+  # ---- Optional: run the API backend here so it shares the recordings volume ----
+  # backend:
+  #   build: ..                 # path to Ej-backend
+  #   restart: unless-stopped
+  #   env_file: ../.env
+  #   environment:
+  #     EGRESS_OUTPUT_DIR: /recordings
+  #   ports:
+  #     - "5001:5001"
+  #   volumes:
+  #     - ./data/recordings:/recordings
+  #   networks: [lk]
+
+networks:
+  lk:
+    driver: bridge
