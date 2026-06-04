@@ -12,7 +12,6 @@ import Wallet from '../models/wallet.model.js';
 import AdvisorApplication from '../models/advisorApplication.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { detectCountry } from '../utils/geo.js';
-import { getCurrencyForCountry } from '../services/pricing.service.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 
 const OTP_EXPIRES_MIN = 10;
@@ -75,7 +74,7 @@ const issueOtp = async (user, purpose = 'verify') => {
 
 // ========== Sign Up ==========
 export const signupUser = catchAsync(async (req, res) => {
-  const { name, email, phoneNumber, password, confirmPassword } = req.body;
+  const { name, email, phone, phoneNumber, password, confirmPassword, city } = req.body;
   if (!name || !email || !password) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'name, email, password are required');
   }
@@ -88,18 +87,22 @@ export const signupUser = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.CONFLICT, 'Email already registered');
   }
 
-  // Auto-detect the signup country so prices show in the right currency from the
-  // first session (app may pass `country`, or send X-Country / be behind a geo CDN).
+  // Country comes from the signup form (ISO-2) when provided, else auto-detected
+  // (X-Country / geo CDN). The display currency follows the country's own default
+  // currency so prices show the right symbol from the first session.
   const country = detectCountry(req);
-  const cur = await getCurrencyForCountry(country);
+  const currency = getCountryCurrencyCode(country) || 'USD';
+  const cityVal = (city || '').toString().trim();
+  const phoneVal = phone || phoneNumber;
 
   let user;
   if (existing && !existing.isVerified) {
     existing.name = name;
-    existing.phone = phoneNumber || existing.phone;
+    existing.phone = phoneVal || existing.phone;
     existing.password = password;
-    existing.country = existing.country || cur.country;
-    existing.currency = existing.currency || cur.currency;
+    existing.country = country || existing.country;
+    existing.city = cityVal || existing.city;
+    existing.currency = currency || existing.currency;
     existing.isVerified = true;
     existing.status = 'active';
     user = existing;
@@ -107,11 +110,12 @@ export const signupUser = catchAsync(async (req, res) => {
     user = new User({
       name,
       email: email.toLowerCase(),
-      phone: phoneNumber,
+      phone: phoneVal,
       password,
       role: 'user',
-      country: cur.country,
-      currency: cur.currency,
+      country,
+      city: cityVal,
+      currency,
       isVerified: true,
       status: 'active'
     });
