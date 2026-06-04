@@ -1,0 +1,2363 @@
+[{
+  "_id": {
+    "$oid": "68d11d8f1dc367886d6cee25"
+  },
+  "code": "AED",
+  "currencyName": "UAE Dirham",
+  "primaryCountry": "United Arab Emirates",
+  "symbol": "د.إ",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T09:57:35.503Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:52.049Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228c1dc367886d6cefca"
+  },
+  "code": "AFN",
+  "currencyName": "Afghan Afghani",
+  "primaryCountry": "Afghanistan",
+  "symbol": "؋",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:52.308Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:52.308Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228c1dc367886d6cefcd"
+  },
+  "code": "AMD",
+  "currencyName": "Armenian Dram",
+  "primaryCountry": "Armenia",
+  "symbol": "֏",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:52.538Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:52.538Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228c1dc367886d6cefd0"
+  },
+  "code": "ANG",
+  "currencyName": "Netherlands Antillean Guilder",
+  "primaryCountry": "Curaçao, Sint Maarten",
+  "symbol": "ƒ",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:52.767Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:52.767Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228c1dc367886d6cefd3"
+  },
+  "code": "AOA",
+  "currencyName": "Angolan Kwanza",
+  "primaryCountry": "Angola",
+  "symbol": "Kz",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:52.995Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:52.995Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228d1dc367886d6cefd6"
+  },
+  "code": "ARS",
+  "currencyName": "Argentine Peso",
+  "primaryCountry": "Argentina",
+  "symbol": "$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:53.222Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:53.222Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228d1dc367886d6cefd9"
+  },
+  "code": "AUD",
+  "currencyName": "Australian Dollar",
+  "primaryCountry": "Australia",
+  "symbol": "A$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:53.450Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:53.450Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228d1dc367886d6cefdc"
+  },
+  "code": "AWG",
+  "currencyName": "Aruban Florin",
+  "primaryCountry": "Aruba",
+  "symbol": "ƒ",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:53.684Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:53.684Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228d1dc367886d6cefdf"
+  },
+  "code": "AZN",
+  "currencyName": "Azerbaijani Manat",
+  "primaryCountry": "Azerbaijan",
+  "symbol": "₼",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:53.914Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:53.914Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228e1dc367886d6cefe2"
+  },
+  "code": "BBD",
+  "currencyName": "Barbados Dollar",
+  "primaryCountry": "Barbados",
+  "symbol": "Bds$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:54.145Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:54.145Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228e1dc367886d6cefe5"
+  },
+  "code": "BDT",
+  "currencyName": "Bangladeshi Taka",
+  "primaryCountry": "Bangladesh",
+  "symbol": "৳",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:54.375Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:54.375Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228e1dc367886d6cefe8"
+  },
+  "code": "BHD",
+  "currencyName": "Bahraini Dinar",
+  "primaryCountry": "Bahrain",
+  "symbol": "د.ب",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:54.603Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:54.603Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228e1dc367886d6cefeb"
+  },
+  "code": "BIF",
+  "currencyName": "Burundian Franc",
+  "primaryCountry": "Burundi",
+  "symbol": "FBu",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:54.833Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:54.833Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228f1dc367886d6cefee"
+  },
+  "code": "BMD",
+  "currencyName": "Bermudian Dollar",
+  "primaryCountry": "Bermuda",
+  "symbol": "BD$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:55.061Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:55.061Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228f1dc367886d6ceff1"
+  },
+  "code": "BND",
+  "currencyName": "Brunei Dollar",
+  "primaryCountry": "Brunei",
+  "symbol": "B$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:55.290Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:55.290Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228f1dc367886d6ceff4"
+  },
+  "code": "BOB",
+  "currencyName": "Boliviano",
+  "primaryCountry": "Bolivia",
+  "symbol": "Bs.",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:55.516Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:55.516Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228f1dc367886d6ceff7"
+  },
+  "code": "BRL",
+  "currencyName": "Brazilian Real",
+  "primaryCountry": "Brazil",
+  "symbol": "R$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:55.756Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:55.756Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1228f1dc367886d6ceffa"
+  },
+  "code": "BSD",
+  "currencyName": "Bahamian Dollar",
+  "primaryCountry": "Bahamas",
+  "symbol": "B$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:55.982Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:55.982Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122901dc367886d6ceffd"
+  },
+  "code": "BTN",
+  "currencyName": "Bhutanese Ngultrum",
+  "primaryCountry": "Bhutan",
+  "symbol": "Nu.",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:56.212Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:56.212Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122901dc367886d6cf000"
+  },
+  "code": "BWP",
+  "currencyName": "Botswana Pula",
+  "primaryCountry": "Botswana",
+  "symbol": "P",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:56.439Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:56.439Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122901dc367886d6cf003"
+  },
+  "code": "BZD",
+  "currencyName": "Belize Dollar",
+  "primaryCountry": "Belize",
+  "symbol": "BZ$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:56.664Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:56.664Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122901dc367886d6cf006"
+  },
+  "code": "CAD",
+  "currencyName": "Canadian Dollar",
+  "primaryCountry": "Canada",
+  "symbol": "C$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:56.892Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:56.892Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122911dc367886d6cf009"
+  },
+  "code": "CDF",
+  "currencyName": "Congolese Franc",
+  "primaryCountry": "DR Congo",
+  "symbol": "FC",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:57.126Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:57.126Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122911dc367886d6cf00c"
+  },
+  "code": "CHE",
+  "currencyName": "WIR Euro (complementary)",
+  "primaryCountry": "Switzerland (cheque)",
+  "symbol": "nan",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:57.355Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:57.355Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122911dc367886d6cf00f"
+  },
+  "code": "CHF",
+  "currencyName": "Swiss Franc",
+  "primaryCountry": "Switzerland, Liechtenstein",
+  "symbol": "Fr",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:57.583Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:57.583Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122911dc367886d6cf012"
+  },
+  "code": "CHW",
+  "currencyName": "WIR Franc (complementary)",
+  "primaryCountry": "Switzerland (wire)",
+  "symbol": "nan",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:57.812Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:57.812Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122921dc367886d6cf015"
+  },
+  "code": "CLP",
+  "currencyName": "Chilean Peso",
+  "primaryCountry": "Chile",
+  "symbol": "$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:58.044Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:58.044Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122921dc367886d6cf018"
+  },
+  "code": "CNY",
+  "currencyName": "Chinese Yuan",
+  "primaryCountry": "China (Mainland)",
+  "symbol": "¥",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:58.273Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:58.273Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122921dc367886d6cf01b"
+  },
+  "code": "COP",
+  "currencyName": "Colombian Peso",
+  "primaryCountry": "Colombia",
+  "symbol": "$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:58.500Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:58.500Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122921dc367886d6cf01e"
+  },
+  "code": "CRC",
+  "currencyName": "Costa Rican Colón",
+  "primaryCountry": "Costa Rica",
+  "symbol": "₡",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:58.727Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:58.727Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122921dc367886d6cf021"
+  },
+  "code": "CUC",
+  "currencyName": "Cuban Convertible Peso (legacy)",
+  "primaryCountry": "Cuba",
+  "symbol": "CUC$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:58.962Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:58.962Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122931dc367886d6cf024"
+  },
+  "code": "CUP",
+  "currencyName": "Cuban Peso",
+  "primaryCountry": "Cuba",
+  "symbol": "$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:59.201Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:59.201Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122931dc367886d6cf027"
+  },
+  "code": "DKK",
+  "currencyName": "Danish Krone",
+  "primaryCountry": "Denmark, Greenland, Faroe Islands",
+  "symbol": "kr",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:59.428Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:59.428Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122931dc367886d6cf02a"
+  },
+  "code": "DOP",
+  "currencyName": "Dominican Peso",
+  "primaryCountry": "Dominican Republic",
+  "symbol": "RD$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:59.659Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:59.659Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122931dc367886d6cf02d"
+  },
+  "code": "DZD",
+  "currencyName": "Algerian Dinar",
+  "primaryCountry": "Algeria",
+  "symbol": "د.ج",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:18:59.889Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:18:59.889Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122941dc367886d6cf030"
+  },
+  "code": "EGP",
+  "currencyName": "Egyptian Pound",
+  "primaryCountry": "Egypt",
+  "symbol": "£",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:00.117Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:00.117Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122941dc367886d6cf033"
+  },
+  "code": "ETB",
+  "currencyName": "Ethiopian Birr",
+  "primaryCountry": "Ethiopia",
+  "symbol": "Br",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:00.343Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:00.343Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122941dc367886d6cf036"
+  },
+  "code": "EUR",
+  "currencyName": "Euro",
+  "primaryCountry": "Eurozone",
+  "symbol": "€",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:00.569Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:00.569Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122941dc367886d6cf039"
+  },
+  "code": "FJD",
+  "currencyName": "Fijian Dollar",
+  "primaryCountry": "Fiji",
+  "symbol": "FJ$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:00.798Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:00.798Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122951dc367886d6cf03c"
+  },
+  "code": "FKP",
+  "currencyName": "Falkland Islands Pound",
+  "primaryCountry": "Falkland Islands",
+  "symbol": "£",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:01.026Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:01.026Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122951dc367886d6cf03f"
+  },
+  "code": "GBP",
+  "currencyName": "Pound Sterling",
+  "primaryCountry": "United Kingdom",
+  "symbol": "£",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:01.279Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:01.279Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122951dc367886d6cf042"
+  },
+  "code": "GEL",
+  "currencyName": "Georgian Lari",
+  "primaryCountry": "Georgia",
+  "symbol": "₾",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:01.507Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:01.507Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122951dc367886d6cf045"
+  },
+  "code": "GHS",
+  "currencyName": "Ghanaian Cedi",
+  "primaryCountry": "Ghana",
+  "symbol": "₵",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:01.736Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:01.736Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122951dc367886d6cf048"
+  },
+  "code": "GIP",
+  "currencyName": "Gibraltar Pound",
+  "primaryCountry": "Gibraltar",
+  "symbol": "£",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:01.971Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:01.971Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122961dc367886d6cf04b"
+  },
+  "code": "GMD",
+  "currencyName": "Gambian Dalasi",
+  "primaryCountry": "Gambia",
+  "symbol": "D",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:02.199Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:02.199Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122961dc367886d6cf04e"
+  },
+  "code": "GTQ",
+  "currencyName": "Guatemalan Quetzal",
+  "primaryCountry": "Guatemala",
+  "symbol": "Q",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:02.432Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:02.432Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122961dc367886d6cf051"
+  },
+  "code": "GYD",
+  "currencyName": "Guyanese Dollar",
+  "primaryCountry": "Guyana",
+  "symbol": "G$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:02.658Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:02.658Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122961dc367886d6cf054"
+  },
+  "code": "HKD",
+  "currencyName": "Hong Kong Dollar",
+  "primaryCountry": "Hong Kong",
+  "symbol": "HK$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:02.884Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:02.884Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122971dc367886d6cf057"
+  },
+  "code": "HNL",
+  "currencyName": "Honduran Lempira",
+  "primaryCountry": "Honduras",
+  "symbol": "L",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:03.111Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:03.111Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122971dc367886d6cf05a"
+  },
+  "code": "HTG",
+  "currencyName": "Haitian Gourde",
+  "primaryCountry": "Haiti",
+  "symbol": "G",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:03.352Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:03.352Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122971dc367886d6cf05d"
+  },
+  "code": "IDR",
+  "currencyName": "Indonesian Rupiah",
+  "primaryCountry": "Indonesia",
+  "symbol": "Rp",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:03.580Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:03.580Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122971dc367886d6cf060"
+  },
+  "code": "ILS",
+  "currencyName": "Israeli New Shekel",
+  "primaryCountry": "Israel",
+  "symbol": "₪",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:03.809Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:03.809Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122981dc367886d6cf063"
+  },
+  "code": "INR",
+  "currencyName": "Indian Rupee",
+  "primaryCountry": "India",
+  "symbol": "₹",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:04.044Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:04.044Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122981dc367886d6cf066"
+  },
+  "code": "IQD",
+  "currencyName": "Iraqi Dinar",
+  "primaryCountry": "Iraq",
+  "symbol": "د.ع",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:04.276Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:04.276Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122981dc367886d6cf069"
+  },
+  "code": "IRR",
+  "currencyName": "Iranian Rial",
+  "primaryCountry": "Iran",
+  "symbol": "﷼",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:04.507Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:04.507Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122981dc367886d6cf06c"
+  },
+  "code": "JMD",
+  "currencyName": "Jamaican Dollar",
+  "primaryCountry": "Jamaica",
+  "symbol": "J$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:04.746Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:04.746Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122981dc367886d6cf06f"
+  },
+  "code": "JOD",
+  "currencyName": "Jordanian Dinar",
+  "primaryCountry": "Jordan",
+  "symbol": "د.ا",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:04.983Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:04.983Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122991dc367886d6cf072"
+  },
+  "code": "JPY",
+  "currencyName": "Japanese Yen",
+  "primaryCountry": "Japan",
+  "symbol": "¥",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:05.215Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:05.215Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122991dc367886d6cf075"
+  },
+  "code": "KES",
+  "currencyName": "Kenyan Shilling",
+  "primaryCountry": "Kenya",
+  "symbol": "KSh",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:05.445Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:05.445Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122991dc367886d6cf078"
+  },
+  "code": "KGS",
+  "currencyName": "Kyrgyzstani Som",
+  "primaryCountry": "Kyrgyzstan",
+  "symbol": "⃀",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:05.678Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:05.678Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122991dc367886d6cf07b"
+  },
+  "code": "KHR",
+  "currencyName": "Cambodian Riel",
+  "primaryCountry": "Cambodia",
+  "symbol": "៛",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:05.917Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:05.917Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229a1dc367886d6cf07e"
+  },
+  "code": "KPW",
+  "currencyName": "North Korean Won",
+  "primaryCountry": "North Korea",
+  "symbol": "₩",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:06.147Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:06.147Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229a1dc367886d6cf081"
+  },
+  "code": "KRW",
+  "currencyName": "South Korean Won",
+  "primaryCountry": "South Korea",
+  "symbol": "₩",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:06.376Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:06.376Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229a1dc367886d6cf084"
+  },
+  "code": "KWD",
+  "currencyName": "Kuwaiti Dinar",
+  "primaryCountry": "Kuwait",
+  "symbol": "د.ك",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:06.606Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:06.606Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229a1dc367886d6cf087"
+  },
+  "code": "KYD",
+  "currencyName": "Cayman Islands Dollar",
+  "primaryCountry": "Cayman Islands",
+  "symbol": "CI$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:06.839Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:06.839Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229b1dc367886d6cf08a"
+  },
+  "code": "KZT",
+  "currencyName": "Kazakhstani Tenge",
+  "primaryCountry": "Kazakhstan",
+  "symbol": "₸",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:07.071Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:07.071Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229b1dc367886d6cf08d"
+  },
+  "code": "LAK",
+  "currencyName": "Lao Kip",
+  "primaryCountry": "Laos",
+  "symbol": "₭",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:07.302Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:07.302Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229b1dc367886d6cf090"
+  },
+  "code": "LBP",
+  "currencyName": "Lebanese Pound",
+  "primaryCountry": "Lebanon",
+  "symbol": "ل.ل",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:07.534Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:07.534Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229b1dc367886d6cf093"
+  },
+  "code": "LKR",
+  "currencyName": "Sri Lankan Rupee",
+  "primaryCountry": "Sri Lanka",
+  "symbol": "Rs",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:07.764Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:07.764Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229b1dc367886d6cf096"
+  },
+  "code": "LRD",
+  "currencyName": "Liberian Dollar",
+  "primaryCountry": "Liberia",
+  "symbol": "L$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:07.999Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:07.999Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229c1dc367886d6cf099"
+  },
+  "code": "LSL",
+  "currencyName": "Lesotho Loti",
+  "primaryCountry": "Lesotho",
+  "symbol": "L",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:08.229Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:08.229Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229c1dc367886d6cf09c"
+  },
+  "code": "MAD",
+  "currencyName": "Moroccan Dirham",
+  "primaryCountry": "Morocco",
+  "symbol": "د.م.",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:08.460Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:08.460Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229c1dc367886d6cf09f"
+  },
+  "code": "MGA",
+  "currencyName": "Malagasy Ariary",
+  "primaryCountry": "Madagascar",
+  "symbol": "Ar",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:08.691Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:08.691Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229c1dc367886d6cf0a2"
+  },
+  "code": "MMK",
+  "currencyName": "Myanmar Kyat",
+  "primaryCountry": "Myanmar",
+  "symbol": "Ks",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:08.926Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:08.926Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229d1dc367886d6cf0a5"
+  },
+  "code": "MNT",
+  "currencyName": "Mongolian Tögrög",
+  "primaryCountry": "Mongolia",
+  "symbol": "₮",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:09.158Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:09.158Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229d1dc367886d6cf0a8"
+  },
+  "code": "MOP",
+  "currencyName": "Macanese Pataca",
+  "primaryCountry": "Macau",
+  "symbol": "MOP$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:09.388Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:09.388Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229d1dc367886d6cf0ab"
+  },
+  "code": "MRU",
+  "currencyName": "Mauritanian Ouguiya",
+  "primaryCountry": "Mauritania",
+  "symbol": "UM",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:09.618Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:09.618Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229d1dc367886d6cf0ae"
+  },
+  "code": "MUR",
+  "currencyName": "Mauritian Rupee",
+  "primaryCountry": "Mauritius",
+  "symbol": "₨",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:09.862Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:09.862Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229e1dc367886d6cf0b1"
+  },
+  "code": "MVR",
+  "currencyName": "Maldivian Rufiyaa",
+  "primaryCountry": "Maldives",
+  "symbol": "Rf",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:10.095Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:10.095Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229e1dc367886d6cf0b4"
+  },
+  "code": "MWK",
+  "currencyName": "Malawian Kwacha",
+  "primaryCountry": "Malawi",
+  "symbol": "MK",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:10.326Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:10.326Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229e1dc367886d6cf0b7"
+  },
+  "code": "MXN",
+  "currencyName": "Mexican Peso",
+  "primaryCountry": "Mexico",
+  "symbol": "$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:10.556Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:10.556Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229e1dc367886d6cf0ba"
+  },
+  "code": "MYR",
+  "currencyName": "Malaysian Ringgit",
+  "primaryCountry": "Malaysia",
+  "symbol": "RM",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:10.787Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:10.787Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229f1dc367886d6cf0bd"
+  },
+  "code": "MZN",
+  "currencyName": "Mozambican Metical",
+  "primaryCountry": "Mozambique",
+  "symbol": "MT",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:11.020Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:11.020Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229f1dc367886d6cf0c0"
+  },
+  "code": "NAD",
+  "currencyName": "Namibian Dollar",
+  "primaryCountry": "Namibia",
+  "symbol": "N$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:11.250Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:11.250Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229f1dc367886d6cf0c3"
+  },
+  "code": "NGN",
+  "currencyName": "Nigerian Naira",
+  "primaryCountry": "Nigeria",
+  "symbol": "₦",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:11.481Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:11.481Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229f1dc367886d6cf0c6"
+  },
+  "code": "NIO",
+  "currencyName": "Nicaraguan Córdoba",
+  "primaryCountry": "Nicaragua",
+  "symbol": "C$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:11.716Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:11.716Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d1229f1dc367886d6cf0c9"
+  },
+  "code": "NOK",
+  "currencyName": "Norwegian Krone",
+  "primaryCountry": "Norway",
+  "symbol": "kr",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:11.945Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:11.945Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a01dc367886d6cf0cc"
+  },
+  "code": "NPR",
+  "currencyName": "Nepalese Rupee",
+  "primaryCountry": "Nepal",
+  "symbol": "Rs",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:12.175Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:12.175Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a01dc367886d6cf0cf"
+  },
+  "code": "NZD",
+  "currencyName": "New Zealand Dollar",
+  "primaryCountry": "New Zealand",
+  "symbol": "NZ$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:12.409Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:12.409Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a01dc367886d6cf0d2"
+  },
+  "code": "OMR",
+  "currencyName": "Omani Rial",
+  "primaryCountry": "Oman",
+  "symbol": "ر.ع.",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:12.640Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:12.640Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a01dc367886d6cf0d5"
+  },
+  "code": "PAB",
+  "currencyName": "Panamanian Balboa",
+  "primaryCountry": "Panama",
+  "symbol": "B/.",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:12.872Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:12.872Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a11dc367886d6cf0d8"
+  },
+  "code": "PEN",
+  "currencyName": "Peruvian Sol",
+  "primaryCountry": "Peru",
+  "symbol": "S/.",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:13.111Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:13.111Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a11dc367886d6cf0db"
+  },
+  "code": "PGK",
+  "currencyName": "Papua New Guinean Kina",
+  "primaryCountry": "Papua New Guinea",
+  "symbol": "K",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:13.346Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:13.346Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a11dc367886d6cf0de"
+  },
+  "code": "PHP",
+  "currencyName": "Philippine Peso",
+  "primaryCountry": "Philippines",
+  "symbol": "₱",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:13.577Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:13.577Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a11dc367886d6cf0e1"
+  },
+  "code": "PKR",
+  "currencyName": "Pakistani Rupee",
+  "primaryCountry": "Pakistan",
+  "symbol": "Rs",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:13.819Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:13.819Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a21dc367886d6cf0e4"
+  },
+  "code": "PYG",
+  "currencyName": "Paraguayan Guaraní",
+  "primaryCountry": "Paraguay",
+  "symbol": "₲",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:14.051Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:14.051Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a21dc367886d6cf0e7"
+  },
+  "code": "QAR",
+  "currencyName": "Qatari Riyal",
+  "primaryCountry": "Qatar",
+  "symbol": "ر.ق",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:14.285Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:14.285Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a21dc367886d6cf0ea"
+  },
+  "code": "RUB",
+  "currencyName": "Russian Ruble",
+  "primaryCountry": "Russia",
+  "symbol": "₽",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:14.518Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:14.518Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a21dc367886d6cf0ed"
+  },
+  "code": "RWF",
+  "currencyName": "Rwandan Franc",
+  "primaryCountry": "Rwanda",
+  "symbol": "FRw",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:14.750Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:14.750Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a21dc367886d6cf0f0"
+  },
+  "code": "SAR",
+  "currencyName": "Saudi Riyal",
+  "primaryCountry": "Saudi Arabia",
+  "symbol": "ر.س",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:14.986Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:14.986Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a31dc367886d6cf0f3"
+  },
+  "code": "SBD",
+  "currencyName": "Solomon Islands Dollar",
+  "primaryCountry": "Solomon Islands",
+  "symbol": "SI$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:15.222Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:15.222Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a31dc367886d6cf0f6"
+  },
+  "code": "SCR",
+  "currencyName": "Seychellois Rupee",
+  "primaryCountry": "Seychelles",
+  "symbol": "₨",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:15.452Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:15.452Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a31dc367886d6cf0f9"
+  },
+  "code": "SEK",
+  "currencyName": "Swedish Krona",
+  "primaryCountry": "Sweden",
+  "symbol": "kr",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:15.686Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:15.686Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a31dc367886d6cf0fc"
+  },
+  "code": "SGD",
+  "currencyName": "Singapore Dollar",
+  "primaryCountry": "Singapore",
+  "symbol": "S$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:15.918Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:15.918Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a41dc367886d6cf0ff"
+  },
+  "code": "SHP",
+  "currencyName": "Saint Helena Pound",
+  "primaryCountry": "Saint Helena",
+  "symbol": "£",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:16.150Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:16.150Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a41dc367886d6cf102"
+  },
+  "code": "SLL",
+  "currencyName": "Sierra Leonean Leone",
+  "primaryCountry": "Sierra Leone",
+  "symbol": "Le",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:16.386Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:16.386Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a41dc367886d6cf105"
+  },
+  "code": "SRD",
+  "currencyName": "Surinamese Dollar",
+  "primaryCountry": "Suriname",
+  "symbol": "$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:16.622Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:16.622Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a41dc367886d6cf108"
+  },
+  "code": "SYP",
+  "currencyName": "Syrian Pound",
+  "primaryCountry": "Syria",
+  "symbol": "£",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:16.854Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:16.854Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a51dc367886d6cf10b"
+  },
+  "code": "SZL",
+  "currencyName": "Eswatini Lilangeni",
+  "primaryCountry": "Eswatini",
+  "symbol": "E",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:17.085Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:17.085Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a51dc367886d6cf10e"
+  },
+  "code": "THB",
+  "currencyName": "Thai Baht",
+  "primaryCountry": "Thailand",
+  "symbol": "฿",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:17.316Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:17.316Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a51dc367886d6cf111"
+  },
+  "code": "TJS",
+  "currencyName": "Tajikistani Somoni",
+  "primaryCountry": "Tajikistan",
+  "symbol": "ЅМ",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:17.546Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:17.546Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a51dc367886d6cf114"
+  },
+  "code": "TND",
+  "currencyName": "Tunisian Dinar",
+  "primaryCountry": "Tunisia",
+  "symbol": "د.ت",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:17.777Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:17.777Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a61dc367886d6cf117"
+  },
+  "code": "TOP",
+  "currencyName": "Tongan Paʻanga",
+  "primaryCountry": "Tonga",
+  "symbol": "T$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:18.008Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:18.008Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a61dc367886d6cf11a"
+  },
+  "code": "TRY",
+  "currencyName": "Turkish Lira",
+  "primaryCountry": "Türkiye",
+  "symbol": "₺",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:18.243Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:18.243Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a61dc367886d6cf11d"
+  },
+  "code": "TTD",
+  "currencyName": "Trinidad and Tobago Dollar",
+  "primaryCountry": "Trinidad and Tobago",
+  "symbol": "TT$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:18.478Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:18.478Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a61dc367886d6cf120"
+  },
+  "code": "TWD",
+  "currencyName": "New Taiwan Dollar",
+  "primaryCountry": "Taiwan",
+  "symbol": "NT$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:18.713Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:18.713Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a61dc367886d6cf123"
+  },
+  "code": "TZS",
+  "currencyName": "Tanzanian Shilling",
+  "primaryCountry": "Tanzania",
+  "symbol": "TSh",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:18.946Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:18.946Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a71dc367886d6cf126"
+  },
+  "code": "UGX",
+  "currencyName": "Ugandan Shilling",
+  "primaryCountry": "Uganda",
+  "symbol": "USh",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:19.187Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:19.187Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a71dc367886d6cf129"
+  },
+  "code": "USD",
+  "currencyName": "US Dollar",
+  "primaryCountry": "United States, multiple countries/territories",
+  "symbol": "$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:19.417Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:19.417Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a71dc367886d6cf12c"
+  },
+  "code": "USN",
+  "currencyName": "US Dollar (Next day)",
+  "primaryCountry": "United States (funds code)",
+  "symbol": "nan",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:19.659Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:19.659Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a71dc367886d6cf12f"
+  },
+  "code": "UYI",
+  "currencyName": "Uruguay Peso en Unidades Indexadas",
+  "primaryCountry": "Uruguay (indexed units)",
+  "symbol": "nan",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:19.890Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:19.890Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a81dc367886d6cf132"
+  },
+  "code": "UYU",
+  "currencyName": "Uruguayan Peso",
+  "primaryCountry": "Uruguay",
+  "symbol": "$U",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:20.120Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:20.120Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a81dc367886d6cf135"
+  },
+  "code": "UZS",
+  "currencyName": "Uzbekistani So'm",
+  "primaryCountry": "Uzbekistan",
+  "symbol": "so'm",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:20.352Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:20.352Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a81dc367886d6cf138"
+  },
+  "code": "VES",
+  "currencyName": "Venezuelan Bolívar",
+  "primaryCountry": "Venezuela",
+  "symbol": "Bs.",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:20.615Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:20.615Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a81dc367886d6cf13b"
+  },
+  "code": "VND",
+  "currencyName": "Vietnamese Đồng",
+  "primaryCountry": "Vietnam",
+  "symbol": "₫",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:20.849Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:20.849Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a91dc367886d6cf13e"
+  },
+  "code": "WST",
+  "currencyName": "Samoan Tala",
+  "primaryCountry": "Samoa",
+  "symbol": "T",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:21.085Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:21.085Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a91dc367886d6cf141"
+  },
+  "code": "XAF",
+  "currencyName": "Central African CFA Franc",
+  "primaryCountry": "CEMAC (Central Africa)",
+  "symbol": "Fr",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:21.320Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:21.320Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a91dc367886d6cf144"
+  },
+  "code": "XAG",
+  "currencyName": "Silver (troy ounce)",
+  "primaryCountry": "Bullion (non-sovereign)",
+  "symbol": "Ag",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:21.551Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:21.551Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122a91dc367886d6cf147"
+  },
+  "code": "XAU",
+  "currencyName": "Gold (troy ounce)",
+  "primaryCountry": "Bullion (non-sovereign)",
+  "symbol": "Au",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:21.779Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:21.779Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122aa1dc367886d6cf14a"
+  },
+  "code": "XBT",
+  "currencyName": "Bitcoin (non-ISO)",
+  "primaryCountry": "Crypto (not ISO)",
+  "symbol": "₿",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:22.009Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:22.009Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122aa1dc367886d6cf14d"
+  },
+  "code": "XCD",
+  "currencyName": "East Caribbean Dollar",
+  "primaryCountry": "OECS (East Caribbean)",
+  "symbol": "EC$",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:22.578Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:22.578Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122aa1dc367886d6cf150"
+  },
+  "code": "XDR",
+  "currencyName": "Special Drawing Rights",
+  "primaryCountry": "IMF",
+  "symbol": "SDR",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:22.808Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:22.808Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122ab1dc367886d6cf153"
+  },
+  "code": "XOF",
+  "currencyName": "West African CFA Franc",
+  "primaryCountry": "UEMOA (West Africa)",
+  "symbol": "Fr",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:23.044Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:23.044Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122ab1dc367886d6cf156"
+  },
+  "code": "XPD",
+  "currencyName": "Palladium",
+  "primaryCountry": "Bullion (non-sovereign)",
+  "symbol": "Pd",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:23.276Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:23.276Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122ab1dc367886d6cf159"
+  },
+  "code": "XPF",
+  "currencyName": "CFP Franc",
+  "primaryCountry": "French Pacific Territories",
+  "symbol": "₣",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:23.506Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:23.506Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122ab1dc367886d6cf15c"
+  },
+  "code": "XPT",
+  "currencyName": "Platinum",
+  "primaryCountry": "Bullion (non-sovereign)",
+  "symbol": "Pt",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:23.735Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:23.735Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122ab1dc367886d6cf15f"
+  },
+  "code": "YER",
+  "currencyName": "Yemeni Rial",
+  "primaryCountry": "Yemen",
+  "symbol": "﷼",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:23.964Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:23.964Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122ac1dc367886d6cf162"
+  },
+  "code": "ZAR",
+  "currencyName": "South African Rand",
+  "primaryCountry": "South Africa",
+  "symbol": "R",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:24.194Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:24.194Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "68d122ac1dc367886d6cf165"
+  },
+  "code": "ZMW",
+  "currencyName": "Zambian Kwacha",
+  "primaryCountry": "Zambia",
+  "symbol": "ZK",
+  "sourceFile": "file-1758536331863-788302412.xlsx",
+  "createdAt": {
+    "$date": "2025-09-22T10:19:24.427Z"
+  },
+  "updatedAt": {
+    "$date": "2025-09-22T10:19:24.427Z"
+  },
+  "__v": 0
+}]

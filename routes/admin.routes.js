@@ -215,4 +215,4 @@ router.get('/contact/:id', adminGetContactMessage);
 router.patch('/contact/:id', adminUpdateContactMessage);
 router.delete('/contact/:id', adminDeleteContactMessage);
 
-export default router;      
+export default router;     

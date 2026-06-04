@@ -13,6 +13,7 @@ import AdvisorApplication from '../models/advisorApplication.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { detectCountry } from '../utils/geo.js';
 import { getCurrencyForCountry } from '../services/pricing.service.js';
+import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 
 const OTP_EXPIRES_MIN = 10;
 
@@ -218,6 +219,9 @@ export const advisorApply = catchAsync(async (req, res) => {
     introVideoUrl = uploaded.secure_url;
   }
 
+  const iso2 = (country || '').toString().trim().toUpperCase();
+  const currency = iso2 ? getCountryCurrencyCode(iso2) || 'USD' : '';
+
   let user;
   if (existing && !existing.isVerified) {
     existing.name = name;
@@ -225,7 +229,9 @@ export const advisorApply = catchAsync(async (req, res) => {
     existing.password = password;
     existing.role = 'advisor';
     existing.profilePhoto = profilePhoto;
-    existing.location = [city, country].filter(Boolean).join(', ') || address || existing.location;
+    existing.country = iso2 || existing.country;
+    existing.city = city || existing.city;
+    if (currency) existing.currency = currency;
     existing.isVerified = true;
     existing.status = 'active';
     user = existing;
@@ -237,7 +243,9 @@ export const advisorApply = catchAsync(async (req, res) => {
       password,
       role: 'advisor',
       profilePhoto,
-      location: [city, country].filter(Boolean).join(', ') || address || '',
+      country: iso2,
+      city: city || '',
+      currency,
       isVerified: true,
       status: 'active'
     });

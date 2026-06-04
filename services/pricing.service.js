@@ -1,5 +1,6 @@
 import Currency from '../models/currency.model.js';
 import { ZERO_DECIMAL_CURRENCIES } from '../utils/geo.js';
+import { getCurrencySymbol } from './currencyCatalog.service.js';
 
 /**
  * Multi-currency pricing resolver.
@@ -48,7 +49,11 @@ const USD_FALLBACK = {
 export const getCurrencyForCountry = async (country) => {
   const code = (country || 'US').toString().trim().toUpperCase();
   const byCountry = await loadCurrencies();
-  return byCountry.get(code) || byCountry.get('US') || USD_FALLBACK;
+  const cur = byCountry.get(code) || byCountry.get('US') || USD_FALLBACK;
+  // The currency symbol is rendered from the canonical ISO-4217 catalog so it is
+  // always correct, regardless of what (if anything) the admin typed per country.
+  const symbol = await getCurrencySymbol(cur.currency);
+  return { ...cur, symbol: symbol || cur.symbol };
 };
 
 const isZeroDecimal = (cur) =>

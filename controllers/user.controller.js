@@ -3,6 +3,7 @@ import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
+import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import User from '../models/user.model.js';
 import Favorite from '../models/favorite.model.js';
 import AdvisorProfile from '../models/advisorProfile.model.js';
@@ -26,10 +27,21 @@ export const getProfile = catchAsync(async (req, res) => {
 });
 
 export const updateProfile = catchAsync(async (req, res) => {
-  const allowed = ['name', 'phone', 'location', 'country', 'currency', 'timezone', 'language', 'profilePhoto'];
+  const allowed = ['name', 'phone', 'city', 'country', 'currency', 'timezone', 'language', 'profilePhoto'];
   const update = {};
   for (const key of allowed) {
     if (typeof req.body[key] !== 'undefined') update[key] = req.body[key];
+  }
+
+  // Keep the displayed currency in sync with the selected country (the country's
+  // own default currency, so the right symbol shows everywhere).
+  if (typeof update.country !== 'undefined') {
+    update.country = (update.country || '').toString().trim().toUpperCase();
+    if (typeof req.body.currency === 'undefined') {
+      update.currency = update.country
+        ? getCountryCurrencyCode(update.country) || 'USD'
+        : '';
+    }
   }
 
   if (req.file) {

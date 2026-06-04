@@ -12,6 +12,7 @@ import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { computeTier } from '../services/tier.service.js';
+import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 
 const ensureAdvisor = (user) => {
   if (user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
@@ -64,11 +65,20 @@ export const updateMyProfile = catchAsync(async (req, res) => {
     'professionalTitle', 'bio', 'detailedDescription', 'yearsOfExperience',
     'expertise', 'styles', 'languages', 'pricing', 'autoOnlineMode', 'weeklySchedule', 'introVideoUrl'
   ];
-  const allowedUser = ['name', 'phone', 'location', 'profilePhoto', 'language', 'timezone'];
+  const allowedUser = ['name', 'phone', 'country', 'city', 'profilePhoto', 'language', 'timezone'];
   const profileUpdate = {};
   const userUpdate = {};
   for (const k of allowedProfile) if (typeof req.body[k] !== 'undefined') profileUpdate[k] = req.body[k];
   for (const k of allowedUser) if (typeof req.body[k] !== 'undefined') userUpdate[k] = req.body[k];
+
+  // Keep the displayed currency in sync with the selected country (the country's
+  // own default currency, so the right symbol shows everywhere).
+  if (typeof userUpdate.country !== 'undefined') {
+    userUpdate.country = (userUpdate.country || '').toString().trim().toUpperCase();
+    userUpdate.currency = userUpdate.country
+      ? getCountryCurrencyCode(userUpdate.country) || 'USD'
+      : '';
+  }
 
   const profile = await AdvisorProfile.findOneAndUpdate(
     { user: req.user._id },

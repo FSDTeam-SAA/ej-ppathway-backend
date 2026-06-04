@@ -18,6 +18,17 @@ import {
   sendAdvisorWelcomeEmail
 } from '../services/email.service.js';
 import { createNotification } from '../services/notification.service.js';
+import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
+
+// Notification emails are best-effort: a mail outage (e.g. bad SMTP creds) must
+// never roll back or fail the underlying action that already persisted.
+const safeEmail = async (label, fn) => {
+  try {
+    await fn();
+  } catch (err) {
+    console.error(`[email] ${label} failed:`, err?.message || err);
+  }
+};
 
 // ====== Approvals ======
 export const listApplications = catchAsync(async (req, res) => {
@@ -33,7 +44,7 @@ export const listApplications = catchAsync(async (req, res) => {
 
   const total = await AdvisorApplication.countDocuments(filter);
   const apps = await AdvisorApplication.find(filter)
-    .populate('user', 'name email profilePhoto location createdAt')
+    .populate('user', 'name email profilePhoto country city createdAt')
     .sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
 
   return sendResponse(res, { data: apps, meta: buildMeta({ page, limit, total }) });
@@ -41,8 +52,37 @@ export const listApplications = catchAsync(async (req, res) => {
 
 export const getApplication = catchAsync(async (req, res) => {
   const app = await AdvisorApplication.findById(req.params.id)
-    .populate('user', 'name email profilePhoto location createdAt');
+    .populate('user', 'name email profilePhoto country city currency createdAt')
+    .lean();
   if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+
+  // The application only holds an apply-time snapshot. The advisor's *current*
+  // pricing, expertise, intro video, etc. live on their AdvisorProfile (edited
+  // from the advisor dashboard), and their address now lives on the User. Merge
+  // those in so the admin always sees the advisor's real, up-to-date data.
+  const profile = app.user?._id
+    ? await AdvisorProfile.findOne({ user: app.user._id }).lean()
+    : null;
+
+  if (profile) {
+    app.pricing = profile.pricing || app.pricing;
+    if (profile.expertise?.length) app.expertise = profile.expertise;
+    if (profile.styles?.length) app.styles = profile.styles;
+    if (profile.languages?.length) app.languages = profile.languages;
+    app.professionalTitle = profile.professionalTitle || app.professionalTitle;
+    app.bio = profile.bio || app.bio;
+    app.detailedDescription = profile.detailedDescription || app.detailedDescription;
+    app.yearsOfExperience = profile.yearsOfExperience || app.yearsOfExperience;
+    app.introVideoUrl = app.introVideoUrl || profile.introVideoUrl;
+  }
+
+  // Address now lives on the User (country + city dropdowns); fall back to it.
+  app.applicantDetails = {
+    ...(app.applicantDetails || {}),
+    country: app.applicantDetails?.country || app.user?.country || '',
+    city: app.applicantDetails?.city || app.user?.city || ''
+  };
+
   return sendResponse(res, { data: app });
 });
 
@@ -54,7 +94,13 @@ export const scheduleLiveInterview = catchAsync(async (req, res) => {
   if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
 
   const roomName = `interview_${app._id}`;
-  await createRoom(roomName, { maxParticipants: 4, metadata: { applicationId: String(app._id) } });
+  // Best-effort: the room is auto-created when the first participant joins, so a
+  // provisioning hiccup (or missing/invalid LiveKit creds) must not block scheduling.
+  try {
+    await createRoom(roomName, { maxParticipants: 4, metadata: { applicationId: String(app._id) } });
+  } catch (err) {
+    console.error('[livekit] room pre-create failed (will auto-create on join):', err?.message || err);
+  }
 
   app.liveInterview = {
     scheduledAt: new Date(datetime),
@@ -65,11 +111,11 @@ export const scheduleLiveInterview = catchAsync(async (req, res) => {
   app.status = 'scheduled';
   await app.save();
 
-  await sendInterviewScheduledEmail(app.user.email, {
+  await safeEmail('interview scheduled', () => sendInterviewScheduledEmail(app.user.email, {
     name: app.user.name,
     datetime: new Date(datetime).toUTCString(),
     joinUrl: `${process.env.CLIENT_URL || ''}/advisor/interview/${app._id}`
-  });
+  }));
 
   await createNotification({
     recipient: app.user._id,
@@ -108,7 +154,7 @@ export const sendContract = catchAsync(async (req, res) => {
   app.status = 'awaiting_signature';
   await app.save();
 
-  await sendAdvisorContractEmail(app.user.email, { name: app.user.name, contractUrl });
+  await safeEmail('advisor contract', () => sendAdvisorContractEmail(app.user.email, { name: app.user.name, contractUrl }));
 
   await createNotification({
     recipient: app.user._id,
@@ -128,11 +174,16 @@ export const approveApplication = catchAsync(async (req, res) => {
   app.status = 'approved';
   await app.save();
 
-  // ensure advisor profile exists with their submitted data
+  // Ensure an advisor profile exists, seeded from the application's submitted
+  // data — but ONLY on first creation. If the advisor already has a profile
+  // (e.g. they edited their pricing/expertise from the dashboard before
+  // approval), those live values must NOT be clobbered by the apply-time
+  // snapshot. Hence $setOnInsert, not $set.
   const profile = await AdvisorProfile.findOneAndUpdate(
     { user: app.user._id },
     {
-      $set: {
+      $setOnInsert: {
+        user: app.user._id,
         professionalTitle: app.professionalTitle,
         bio: app.bio,
         detailedDescription: app.detailedDescription,
@@ -142,15 +193,14 @@ export const approveApplication = catchAsync(async (req, res) => {
         languages: app.languages,
         introVideoUrl: app.introVideoUrl,
         pricing: app.pricing
-      },
-      $setOnInsert: { user: app.user._id }
+      }
     },
     { upsert: true, new: true }
   );
 
   await User.findByIdAndUpdate(app.user._id, { role: 'advisor', status: 'active', isVerified: true });
 
-  await sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: true });
+  await safeEmail('advisor approved', () => sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: true }));
   await createNotification({
     recipient: app.user._id,
     type: 'admin_announcement',
@@ -171,7 +221,7 @@ export const rejectApplication = catchAsync(async (req, res) => {
   app.rejectionReason = reason || '';
   await app.save();
 
-  await sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: false, reason });
+  await safeEmail('advisor rejected', () => sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: false, reason }));
   return sendResponse(res, { message: 'Application rejected', data: app });
 });
 
@@ -233,12 +283,15 @@ export const unsuspendAdvisor = catchAsync(async (req, res) => {
 export const addAdvisorManually = catchAsync(async (req, res) => {
   const {
     name, email, phoneNumber, password,
-    location, language, experience, type, style, bio
+    country, city, language, experience, type, style, bio
   } = req.body;
   if (!name || !email || !password) throw new ApiError(StatusCodes.BAD_REQUEST, 'Missing required fields');
 
   const existing = await User.findOne({ email: email.toLowerCase() });
   if (existing) throw new ApiError(StatusCodes.CONFLICT, 'Email already registered');
+
+  const iso2 = (country || '').toString().trim().toUpperCase();
+  const currency = iso2 ? getCountryCurrencyCode(iso2) || 'USD' : '';
 
   const user = await User.create({
     name,
@@ -248,7 +301,9 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
     role: 'advisor',
     status: 'active',
     isVerified: true,
-    location,
+    country: iso2,
+    city: city || '',
+    currency,
     language: language || 'English'
   });
 

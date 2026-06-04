@@ -4,6 +4,7 @@ import CmsPage from '../models/cmsPage.model.js';
 import Currency from '../models/currency.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { DEFAULT_CURRENCIES } from '../utils/geo.js';
+import { seedCurrencyCatalog } from '../services/currencyCatalog.service.js';
 import seedSiteContent from './seed-site-content.js';
 
 export const ensureSeed = async () => {
@@ -128,6 +129,11 @@ export const ensureSeed = async () => {
       { upsert: true }
     );
   }
+
+  // ISO-4217 currency symbol catalog (code → symbol), seeded from the bundled
+  // reference file. Idempotent upsert by code.
+  const cat = await seedCurrencyCatalog();
+  if (cat.inserted) console.log(`✓ Seeded ${cat.inserted} currency catalog entries`);
 
   // Platform settings
   await getPlatformSettings();

@@ -29,11 +29,16 @@ const userSchema = new Schema(
     role: { type: String, enum: ROLES, default: 'user', index: true },
 
     profilePhoto: { type: String, default: '' },
-    location: { type: String, default: '' },
+    // Geographic location is stored as discrete country (ISO-3166 alpha-2) + city
+    // fields, populated from the countries/cities catalog dropdowns.
     // ISO-3166 alpha-2 country code + the local currency it maps to. Drives which
     // currency/price the user sees and is auto-detected then persisted (overridable).
     country: { type: String, uppercase: true, trim: true, default: '' },
+    city: { type: String, trim: true, default: '' },
     currency: { type: String, uppercase: true, trim: true, default: '' },
+    // Legacy/free-text label. No longer used for advisor/user geography (replaced
+    // by country + city); retained only for the sub-admin role label.
+    location: { type: String, default: '' },
     timezone: { type: String, default: 'UTC' },
     language: { type: String, default: 'English' },
 
