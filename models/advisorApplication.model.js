@@ -28,6 +28,8 @@ const advisorApplicationSchema = new Schema(
     bio: { type: String, default: '' },
     detailedDescription: { type: String, default: '' },
     yearsOfExperience: { type: String, default: '' },
+    // Availability answer collected on the public application form ('yes' / 'no').
+    availableFiveHoursPerDay: { type: String, default: '' },
     expertise: { type: [String], default: [] },
     styles: { type: [String], default: [] },
     languages: { type: [String], default: ['English'] },

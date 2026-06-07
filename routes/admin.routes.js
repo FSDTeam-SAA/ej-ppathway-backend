@@ -55,6 +55,11 @@ import {
 } from '../controllers/admin.finance.controller.js';
 
 import {
+  getSignupFreeCredits,
+  updateSignupFreeCredits
+} from '../controllers/admin.settings.controller.js';
+
+import {
   listSubAdmins,
   getPermissionsList,
   createSubAdmin,
@@ -100,7 +105,10 @@ import {
   listShowcaseReviews,
   adminCreateShowcaseReview,
   adminUpdateShowcaseReview,
-  adminDeleteShowcaseReview
+  adminDeleteShowcaseReview,
+  adminListUserReviews,
+  adminUpdateUserReview,
+  adminDeleteUserReview
 } from '../controllers/review.controller.js';
 
 import {
@@ -165,6 +173,10 @@ router.get('/finance/commissions', getCommissions);
 router.patch('/finance/commissions', updateCommissions);
 router.patch('/finance/min-withdrawal', updateMinWithdrawal);
 
+// Platform settings — signup free credits
+router.get('/settings/signup-credits', getSignupFreeCredits);
+router.patch('/settings/signup-credits', updateSignupFreeCredits);
+
 // Sub-admins
 router.get('/sub-admins/permissions', getPermissionsList);
 router.get('/sub-admins', listSubAdmins);
@@ -208,6 +220,11 @@ router.get('/reviews/showcase', listShowcaseReviews);
 router.post('/reviews/showcase', imageUpload.single('photo'), adminCreateShowcaseReview);
 router.patch('/reviews/showcase/:id', imageUpload.single('photo'), adminUpdateShowcaseReview);
 router.delete('/reviews/showcase/:id', adminDeleteShowcaseReview);
+
+// Reviews — real user reviews (moderation: list / edit / delete)
+router.get('/reviews/user', adminListUserReviews);
+router.patch('/reviews/user/:id', adminUpdateUserReview);
+router.delete('/reviews/user/:id', adminDeleteUserReview);
 
 // Contact messages
 router.get('/contact', adminListContactMessages);

@@ -177,3 +177,50 @@ export const adminDeleteShowcaseReview = catchAsync(async (req, res) => {
   if (!review) throw new ApiError(StatusCodes.NOT_FOUND, 'Review not found');
   return sendResponse(res, { message: 'Deleted' });
 });
+
+// ===== Admin: real user-submitted reviews (moderation) =====
+// These are reviews left by real users on advisors (NOT admin showcase items).
+export const adminListUserReviews = catchAsync(async (req, res) => {
+  const { skip, limit, page } = parsePagination(req.query);
+  const filter = { isAdminShowcase: { $ne: true } };
+  if (req.query.minRating) filter.rating = { $gte: Number(req.query.minRating) };
+  if (req.query.q) filter.comment = { $regex: String(req.query.q), $options: 'i' };
+  const [items, total] = await Promise.all([
+    Review.find(filter)
+      .populate('user', 'name profilePhoto email')
+      .populate('advisor', 'name profilePhoto')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Review.countDocuments(filter)
+  ]);
+  return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
+});
+
+export const adminUpdateUserReview = catchAsync(async (req, res) => {
+  const update = {};
+  if (typeof req.body.rating !== 'undefined') {
+    update.rating = Math.max(1, Math.min(5, Number(req.body.rating) || 1));
+  }
+  if (typeof req.body.comment !== 'undefined') update.comment = req.body.comment;
+  const review = await Review.findOneAndUpdate(
+    { _id: req.params.id, isAdminShowcase: { $ne: true } },
+    update,
+    { new: true }
+  );
+  if (!review) throw new ApiError(StatusCodes.NOT_FOUND, 'Review not found');
+  // Real reviews affect the advisor's rating, so keep aggregates in sync.
+  await recomputeAdvisorAggregates(review.advisor);
+  return sendResponse(res, { data: review, message: 'Review updated' });
+});
+
+export const adminDeleteUserReview = catchAsync(async (req, res) => {
+  const review = await Review.findOneAndDelete({ _id: req.params.id, isAdminShowcase: { $ne: true } });
+  if (!review) throw new ApiError(StatusCodes.NOT_FOUND, 'Review not found');
+  if (review.session) {
+    await Session.findByIdAndUpdate(review.session, { $unset: { review: 1 } });
+  }
+  await recomputeAdvisorAggregates(review.advisor);
+  return sendResponse(res, { message: 'Review deleted' });
+});

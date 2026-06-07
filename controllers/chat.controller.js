@@ -8,6 +8,7 @@ import Message from '../models/message.model.js';
 import User from '../models/user.model.js';
 import Session from '../models/session.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
+import { createNotification, broadcastSocket } from '../services/notification.service.js';
 
 // ===== Get or create session chat =====
 export const ensureSessionChat = catchAsync(async (req, res) => {
@@ -45,6 +46,11 @@ export const ensureAdminChat = catchAsync(async (req, res) => {
       kind: 'admin',
       participants: [req.user._id, admin._id]
     });
+    // Notify the admin inbox in realtime that a brand-new support chat exists.
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${String(admin._id)}`).emit('chat:updated', { chatId: String(chat._id), lastMessage: '' });
+    }
   }
   return sendResponse(res, { data: chat });
 });
@@ -123,6 +129,29 @@ export const sendMessage = catchAsync(async (req, res) => {
     io.to(`chat:${chat._id}`).emit('chat:new_message', { chatId: String(chat._id), message: msg });
     for (const p of chat.participants) {
       io.to(`user:${String(p)}`).emit('chat:updated', { chatId: String(chat._id), lastMessage: chat.lastMessage });
+    }
+  }
+
+  // When a customer writes into a support chat, raise a bell notification for the admin.
+  if (chat.kind === 'admin' && !isAdmin) {
+    const adminId = chat.participants.find((p) => String(p) !== String(req.user._id));
+    if (adminId) {
+      const preview = (text || '').trim();
+      const notif = await createNotification({
+        recipient: adminId,
+        type: 'new_message',
+        title: `New support message from ${req.user.name || 'a customer'}`,
+        body: preview ? (preview.length > 140 ? `${preview.slice(0, 140)}…` : preview) : '[attachment]',
+        data: { chatId: String(chat._id), messageId: String(msg._id), kind: 'support' }
+      });
+      if (io && notif) {
+        broadcastSocket(io, adminId, 'notification:new', {
+          _id: String(notif._id),
+          type: 'new_message',
+          title: notif.title,
+          body: notif.body
+        });
+      }
     }
   }
 

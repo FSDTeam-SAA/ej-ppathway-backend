@@ -10,6 +10,7 @@ import { sendOtpEmail } from '../services/email.service.js';
 import User from '../models/user.model.js';
 import Wallet from '../models/wallet.model.js';
 import AdvisorApplication from '../models/advisorApplication.model.js';
+import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { detectCountry } from '../utils/geo.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
@@ -72,6 +73,21 @@ const issueOtp = async (user, purpose = 'verify') => {
   return otp;
 };
 
+// Grants the admin-configured signup free credits to a freshly-created wallet.
+// No-op when the platform setting is 0 (or unset).
+const grantSignupFreeCredits = async (userId) => {
+  // A bonus-credit grant must never fail an otherwise-successful signup, so
+  // swallow + log any error rather than letting it bubble to catchAsync.
+  try {
+    const s = await getPlatformSettings();
+    if (s?.signupFreeCredits > 0) {
+      await Wallet.findOneAndUpdate({ user: userId }, { $inc: { freeCredits: s.signupFreeCredits } });
+    }
+  } catch (err) {
+    console.error('grantSignupFreeCredits failed:', err?.message || err);
+  }
+};
+
 // ========== Sign Up ==========
 export const signupUser = catchAsync(async (req, res) => {
   const { name, email, phone, phoneNumber, password, confirmPassword, city } = req.body;
@@ -122,6 +138,7 @@ export const signupUser = catchAsync(async (req, res) => {
   }
   await user.save();
   await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
+  await grantSignupFreeCredits(user._id);
 
   return sendResponse(res, {
     statusCode: StatusCodes.CREATED,
@@ -161,6 +178,7 @@ export const signupAdvisor = catchAsync(async (req, res) => {
   }
   await user.save();
   await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
+  await grantSignupFreeCredits(user._id);
   await AdvisorApplication.findOneAndUpdate(
     { user: user._id },
     { $setOnInsert: { user: user._id, ...rest, stage: 'application', status: 'new' } },
@@ -188,6 +206,7 @@ export const advisorApply = catchAsync(async (req, res) => {
     professionalTitle = 'Spiritual Advisor',
     detailedDescription = '',
     yearsOfExperience = '',
+    availableFiveHoursPerDay = '',
     dateOfBirth,
     address,
     city,
@@ -195,12 +214,18 @@ export const advisorApply = catchAsync(async (req, res) => {
     country
   } = body;
 
-  if (!name || !email || !password) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'name, email and password are required');
+  // Password is now optional: the public application form no longer collects it
+  // (bio / profile photo are likewise gathered later during onboarding). When a
+  // password is supplied (legacy callers) we still honor it; otherwise we generate
+  // an unguessable placeholder so User creation succeeds. The applicant cannot log
+  // in until they set their own password during onboarding.
+  if (!name || !email) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'name and email are required');
   }
   if (confirmPassword && password !== confirmPassword) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Passwords do not match');
   }
+  const effectivePassword = password || crypto.randomBytes(32).toString('hex');
 
   const normalizedEmail = email.toLowerCase();
   const existing = await User.findOne({ email: normalizedEmail });
@@ -230,7 +255,9 @@ export const advisorApply = catchAsync(async (req, res) => {
   if (existing && !existing.isVerified) {
     existing.name = name;
     existing.phone = phone || phoneNumber || existing.phone;
-    existing.password = password;
+    // Only overwrite the password when one was explicitly supplied; otherwise keep
+    // whatever placeholder/previous value the unverified record already holds.
+    if (password) existing.password = password;
     existing.role = 'advisor';
     existing.profilePhoto = profilePhoto;
     existing.country = iso2 || existing.country;
@@ -244,7 +271,7 @@ export const advisorApply = catchAsync(async (req, res) => {
       name,
       email: normalizedEmail,
       phone: phone || phoneNumber,
-      password,
+      password: effectivePassword,
       role: 'advisor',
       profilePhoto,
       country: iso2,
@@ -257,6 +284,7 @@ export const advisorApply = catchAsync(async (req, res) => {
 
   await user.save();
   await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
+  await grantSignupFreeCredits(user._id);
 
   const preRecordedAnswers = parseJsonField(body.preRecordedAnswers, []);
   const applicationUpdate = {
@@ -264,6 +292,7 @@ export const advisorApply = catchAsync(async (req, res) => {
     bio,
     detailedDescription,
     yearsOfExperience: yearsOfExperience || body.experience || '',
+    availableFiveHoursPerDay: availableFiveHoursPerDay || '',
     expertise: toArrayField(body.expertise || body.type),
     styles: toArrayField(body.styles || body.style),
     languages: toArrayField(body.languages || body.language || 'English'),

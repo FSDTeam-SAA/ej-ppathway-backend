@@ -22,7 +22,8 @@ const platformSettingSchema = new Schema(
       premium: { price: { type: Number, default: 149 }, days: { type: Number, default: 30 }, impressionsPerDay: { type: Number, default: 0 } }
     },
     minWithdrawal: { type: Number, default: 50 },
-    sessionLowBalanceThresholdMin: { type: Number, default: 2 }
+    sessionLowBalanceThresholdMin: { type: Number, default: 2 },
+    signupFreeCredits: { type: Number, default: 0, min: 0 }
   },
   { timestamps: true }
 );
