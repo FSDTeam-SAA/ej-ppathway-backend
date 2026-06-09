@@ -12,7 +12,7 @@ import {
   refreshToken,
   me
 } from '../controllers/auth.controller.js';
-import { auth } from '../middlewares/auth.js';
+import { auth, optionalAuth } from '../middlewares/auth.js';
 import { anyUpload } from '../middlewares/upload.js';
 
 const router = Router();
@@ -21,6 +21,7 @@ router.post('/signup', signupUser);
 router.post('/advisor/signup', signupAdvisor);
 router.post(
   '/advisor-apply',
+  optionalAuth(), // populate req.user when a logged-in user applies (reuse their account)
   anyUpload.fields([
     { name: 'introVideo', maxCount: 1 },
     { name: 'profilePhoto', maxCount: 1 }

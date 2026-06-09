@@ -236,7 +236,11 @@ export const advisorApply = catchAsync(async (req, res) => {
 
   const normalizedEmail = email.toLowerCase();
   const existing = await User.findOne({ email: normalizedEmail });
-  if (existing && existing.isVerified) {
+  // A logged-in user applying as an advisor uses their OWN account — their
+  // already-registered email must NOT be a conflict; we simply convert the
+  // account into an advisor. Only a *different* verified account is a conflict.
+  const isOwnAccount = req.user && existing && String(req.user._id) === String(existing._id);
+  if (existing && existing.isVerified && !isOwnAccount) {
     throw new ApiError(StatusCodes.CONFLICT, 'Email already registered');
   }
 
@@ -259,15 +263,18 @@ export const advisorApply = catchAsync(async (req, res) => {
   const currency = iso2 ? getCountryCurrencyCode(iso2) || 'USD' : '';
 
   let user;
-  if (existing && !existing.isVerified) {
-    existing.name = name;
+  if (existing && (isOwnAccount || !existing.isVerified)) {
+    // Reuse the existing account (the logged-in applicant, or an unverified
+    // record) and convert it into an advisor — no new signup is created.
+    existing.name = name || existing.name;
     existing.phone = phone || phoneNumber || existing.phone;
     // Only overwrite the password when one was explicitly supplied; otherwise keep
-    // whatever placeholder/previous value the unverified record already holds.
+    // whatever value the account already holds.
     if (password) existing.password = password;
     existing.role = 'advisor';
-    existing.profilePhoto = profilePhoto;
+    if (profilePhoto) existing.profilePhoto = profilePhoto;
     existing.country = iso2 || existing.country;
+    existing.state = state || existing.state;
     existing.city = city || existing.city;
     if (currency) existing.currency = currency;
     existing.isVerified = true;
@@ -282,6 +289,7 @@ export const advisorApply = catchAsync(async (req, res) => {
       role: 'advisor',
       profilePhoto,
       country: iso2,
+      state: state || '',
       city: city || '',
       currency,
       isVerified: true,
