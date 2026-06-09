@@ -15,6 +15,12 @@ export const signResetToken = (payload) =>
     expiresIn: process.env.JWT_RESET_EXPIRES_IN || '15m'
   });
 
+// Short-lived-ish token embedded in the advisor contract signing link.
+export const signContractToken = (payload) =>
+  jwt.sign(payload, process.env.JWT_ACCESS_SECRET, {
+    expiresIn: process.env.CONTRACT_TOKEN_EXPIRES_IN || '30d'
+  });
+
 export const verifyAccessToken = (token) =>
   jwt.verify(token, process.env.JWT_ACCESS_SECRET);
 
@@ -28,6 +34,7 @@ export default {
   signAccessToken,
   signRefreshToken,
   signResetToken,
+  signContractToken,
   verifyAccessToken,
   verifyRefreshToken,
   verifyResetToken

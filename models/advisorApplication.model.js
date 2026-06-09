@@ -15,6 +15,7 @@ export const APP_STATUSES = [
   'awaiting_submission',
   'scheduled',
   'awaiting_signature',
+  'awaiting_approval',
   'approved',
   'rejected'
 ];
@@ -54,7 +55,11 @@ const advisorApplicationSchema = new Schema(
     contract: {
       sentAt: { type: Date },
       signedAt: { type: Date },
-      url: { type: String }
+      url: { type: String }, // original contract PDF (Cloudinary)
+      signerName: { type: String },
+      signerIp: { type: String },
+      signatureImageUrl: { type: String }, // captured signature image
+      signedPdfUrl: { type: String } // stamped, signed copy
     },
 
     // Pricing offered (used after approval)
@@ -67,6 +72,7 @@ const advisorApplicationSchema = new Schema(
     applicantDetails: {
       dateOfBirth: { type: String, default: '' },
       address: { type: String, default: '' },
+      state: { type: String, default: '' },
       city: { type: String, default: '' },
       zip: { type: String, default: '' },
       country: { type: String, default: '' }

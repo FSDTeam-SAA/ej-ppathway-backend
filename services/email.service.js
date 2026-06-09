@@ -55,7 +55,7 @@ export const sendAdvisorContractEmail = async (to, { name, contractUrl }) => {
   const body = `
     <p>Hi ${name || ''},</p>
     <p>Please review and sign your advisor contract.</p>
-    ${contractUrl ? `<p><a href="${contractUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Review Contract</a></p>` : ''}
+    ${contractUrl ? `<p><a href="${contractUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Review &amp; Sign Contract</a></p>` : ''}
   `;
   return sendEmail({ to, subject, html: wrap(subject, body) });
 };

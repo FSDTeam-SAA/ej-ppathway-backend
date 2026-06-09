@@ -25,6 +25,7 @@ const userSchema = new Schema(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     phone: { type: String, trim: true },
+    dateOfBirth: { type: String, default: '' },
     password: { type: String, required: true, select: false },
     role: { type: String, enum: ROLES, default: 'user', index: true },
 
@@ -34,6 +35,7 @@ const userSchema = new Schema(
     // ISO-3166 alpha-2 country code + the local currency it maps to. Drives which
     // currency/price the user sees and is auto-detected then persisted (overridable).
     country: { type: String, uppercase: true, trim: true, default: '' },
+    state: { type: String, trim: true, default: '' },
     city: { type: String, trim: true, default: '' },
     currency: { type: String, uppercase: true, trim: true, default: '' },
     // Legacy/free-text label. No longer used for advisor/user geography (replaced

@@ -27,6 +27,7 @@ import notificationRoutes from './routes/notification.routes.js';
 import chatRoutes from './routes/chat.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import contactRoutes from './routes/contact.routes.js';
+import contractRoutes from './routes/contract.routes.js';
 import webhookRoutes from './routes/webhook.routes.js';
 
 const app = express();
@@ -84,6 +85,7 @@ app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/chats', chatRoutes);
 app.use('/api/v1/uploads', uploadRoutes);
 app.use('/api/v1/contact', contactRoutes);
+app.use('/api/v1/contracts', contractRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
 app.use(notFound);

@@ -19,6 +19,8 @@ import {
 } from '../services/email.service.js';
 import { createNotification } from '../services/notification.service.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
+import { signContractToken } from '../utils/jwt.js';
+import { uploadBufferToCloudinary } from '../services/upload.service.js';
 
 // Notification emails are best-effort: a mail outage (e.g. bad SMTP creds) must
 // never roll back or fail the underlying action that already persisted.
@@ -145,22 +147,45 @@ export const interviewToken = catchAsync(async (req, res) => {
 });
 
 export const sendContract = catchAsync(async (req, res) => {
-  const { contractUrl } = req.body;
   const app = await AdvisorApplication.findById(req.params.id).populate('user');
   if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+  if (!app.user) throw new ApiError(StatusCodes.BAD_REQUEST, 'This application has no linked user account');
 
+  // Admin can either upload a contract PDF (preferred) or paste an external URL.
+  let contractUrl = req.body.contractUrl;
+  if (req.file) {
+    const uploaded = await uploadBufferToCloudinary(req.file.buffer, 'advisor-contracts', 'auto');
+    contractUrl = uploaded.secure_url;
+  }
+  if (!contractUrl) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Upload a contract PDF or provide a contract URL');
+  }
+
+  // Reset the contract block on (re)send so any prior signature is cleared.
   app.contract = { sentAt: new Date(), url: contractUrl };
   app.stage = 'contract';
   app.status = 'awaiting_signature';
   await app.save();
 
-  await safeEmail('advisor contract', () => sendAdvisorContractEmail(app.user.email, { name: app.user.name, contractUrl }));
+  // Tokenized signing link to the public signing page (applicant isn't logged in).
+  // NOTE: deliberately NO `sub` claim — that prevents this long-lived, emailed
+  // token from being reused as a Bearer access token (the auth middleware
+  // authenticates by `decoded.sub`, which is absent here).
+  const token = signContractToken({
+    contractId: String(app._id),
+    type: 'contract-sign'
+  });
+  const signingUrl = `${process.env.CLIENT_URL || ''}/contract/sign?token=${token}`;
+
+  await safeEmail('advisor contract', () =>
+    sendAdvisorContractEmail(app.user.email, { name: app.user.name, contractUrl: signingUrl })
+  );
 
   await createNotification({
     recipient: app.user._id,
     type: 'admin_announcement',
     title: 'Contract sent',
-    body: 'Please sign your advisor contract.',
+    body: 'Please review and sign your advisor contract.',
     data: { applicationId: app._id }
   });
 

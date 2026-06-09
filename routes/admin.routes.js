@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
-import { imageUpload } from '../middlewares/upload.js';
+import { imageUpload, documentUpload } from '../middlewares/upload.js';
 
 import { dashboardOverview } from '../controllers/admin.dashboard.controller.js';
 
@@ -139,7 +139,7 @@ router.get('/advisor-applications', listApplications);
 router.get('/advisor-applications/:id', getApplication);
 router.patch('/advisor-applications/:id/schedule-interview', scheduleLiveInterview);
 router.get('/advisor-applications/:id/interview-token', interviewToken);
-router.patch('/advisor-applications/:id/contract', sendContract);
+router.patch('/advisor-applications/:id/contract', documentUpload.single('contract'), sendContract);
 router.patch('/advisor-applications/:id/approve', approveApplication);
 router.patch('/advisor-applications/:id/reject', rejectApplication);
 router.delete('/advisor-applications/:id', deleteApplication);

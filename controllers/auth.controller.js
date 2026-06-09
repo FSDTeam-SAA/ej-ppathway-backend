@@ -90,7 +90,7 @@ const grantSignupFreeCredits = async (userId) => {
 
 // ========== Sign Up ==========
 export const signupUser = catchAsync(async (req, res) => {
-  const { name, email, phone, phoneNumber, password, confirmPassword, city } = req.body;
+  const { name, email, phone, phoneNumber, password, confirmPassword, city, state, dateOfBirth } = req.body;
   if (!name || !email || !password) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'name, email, password are required');
   }
@@ -109,14 +109,18 @@ export const signupUser = catchAsync(async (req, res) => {
   const country = detectCountry(req);
   const currency = getCountryCurrencyCode(country) || 'USD';
   const cityVal = (city || '').toString().trim();
+  const stateVal = (state || '').toString().trim();
   const phoneVal = phone || phoneNumber;
+  const dobVal = (dateOfBirth || '').toString().trim();
 
   let user;
   if (existing && !existing.isVerified) {
     existing.name = name;
     existing.phone = phoneVal || existing.phone;
+    existing.dateOfBirth = dobVal || existing.dateOfBirth;
     existing.password = password;
     existing.country = country || existing.country;
+    existing.state = stateVal || existing.state;
     existing.city = cityVal || existing.city;
     existing.currency = currency || existing.currency;
     existing.isVerified = true;
@@ -127,9 +131,11 @@ export const signupUser = catchAsync(async (req, res) => {
       name,
       email: email.toLowerCase(),
       phone: phoneVal,
+      dateOfBirth: dobVal,
       password,
       role: 'user',
       country,
+      state: stateVal,
       city: cityVal,
       currency,
       isVerified: true,
@@ -209,6 +215,7 @@ export const advisorApply = catchAsync(async (req, res) => {
     availableFiveHoursPerDay = '',
     dateOfBirth,
     address,
+    state,
     city,
     zip,
     country
@@ -303,6 +310,7 @@ export const advisorApply = catchAsync(async (req, res) => {
     applicantDetails: {
       dateOfBirth,
       address,
+      state,
       city,
       zip,
       country
