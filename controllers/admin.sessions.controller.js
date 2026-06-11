@@ -4,6 +4,8 @@ import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 import Session from '../models/session.model.js';
+import Chat from '../models/chat.model.js';
+import Message from '../models/message.model.js';
 import { deleteRoom, stopEgress } from '../config/livekit.js';
 import { refundToUserWallet } from '../services/session.service.js';
 import Transaction from '../models/transaction.model.js';
@@ -34,21 +36,35 @@ export const listSessions = catchAsync(async (req, res) => {
   });
 });
 
-// ============= Recordings list =============
+// ============= Recordings + chat transcripts list =============
+// The Session Recordings page is the central repository for all session
+// communications: video recordings, voice recordings AND text chat transcripts.
+// type = video | voice | chat | (all)
+const CHAT_DONE_STATUSES = ['completed', 'disputed', 'flagged', 'cancelled'];
+
 export const listRecordings = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
+  const type = req.query.type;
 
-  const filter = {
-    recordingUrl: { $exists: true, $nin: [null, ''] }
-  };
-  if (req.query.type && ['call', 'video'].includes(req.query.type)) {
-    filter.type = req.query.type;
+  const hasRecording = { recordingUrl: { $exists: true, $nin: [null, ''] } };
+  const chatMatch = { type: 'chat', status: { $in: CHAT_DONE_STATUSES } };
+
+  let filter;
+  if (type === 'video') {
+    filter = { type: 'video', ...hasRecording };
+  } else if (type === 'voice' || type === 'call') {
+    filter = { type: 'call', ...hasRecording };
+  } else if (type === 'chat') {
+    filter = chatMatch;
+  } else {
+    // all: anything with a recording, plus every text-chat session
+    filter = { $or: [hasRecording, chatMatch] };
   }
 
   const total = await Session.countDocuments(filter);
   const items = await Session.find(filter)
     .select(
-      'sessionCode type status user advisor recordingUrl actualDurationSec startedAt endedAt createdAt'
+      'sessionCode type status user advisor recordingUrl transcriptUrl actualDurationSec startedAt endedAt createdAt'
     )
     .populate('user', 'name profilePhoto email')
     .populate('advisor', 'name profilePhoto email')
@@ -57,10 +73,56 @@ export const listRecordings = catchAsync(async (req, res) => {
     .limit(limit)
     .lean();
 
+  // Flag which chat sessions actually carry a transcript (have messages).
+  const chatSessionIds = items.filter((s) => s.type === 'chat').map((s) => s._id);
+  const transcriptMap = new Map();
+  if (chatSessionIds.length) {
+    const chats = await Chat.find({ session: { $in: chatSessionIds }, kind: 'session' })
+      .select('_id session')
+      .lean();
+    if (chats.length) {
+      const counts = await Message.aggregate([
+        { $match: { chat: { $in: chats.map((c) => c._id) } } },
+        { $group: { _id: '$chat', count: { $sum: 1 } } }
+      ]);
+      const countByChat = new Map(counts.map((c) => [String(c._id), c.count]));
+      chats.forEach((c) =>
+        transcriptMap.set(String(c.session), countByChat.get(String(c._id)) || 0)
+      );
+    }
+  }
+
+  const data = items.map((s) => ({
+    ...s,
+    messageCount: s.type === 'chat' ? transcriptMap.get(String(s._id)) || 0 : 0,
+    hasTranscript:
+      s.type === 'chat' ? (transcriptMap.get(String(s._id)) || 0) > 0 : !!s.transcriptUrl
+  }));
+
   return sendResponse(res, {
-    data: items,
+    data,
     meta: buildMeta({ page, limit, total })
   });
+});
+
+// Full chat conversation for a session — viewed / downloaded from the dashboard.
+export const getSessionTranscript = catchAsync(async (req, res) => {
+  const session = await Session.findById(req.params.id)
+    .populate('user', 'name profilePhoto email')
+    .populate('advisor', 'name profilePhoto email')
+    .lean();
+  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+
+  const chat = await Chat.findOne({ session: session._id, kind: 'session' }).lean();
+  let messages = [];
+  if (chat) {
+    messages = await Message.find({ chat: chat._id })
+      .populate('sender', 'name profilePhoto')
+      .sort({ createdAt: 1 })
+      .lean();
+  }
+
+  return sendResponse(res, { data: { session, messages } });
 });
 
 export const getSession = catchAsync(async (req, res) => {

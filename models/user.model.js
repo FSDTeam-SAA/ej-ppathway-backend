@@ -27,6 +27,8 @@ const userSchema = new Schema(
     phone: { type: String, trim: true },
     dateOfBirth: { type: String, default: '' },
     password: { type: String, required: true, select: false },
+    // Set when an admin resets the password; forces a change on next login.
+    mustChangePassword: { type: Boolean, default: false },
     role: { type: String, enum: ROLES, default: 'user', index: true },
 
     profilePhoto: { type: String, default: '' },
@@ -59,6 +61,10 @@ const userSchema = new Schema(
 
     // Sub-admin specific
     permissions: { type: [String], default: [] },
+    roleKey: { type: String, default: '' },      // named role preset (e.g. finance_manager)
+    jobTitle: { type: String, default: '' },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    lastActiveAt: { type: Date },                // last audited admin action
 
     // Stripe identifiers
     stripeCustomerId: { type: String, index: true, sparse: true },

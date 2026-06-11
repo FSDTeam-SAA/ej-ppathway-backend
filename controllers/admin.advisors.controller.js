@@ -10,6 +10,7 @@ import AdvisorProfile from '../models/advisorProfile.model.js';
 import Wallet from '../models/wallet.model.js';
 import Session from '../models/session.model.js';
 import Transaction from '../models/transaction.model.js';
+import Favorite from '../models/favorite.model.js';
 import { generateLiveKitToken, createRoom } from '../config/livekit.js';
 import {
   sendInterviewScheduledEmail,
@@ -21,6 +22,8 @@ import { createNotification } from '../services/notification.service.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import { signContractToken } from '../utils/jwt.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
+import { isWithinSchedule } from '../utils/availability.js';
+import { logAdminActivity } from '../services/activity.service.js';
 
 // Notification emails are best-effort: a mail outage (e.g. bad SMTP creds) must
 // never roll back or fail the underlying action that already persisted.
@@ -225,6 +228,14 @@ export const approveApplication = catchAsync(async (req, res) => {
 
   await User.findByIdAndUpdate(app.user._id, { role: 'advisor', status: 'active', isVerified: true });
 
+  await logAdminActivity({
+    adminId: req.user?._id,
+    action: 'advisor.approve',
+    description: `Approved advisor application for ${app.user.name}`,
+    targetType: 'advisor',
+    targetUser: app.user._id
+  });
+
   await safeEmail('advisor approved', () => sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: true }));
   await createNotification({
     recipient: app.user._id,
@@ -251,14 +262,42 @@ export const rejectApplication = catchAsync(async (req, res) => {
 });
 
 // ====== Advisor management (active advisors) ======
+// Tabs: all | active | deactivated | suspended | online | available_now
 export const listAdvisors = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
+  const status = req.query.status;
   const filter = { role: 'advisor' };
-  if (req.query.status) filter.status = req.query.status;
+
+  // Account-status tabs map straight onto User.status.
+  if (['active', 'suspended', 'deactivated', 'pending_verification'].includes(status)) {
+    filter.status = status;
+  }
+
+  // Presence tabs are driven by the AdvisorProfile (isOnline + schedule), so we
+  // first resolve the matching advisor ids and constrain the user query to them.
+  if (status === 'online' || status === 'available_now') {
+    const onlineProfiles = await AdvisorProfile.find({ isOnline: true })
+      .select('user weeklySchedule')
+      .lean();
+    let matchIds = onlineProfiles.map((p) => p.user);
+    if (status === 'available_now') {
+      const tzUsers = await User.find({ _id: { $in: matchIds } }).select('timezone').lean();
+      const tzMap = new Map(tzUsers.map((u) => [String(u._id), u.timezone]));
+      matchIds = onlineProfiles
+        .filter((p) => isWithinSchedule(p.weeklySchedule, tzMap.get(String(p.user))))
+        .map((p) => p.user);
+    }
+    filter._id = { $in: matchIds };
+  }
+
   if (req.query.q) {
-    filter.$or = [
-      { name: { $regex: req.query.q, $options: 'i' } },
-      { email: { $regex: req.query.q, $options: 'i' } }
+    filter.$and = [
+      {
+        $or: [
+          { name: { $regex: req.query.q, $options: 'i' } },
+          { email: { $regex: req.query.q, $options: 'i' } }
+        ]
+      }
     ];
   }
 
@@ -277,11 +316,93 @@ export const getAdvisor = catchAsync(async (req, res) => {
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: user._id });
   const wallet = await Wallet.findOne({ user: user._id });
+
+  // Per-status counts (kept for backward compatibility) + a single roll-up of the
+  // session + financial figures the admin profile page renders.
   const sessionsAgg = await Session.aggregate([
     { $match: { advisor: user._id } },
     { $group: { _id: '$status', count: { $sum: 1 } } }
   ]);
-  return sendResponse(res, { data: { user, profile, wallet, sessionsAgg } });
+
+  const rollupAgg = await Session.aggregate([
+    { $match: { advisor: user._id } },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+        cancelled: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
+        missed: { $sum: { $cond: [{ $eq: ['$status', 'no_show'] }, 1, 0] } },
+        grossRevenue: { $sum: '$chargedAmount' },
+        advisorEarnings: { $sum: '$advisorPayout' },
+        platformEarnings: { $sum: '$platformCommission' },
+        refunds: { $sum: '$refundIssued' },
+        tips: { $sum: '$tipAmount' },
+        completedDurationSec: {
+          $sum: { $cond: [{ $eq: ['$status', 'completed'] }, '$actualDurationSec', 0] }
+        }
+      }
+    }
+  ]);
+  const r = rollupAgg[0] || {};
+
+  // Repeat-client / retention rate: share of clients with more than one completed session.
+  const repeatAgg = await Session.aggregate([
+    { $match: { advisor: user._id, status: 'completed' } },
+    { $group: { _id: '$user', c: { $sum: 1 } } },
+    {
+      $group: {
+        _id: null,
+        totalClients: { $sum: 1 },
+        repeatClients: { $sum: { $cond: [{ $gt: ['$c', 1] }, 1, 0] } }
+      }
+    }
+  ]);
+  const rep = repeatAgg[0] || { totalClients: 0, repeatClients: 0 };
+  const repeatClientRate = rep.totalClients
+    ? Math.round((rep.repeatClients / rep.totalClients) * 100)
+    : 0;
+
+  // Payout breakdown straight off the advisor's withdrawal transactions.
+  const payoutAgg = await Transaction.aggregate([
+    { $match: { advisor: user._id, type: 'advisor_payout' } },
+    { $group: { _id: '$withdrawalStatus', amount: { $sum: '$amount' } } }
+  ]);
+  const payoutByStatus = Object.fromEntries(payoutAgg.map((p) => [p._id || 'unknown', p.amount]));
+  const pendingPayouts =
+    (payoutByStatus.requested || 0) + (payoutByStatus.approved || 0) || wallet?.pendingPayouts || 0;
+  const totalPaidOut = payoutByStatus.paid || wallet?.totalWithdrawn || 0;
+
+  const completed = r.completed || 0;
+  const avgSessionMinutes = completed ? Math.round((r.completedDurationSec || 0) / completed / 60) : 0;
+
+  const metrics = {
+    sessions: {
+      total: r.total || 0,
+      completed,
+      cancelled: r.cancelled || 0,
+      missed: r.missed || 0,
+      avgSessionMinutes,
+      repeatClientRate,
+      retentionRate: repeatClientRate
+    },
+    finance: {
+      totalRevenue: r.grossRevenue || 0,
+      advisorEarnings: (r.advisorEarnings || 0) + (r.tips || 0),
+      platformEarnings: r.platformEarnings || 0,
+      pendingPayouts,
+      totalPaidOut,
+      refundAmount: r.refunds || 0,
+      chargebackAmount: 0
+    },
+    availability: {
+      isOnline: !!profile?.isOnline,
+      availableNow: !!profile?.isOnline && isWithinSchedule(profile?.weeklySchedule, user.timezone),
+      weeklySchedule: profile?.weeklySchedule || null
+    }
+  };
+
+  return sendResponse(res, { data: { user, profile, wallet, sessionsAgg, metrics } });
 });
 
 export const suspendAdvisor = catchAsync(async (req, res) => {
@@ -292,6 +413,13 @@ export const suspendAdvisor = catchAsync(async (req, res) => {
     { new: true }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+  await logAdminActivity({
+    adminId: req.user?._id,
+    action: 'advisor.suspend',
+    description: `Suspended advisor account ${user.name}`,
+    targetType: 'advisor',
+    targetUser: user._id
+  });
   return sendResponse(res, { message: 'Advisor suspended', data: user });
 });
 
@@ -305,10 +433,69 @@ export const unsuspendAdvisor = catchAsync(async (req, res) => {
   return sendResponse(res, { message: 'Advisor reactivated', data: user });
 });
 
+// Normalise a value that may arrive as an array or a comma-separated string.
+const toArray = (v) =>
+  Array.isArray(v)
+    ? v.map((s) => String(s).trim()).filter(Boolean)
+    : v
+      ? String(v).split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+
+// Admin edit of an advisor (Edit Profile / Change Tier in the action center).
+export const updateAdvisor = catchAsync(async (req, res) => {
+  const user = await User.findOne({ _id: req.params.id, role: 'advisor' });
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+
+  const {
+    name, phoneNumber, country, state, city, timezone,
+    professionalTitle, bio, detailedDescription, yearsOfExperience,
+    expertise, styles, languages, tier, pricing
+  } = req.body;
+
+  const userPatch = {};
+  if (name !== undefined) userPatch.name = name;
+  if (phoneNumber !== undefined) userPatch.phone = phoneNumber;
+  if (country !== undefined) {
+    const iso2 = String(country).trim().toUpperCase();
+    userPatch.country = iso2;
+    userPatch.currency = iso2 ? getCountryCurrencyCode(iso2) || user.currency : user.currency;
+  }
+  if (state !== undefined) userPatch.state = state;
+  if (city !== undefined) userPatch.city = city;
+  if (timezone !== undefined) userPatch.timezone = timezone;
+  if (Object.keys(userPatch).length) await User.findByIdAndUpdate(user._id, userPatch);
+
+  const profPatch = {};
+  if (professionalTitle !== undefined) profPatch.professionalTitle = professionalTitle;
+  if (bio !== undefined) profPatch.bio = bio;
+  if (detailedDescription !== undefined) profPatch.detailedDescription = detailedDescription;
+  if (yearsOfExperience !== undefined) profPatch.yearsOfExperience = yearsOfExperience;
+  if (expertise !== undefined) profPatch.expertise = toArray(expertise);
+  if (styles !== undefined) profPatch.styles = toArray(styles);
+  if (languages !== undefined) profPatch.languages = toArray(languages);
+  if (tier !== undefined && ['bronze', 'silver', 'gold'].includes(tier)) profPatch.tier = tier;
+  if (pricing && typeof pricing === 'object') {
+    if (pricing.chatPerMin !== undefined && pricing.chatPerMin !== '') profPatch['pricing.chatPerMin'] = Number(pricing.chatPerMin);
+    if (pricing.callPerMin !== undefined && pricing.callPerMin !== '') profPatch['pricing.callPerMin'] = Number(pricing.callPerMin);
+    if (pricing.videoPerMin !== undefined && pricing.videoPerMin !== '') profPatch['pricing.videoPerMin'] = Number(pricing.videoPerMin);
+  }
+
+  let profile = await AdvisorProfile.findOne({ user: user._id });
+  if (Object.keys(profPatch).length) {
+    profile = await AdvisorProfile.findOneAndUpdate({ user: user._id }, profPatch, { new: true, upsert: true });
+  }
+
+  const updatedUser = await User.findById(user._id);
+  return sendResponse(res, { message: 'Advisor updated', data: { user: updatedUser, profile } });
+});
+
 export const addAdvisorManually = catchAsync(async (req, res) => {
   const {
     name, email, phoneNumber, password,
-    country, city, language, experience, type, style, bio
+    country, state, city, timezone,
+    language, languages, experience,
+    type, style, expertise, styles,
+    professionalTitle, bio, tier, pricing
   } = req.body;
   if (!name || !email || !password) throw new ApiError(StatusCodes.BAD_REQUEST, 'Missing required fields');
 
@@ -317,6 +504,12 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
 
   const iso2 = (country || '').toString().trim().toUpperCase();
   const currency = iso2 ? getCountryCurrencyCode(iso2) || 'USD' : '';
+
+  // Accept the richer profile payload (arrays or comma-separated strings) while
+  // staying backward compatible with the old single type/style/language inputs.
+  const expertiseArr = expertise != null ? toArray(expertise) : toArray(type);
+  const stylesArr = styles != null ? toArray(styles) : toArray(style);
+  const languagesArr = toArray(languages != null ? languages : language);
 
   const user = await User.create({
     name,
@@ -327,18 +520,32 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
     status: 'active',
     isVerified: true,
     country: iso2,
+    state: state || '',
     city: city || '',
     currency,
-    language: language || 'English'
+    timezone: timezone || 'UTC',
+    language: languagesArr[0] || 'English'
   });
 
-  await AdvisorProfile.create({
+  const profileData = {
     user: user._id,
     bio: bio || '',
     yearsOfExperience: experience || '',
-    expertise: type ? [type] : [],
-    styles: style ? [style] : []
-  });
+    expertise: expertiseArr,
+    styles: stylesArr,
+    languages: languagesArr.length ? languagesArr : ['English']
+  };
+  if (professionalTitle) profileData.professionalTitle = professionalTitle;
+  if (tier && ['bronze', 'silver', 'gold'].includes(tier)) profileData.tier = tier;
+  if (pricing && typeof pricing === 'object') {
+    const p = {};
+    if (pricing.chatPerMin !== undefined && pricing.chatPerMin !== '') p.chatPerMin = Number(pricing.chatPerMin);
+    if (pricing.callPerMin !== undefined && pricing.callPerMin !== '') p.callPerMin = Number(pricing.callPerMin);
+    if (pricing.videoPerMin !== undefined && pricing.videoPerMin !== '') p.videoPerMin = Number(pricing.videoPerMin);
+    if (Object.keys(p).length) profileData.pricing = p;
+  }
+
+  await AdvisorProfile.create(profileData);
   await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
 
   sendAdvisorWelcomeEmail(user.email, {
@@ -360,9 +567,28 @@ export const deleteApplication = catchAsync(async (req, res) => {
 export const deleteAdvisor = catchAsync(async (req, res) => {
   const user = await User.findOne({ _id: req.params.id, role: 'advisor' });
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
-  user.status = 'deactivated';
-  await user.save();
-  return sendResponse(res, { message: 'Advisor deactivated' });
+
+  // Hard delete: the advisor must be fully removed from the system and disappear
+  // from the advisor list. We remove the user account and the records that only
+  // exist to support it (profile, wallet, application, favorites pointing at them).
+  // Historical sessions/transactions keep their ObjectId reference for audit and
+  // simply resolve to null on populate — they must never be silently destroyed.
+  await Promise.all([
+    AdvisorProfile.deleteOne({ user: user._id }),
+    Wallet.deleteOne({ user: user._id }),
+    AdvisorApplication.deleteMany({ user: user._id }),
+    Favorite.deleteMany({ $or: [{ advisor: user._id }, { user: user._id }] })
+  ]);
+  await User.deleteOne({ _id: user._id });
+
+  await logAdminActivity({
+    adminId: req.user?._id,
+    action: 'advisor.delete',
+    description: `Deleted advisor account ${user.name}`,
+    targetType: 'advisor'
+  });
+
+  return sendResponse(res, { message: 'Advisor deleted' });
 });
 
 export const setAdvisorFeaturedOnHome = catchAsync(async (req, res) => {

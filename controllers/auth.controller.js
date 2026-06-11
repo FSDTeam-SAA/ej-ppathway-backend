@@ -440,6 +440,7 @@ export const resetPassword = catchAsync(async (req, res) => {
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
 
   user.password = newPassword;
+  user.mustChangePassword = false;
   await user.save();
   return sendResponse(res, { message: 'Password reset successful' });
 });
@@ -455,6 +456,7 @@ export const changePassword = catchAsync(async (req, res) => {
   const ok = await user.comparePassword(currentPassword);
   if (!ok) throw new ApiError(StatusCodes.UNAUTHORIZED, 'Current password is incorrect');
   user.password = newPassword;
+  user.mustChangePassword = false;
   await user.save();
   return sendResponse(res, { message: 'Password updated' });
 });

@@ -26,6 +26,7 @@ import {
   listAdvisors,
   getAdvisor,
   addAdvisorManually,
+  updateAdvisor,
   suspendAdvisor,
   unsuspendAdvisor,
   deleteAdvisor,
@@ -35,6 +36,7 @@ import {
 import {
   listSessions,
   listRecordings,
+  getSessionTranscript,
   getSession,
   adminCancelSession,
   adminFlagSession,
@@ -44,6 +46,8 @@ import {
 
 import {
   overview,
+  advisorEarnings,
+  exportReport,
   listTransactions,
   deleteTransaction,
   listPayouts,
@@ -62,6 +66,8 @@ import {
 import {
   listSubAdmins,
   getPermissionsList,
+  getSubAdmin,
+  listSubAdminActivity,
   createSubAdmin,
   updateSubAdmin,
   suspendSubAdmin,
@@ -149,6 +155,7 @@ router.get('/advisors', listAdvisors);
 router.get('/advisors/:id', getAdvisor);
 router.post('/advisors', addAdvisorManually);
 router.patch('/advisors/:id/suspend', suspendAdvisor);
+router.patch('/advisors/:id', updateAdvisor);
 router.patch('/advisors/:id/unsuspend', unsuspendAdvisor);
 router.patch('/advisors/:id/featured', setAdvisorFeaturedOnHome);
 router.delete('/advisors/:id', deleteAdvisor);
@@ -156,6 +163,7 @@ router.delete('/advisors/:id', deleteAdvisor);
 // Sessions
 router.get('/sessions', listSessions);
 router.get('/sessions/recordings', listRecordings); // must precede '/sessions/:id'
+router.get('/sessions/:id/transcript', getSessionTranscript);
 router.get('/sessions/:id', getSession);
 router.patch('/sessions/:id/cancel', adminCancelSession);
 router.patch('/sessions/:id/flag', adminFlagSession);
@@ -164,6 +172,8 @@ router.delete('/sessions/:id', adminDeleteSession);
 
 // Finance
 router.get('/finance/overview', overview);
+router.get('/finance/advisor-earnings', advisorEarnings);
+router.get('/finance/export', exportReport);
 router.get('/finance/transactions', listTransactions);
 router.delete('/finance/transactions/:id', deleteTransaction);
 router.get('/finance/payouts', listPayouts);
@@ -180,6 +190,8 @@ router.patch('/settings/signup-credits', updateSignupFreeCredits);
 // Sub-admins
 router.get('/sub-admins/permissions', getPermissionsList);
 router.get('/sub-admins', listSubAdmins);
+router.get('/sub-admins/:id/activity', listSubAdminActivity);
+router.get('/sub-admins/:id', getSubAdmin);
 router.post('/sub-admins', createSubAdmin);
 router.patch('/sub-admins/:id', updateSubAdmin);
 router.patch('/sub-admins/:id/suspend', suspendSubAdmin);

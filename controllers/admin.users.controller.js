@@ -9,6 +9,7 @@ import Session from '../models/session.model.js';
 import Transaction from '../models/transaction.model.js';
 import UserSubscription from '../models/userSubscription.model.js';
 import { createNotification } from '../services/notification.service.js';
+import { logAdminActivity } from '../services/activity.service.js';
 
 export const listUsers = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
@@ -111,6 +112,14 @@ export const giveFreeCredits = catchAsync(async (req, res) => {
     data: { amount: value }
   });
 
+  await logAdminActivity({
+    adminId: req.user?._id,
+    action: 'wallet.credit',
+    description: `Issued $${value} wallet credit to ${user.name}`,
+    targetType: 'user',
+    targetUser: user._id
+  });
+
   return sendResponse(res, { message: 'Credits granted', data: wallet });
 });
 
@@ -122,6 +131,13 @@ export const suspendUser = catchAsync(async (req, res) => {
     { new: true }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+  await logAdminActivity({
+    adminId: req.user?._id,
+    action: 'user.suspend',
+    description: `Suspended user ${user.name}`,
+    targetType: 'user',
+    targetUser: user._id
+  });
   return sendResponse(res, { message: 'User suspended', data: user });
 });
 
@@ -141,14 +157,25 @@ export const adminResetUserPassword = catchAsync(async (req, res) => {
   const user = await User.findById(req.params.id).select('+password');
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
   user.password = newPassword;
+  // Force the user to set their own password on next login.
+  user.mustChangePassword = true;
   await user.save();
+  // Notify the user that their password was reset by an admin.
+  await createNotification({
+    recipient: user._id,
+    type: 'admin_announcement',
+    title: 'Your password was reset',
+    body: 'An administrator reset your password. You will be asked to set a new password the next time you log in.'
+  });
   return sendResponse(res, { message: 'Password reset' });
 });
 
 export const deleteUser = catchAsync(async (req, res) => {
-  const user = await User.findById(req.params.id);
+  // Hard delete: actually remove the account so it disappears from the user list.
+  const user = await User.findByIdAndDelete(req.params.id);
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
-  user.status = 'deactivated';
-  await user.save();
-  return sendResponse(res, { message: 'User deactivated' });
+  // Remove the user's owned wallet too; historical session/transaction records
+  // are retained for reporting integrity.
+  await Wallet.deleteOne({ user: user._id });
+  return sendResponse(res, { message: 'User deleted' });
 });

@@ -16,6 +16,18 @@ const buildFilters = (q) => {
   if (q.tier) filter.tier = q.tier;
   if (q.availableNow === 'true') filter.isOnline = true;
 
+  // Connection method → advisor must offer a positive per-minute price for the
+  // selected channel(s). chat | call | video map onto the pricing sub-fields.
+  if (q.connection) {
+    const map = { chat: 'pricing.chatPerMin', call: 'pricing.callPerMin', video: 'pricing.videoPerMin' };
+    const conds = String(q.connection)
+      .split(',')
+      .map((c) => map[c.trim()])
+      .filter(Boolean)
+      .map((path) => ({ [path]: { $gt: 0 } }));
+    if (conds.length) filter.$and = (filter.$and || []).concat(conds);
+  }
+
   return filter;
 };
 
