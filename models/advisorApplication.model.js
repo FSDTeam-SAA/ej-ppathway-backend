@@ -31,6 +31,7 @@ const advisorApplicationSchema = new Schema(
     yearsOfExperience: { type: String, default: '' },
     // Availability answer collected on the public application form ('yes' / 'no').
     availableFiveHoursPerDay: { type: String, default: '' },
+    baptizedInHolySpirit: { type: String, default: '' },
     expertise: { type: [String], default: [] },
     styles: { type: [String], default: [] },
     languages: { type: [String], default: ['English'] },

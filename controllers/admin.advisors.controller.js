@@ -35,6 +35,13 @@ const safeEmail = async (label, fn) => {
   }
 };
 
+const DEFAULT_ADVISOR_DASHBOARD_URL = 'https://ej-ppathway-advisor-dashboard.vercel.app';
+
+const buildAdvisorLoginUrl = () => {
+  const base = (process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '');
+  return base.endsWith('/login') ? base : `${base}/login`;
+};
+
 // ====== Approvals ======
 export const listApplications = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
@@ -259,6 +266,39 @@ export const rejectApplication = catchAsync(async (req, res) => {
 
   await safeEmail('advisor rejected', () => sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: false, reason }));
   return sendResponse(res, { message: 'Application rejected', data: app });
+});
+
+export const updateApplicationStatus = catchAsync(async (req, res) => {
+  const { status } = req.body || {};
+  if (!status) throw new ApiError(StatusCodes.BAD_REQUEST, 'status is required');
+
+  const app = await AdvisorApplication.findById(req.params.id).populate('user');
+  if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+
+  if (status === 'new') {
+    app.stage = 'application';
+    app.status = 'new';
+  } else if (status === 'under_review') {
+    app.status = 'under_review';
+    if (app.stage === 'application') app.stage = 'pre_recorded_interview';
+  } else if (status === 'interview_pending') {
+    app.stage = 'pre_recorded_interview';
+    app.status = 'scheduled';
+  } else {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Unsupported status option');
+  }
+
+  await app.save();
+
+  await logAdminActivity({
+    adminId: req.user?._id,
+    action: 'advisor.application_status',
+    description: `Updated advisor application status for ${app.user?.name || 'applicant'} to ${status}`,
+    targetType: 'advisor',
+    targetUser: app.user?._id
+  });
+
+  return sendResponse(res, { message: 'Application status updated', data: app });
 });
 
 // ====== Advisor management (active advisors) ======
@@ -552,7 +592,7 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
     name: user.name,
     email: user.email,
     password,
-    loginUrl: `${process.env.ADVISOR_DASHBOARD_URL || ''}/login`
+    loginUrl: buildAdvisorLoginUrl()
   }).catch((err) => console.error(`[email] Failed to send welcome email to ${user.email}:`, err.message));
 
   return sendResponse(res, { statusCode: StatusCodes.CREATED, message: 'Advisor created', data: user });

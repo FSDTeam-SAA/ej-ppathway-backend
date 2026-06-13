@@ -22,6 +22,7 @@ import {
   sendContract,
   approveApplication,
   rejectApplication,
+  updateApplicationStatus,
   deleteApplication,
   listAdvisors,
   getAdvisor,
@@ -146,6 +147,7 @@ router.get('/advisor-applications/:id', getApplication);
 router.patch('/advisor-applications/:id/schedule-interview', scheduleLiveInterview);
 router.get('/advisor-applications/:id/interview-token', interviewToken);
 router.patch('/advisor-applications/:id/contract', documentUpload.single('contract'), sendContract);
+router.patch('/advisor-applications/:id/status', updateApplicationStatus);
 router.patch('/advisor-applications/:id/approve', approveApplication);
 router.patch('/advisor-applications/:id/reject', rejectApplication);
 router.delete('/advisor-applications/:id', deleteApplication);
