@@ -185,7 +185,11 @@ export const sendContract = catchAsync(async (req, res) => {
     contractId: String(app._id),
     type: 'contract-sign'
   });
-  const signingUrl = `${process.env.CLIENT_URL || ''}/contract/sign?token=${token}`;
+  // The signing page lives in the advisor dashboard. Prefer ADVISOR_DASHBOARD_URL
+  // so the emailed link and the in-dashboard notification both open the same page;
+  // fall back to CLIENT_URL for older deployments.
+  const dashboardBase = process.env.ADVISOR_DASHBOARD_URL || process.env.CLIENT_URL || '';
+  const signingUrl = `${dashboardBase}/contract/sign?token=${token}`;
 
   await safeEmail('advisor contract', () =>
     sendAdvisorContractEmail(app.user.email, { name: app.user.name, contractUrl: signingUrl })
@@ -196,7 +200,9 @@ export const sendContract = catchAsync(async (req, res) => {
     type: 'admin_announcement',
     title: 'Contract sent',
     body: 'Please review and sign your advisor contract.',
-    data: { applicationId: app._id }
+    // Carry the signing token so the dashboard notification can deep-link the
+    // logged-in advisor straight to /contract/sign?token=... (same page as email).
+    data: { applicationId: app._id, action: 'sign-contract', contractToken: token }
   });
 
   return sendResponse(res, { message: 'Contract sent', data: app });

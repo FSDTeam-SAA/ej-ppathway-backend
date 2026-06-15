@@ -23,7 +23,10 @@ const resolveApplicationFromToken = async (token) => {
   if (payload?.type !== 'contract-sign' || !payload?.contractId) {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid contract token');
   }
-  const app = await AdvisorApplication.findById(payload.contractId).populate('user', 'name email');
+  const app = await AdvisorApplication.findById(payload.contractId).populate(
+    'user',
+    'name email phone country state city dateOfBirth'
+  );
   if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
   return app;
 };
@@ -66,9 +69,23 @@ const isSafeRemoteUrl = (u) => {
   }
 };
 
-// Append a signature page to the original contract PDF. Best-effort: returns
-// null if the original isn't a fetchable/parseable PDF (e.g. a Google Doc link).
-const buildSignedPdf = async (originalUrl, { signerName, signedAt, ip, signatureBuffer }) => {
+// ISO alpha-2 country code -> English country name (built-in, no deps). Returns
+// the input unchanged if it's already a name or an unknown code.
+const countryName = (code) => {
+  const c = String(code || '').trim();
+  if (!c) return '';
+  if (c.length !== 2) return c;
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(c.toUpperCase()) || c;
+  } catch {
+    return c;
+  }
+};
+
+// Append a designed "Electronic Signature Certificate" page to the original
+// contract PDF, including the advisor's details. Best-effort: returns null if
+// the original isn't a fetchable/parseable PDF (e.g. a Google Doc link).
+const buildSignedPdf = async (originalUrl, { signerName, signedAt, ip, signatureBuffer, advisor = {} }) => {
   if (!originalUrl || !isSafeRemoteUrl(originalUrl)) return null;
   try {
     const resp = await fetch(originalUrl);
@@ -77,32 +94,172 @@ const buildSignedPdf = async (originalUrl, { signerName, signedAt, ip, signature
     const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
-    const page = pdf.addPage();
-    const { height } = page.getSize();
-    let y = height - 60;
-    const line = (text, size, f = font, color = rgb(0.12, 0.12, 0.12)) => {
-      page.drawText(String(text), { x: 50, y, size, font: f, color });
-      y -= size + 10;
+
+    const page = pdf.addPage([612, 792]); // US Letter
+    const { width, height } = page.getSize();
+
+    // Palette
+    const BRAND = rgb(0.055, 0.455, 0.565); // #0E7490
+    const BRAND_SOFT = rgb(0.901, 0.965, 0.98);
+    const INK = rgb(0.13, 0.15, 0.18);
+    const LABEL = rgb(0.42, 0.45, 0.5);
+    const HAIR = rgb(0.86, 0.88, 0.91);
+    const PANEL = rgb(0.975, 0.985, 0.99);
+    const WHITE = rgb(1, 1, 1);
+
+    const M = 56; // page margin
+    const contentW = width - M * 2;
+
+    const text = (str, x, yy, { size = 11, f = font, color = INK } = {}) =>
+      page.drawText(String(str ?? ''), { x, y: yy, size, font: f, color });
+
+    const wrap = (str, maxW, size, f) => {
+      const words = String(str ?? '').split(/\s+/).filter(Boolean);
+      const lines = [];
+      let line = '';
+      for (const w of words) {
+        const test = line ? `${line} ${w}` : w;
+        if (f.widthOfTextAtSize(test, size) > maxW && line) {
+          lines.push(line);
+          line = w;
+        } else {
+          line = test;
+        }
+      }
+      if (line) lines.push(line);
+      return lines;
     };
-    line('Electronic Signature', 18, fontBold, rgb(0.05, 0.45, 0.56));
-    y -= 6;
-    line('This advisor contract was reviewed and electronically signed.', 11);
-    y -= 4;
-    line(`Signed by: ${signerName}`, 12, fontBold);
-    line(`Date: ${new Date(signedAt).toUTCString()}`, 11);
-    if (ip) line(`IP address: ${ip}`, 11);
-    y -= 14;
+
+    // --- Header band -------------------------------------------------------
+    const bandH = 110;
+    page.drawRectangle({ x: 0, y: height - bandH, width, height: bandH, color: BRAND });
+    text('Prophetic Pathway', M, height - 52, { size: 22, f: fontBold, color: WHITE });
+    text('Electronic Signature Certificate', M, height - 78, {
+      size: 12,
+      color: rgb(0.85, 0.95, 0.98)
+    });
+
+    let y = height - bandH - 40;
+
+    // --- Intro -------------------------------------------------------------
+    const intro =
+      'This document certifies that the advisor named below has reviewed and electronically signed the Advisor Service Agreement with Prophetic Pathway.';
+    for (const ln of wrap(intro, contentW, 11, font)) {
+      text(ln, M, y, { size: 11, color: rgb(0.3, 0.33, 0.38) });
+      y -= 16;
+    }
+    y -= 18;
+
+    // --- Section helper ----------------------------------------------------
+    const sectionHeader = (title) => {
+      text(title, M, y, { size: 10.5, f: fontBold, color: BRAND });
+      page.drawLine({
+        start: { x: M, y: y - 7 },
+        end: { x: width - M, y: y - 7 },
+        thickness: 1,
+        color: HAIR
+      });
+      y -= 28;
+    };
+
+    // --- Advisor information ------------------------------------------------
+    sectionHeader('ADVISOR INFORMATION');
+
+    const loc = [...new Set([advisor.city, advisor.state, countryName(advisor.country)].filter(Boolean))].join(', ');
+    const exp = advisor.yearsOfExperience
+      ? `${advisor.yearsOfExperience} year${String(advisor.yearsOfExperience) === '1' ? '' : 's'}`
+      : '';
+    const langs = Array.isArray(advisor.languages) ? advisor.languages.join(', ') : advisor.languages;
+
+    const rows = [
+      ['Full Name', advisor.name || signerName],
+      ['Professional Title', advisor.professionalTitle],
+      ['Email', advisor.email],
+      ['Phone', advisor.phone],
+      ['Date of Birth', advisor.dateOfBirth],
+      ['Location', loc],
+      ['Experience', exp],
+      ['Languages', langs]
+    ].filter(([, v]) => v != null && String(v).trim() !== '');
+
+    const labelW = 135;
+    const valueW = contentW - labelW;
+    for (const [lbl, val] of rows) {
+      const lines = wrap(val, valueW, 11, fontBold);
+      text(lbl, M, y, { size: 10, color: LABEL });
+      lines.forEach((ln, i) => text(ln, M + labelW, y - i * 14, { size: 11, f: fontBold }));
+      y -= Math.max(22, lines.length * 14 + 8);
+    }
+
+    y -= 12;
+
+    // --- Signature ---------------------------------------------------------
+    sectionHeader('SIGNATURE');
+
+    const boxH = 130;
+    const boxY = y - boxH;
+    page.drawRectangle({
+      x: M,
+      y: boxY,
+      width: contentW,
+      height: boxH,
+      color: PANEL,
+      borderColor: HAIR,
+      borderWidth: 1
+    });
+
     if (signatureBuffer) {
       try {
         const png = await pdf.embedPng(signatureBuffer);
-        const w = 220;
-        const h = Math.min((png.height / png.width) * w, 90);
-        line('Signature:', 11);
-        page.drawImage(png, { x: 50, y: y - h, width: w, height: h });
+        const maxW = 260;
+        const maxH = boxH - 40;
+        let w = maxW;
+        let h = (png.height / png.width) * w;
+        if (h > maxH) {
+          h = maxH;
+          w = (png.width / png.height) * h;
+        }
+        page.drawImage(png, {
+          x: M + (contentW - w) / 2,
+          y: boxY + (boxH - h) / 2,
+          width: w,
+          height: h
+        });
       } catch {
-        /* bad signature image — skip the image but keep the text */
+        /* bad signature image — keep the box but skip the image */
       }
     }
+    y = boxY - 26;
+
+    text('Signed by', M, y, { size: 10, color: LABEL });
+    text(advisor.name || signerName, M + labelW, y, { size: 12, f: fontBold });
+    y -= 20;
+    text('Date (UTC)', M, y, { size: 10, color: LABEL });
+    text(new Date(signedAt).toUTCString(), M + labelW, y, { size: 11 });
+    if (ip) {
+      y -= 20;
+      text('IP address', M, y, { size: 10, color: LABEL });
+      text(ip, M + labelW, y, { size: 11 });
+    }
+
+    // --- Footer ------------------------------------------------------------
+    const footY = 64;
+    page.drawRectangle({ x: 0, y: 0, width, height: 40, color: BRAND_SOFT });
+    page.drawLine({
+      start: { x: M, y: footY + 14 },
+      end: { x: width - M, y: footY + 14 },
+      thickness: 1,
+      color: HAIR
+    });
+    const footNote =
+      'This electronic signature is legally binding and was captured with the signer’s consent.';
+    text(footNote, M, footY - 4, { size: 8.5, color: LABEL });
+    if (advisor.applicationId) {
+      text(`Document ref: ${advisor.applicationId}`, M, 14, { size: 8, color: LABEL });
+    }
+    const copy = '© 2026 Prophetic Pathway';
+    text(copy, width - M - font.widthOfTextAtSize(copy, 8), 14, { size: 8, color: LABEL });
+
     const out = await pdf.save();
     return Buffer.from(out);
   } catch (e) {
@@ -145,8 +302,21 @@ export const signContract = catchAsync(async (req, res) => {
   }
 
   // Generate + store the signed copy (best-effort).
+  const advisor = {
+    name: app.user?.name,
+    email: app.user?.email,
+    phone: app.user?.phone,
+    professionalTitle: app.professionalTitle,
+    yearsOfExperience: app.yearsOfExperience,
+    languages: app.languages,
+    dateOfBirth: app.user?.dateOfBirth || app.applicantDetails?.dateOfBirth,
+    city: app.user?.city || app.applicantDetails?.city,
+    state: app.user?.state || app.applicantDetails?.state,
+    country: app.user?.country || app.applicantDetails?.country,
+    applicationId: String(app._id)
+  };
   let signedPdfUrl = '';
-  const signedBuf = await buildSignedPdf(app.contract?.url, { signerName: name, signedAt, ip, signatureBuffer });
+  const signedBuf = await buildSignedPdf(app.contract?.url, { signerName: name, signedAt, ip, signatureBuffer, advisor });
   if (signedBuf) {
     try {
       const r = await uploadBufferToCloudinary(signedBuf, 'advisor-contracts-signed', 'auto');
