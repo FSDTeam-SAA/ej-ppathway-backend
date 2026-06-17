@@ -12,6 +12,7 @@ import AdvisorProfile from '../models/advisorProfile.model.js';
 import { refundToUserWallet } from '../services/session.service.js';
 import { createNotification } from '../services/notification.service.js';
 import stripe from '../config/stripe.js';
+import User from '../models/user.model.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -96,6 +97,21 @@ export const adminListDisputes = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = {};
   if (req.query.status) filter.status = req.query.status;
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    const users = await User.find({
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } }
+      ]
+    }).select('_id').lean();
+    filter.$or = [
+      { disputeType: { $regex: q, $options: 'i' } },
+      { details: { $regex: q, $options: 'i' } },
+      { user: { $in: users.map((u) => u._id) } },
+      { advisor: { $in: users.map((u) => u._id) } }
+    ];
+  }
   const total = await Dispute.countDocuments(filter);
   const items = await Dispute.find(filter)
     .populate('user', 'name profilePhoto email')

@@ -9,6 +9,20 @@ import Message from '../models/message.model.js';
 import { deleteRoom, stopEgress } from '../config/livekit.js';
 import { refundToUserWallet } from '../services/session.service.js';
 import Transaction from '../models/transaction.model.js';
+import User from '../models/user.model.js';
+
+const userIdsForQuery = async (q, roles = []) => {
+  if (!q) return [];
+  const filter = {
+    $or: [
+      { name: { $regex: q, $options: 'i' } },
+      { email: { $regex: q, $options: 'i' } }
+    ]
+  };
+  if (roles.length) filter.role = { $in: roles };
+  const users = await User.find(filter).select('_id').lean();
+  return users.map((u) => u._id);
+};
 
 export const listSessions = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
@@ -18,6 +32,16 @@ export const listSessions = catchAsync(async (req, res) => {
   else if (req.query.tab === 'cancelled') filter.status = 'cancelled';
   else if (req.query.tab === 'disputed') filter.status = 'disputed';
   else if (req.query.tab === 'flagged') filter.status = 'flagged';
+
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    const ids = await userIdsForQuery(q, ['user', 'advisor']);
+    filter.$or = [
+      { sessionCode: { $regex: q, $options: 'i' } },
+      { user: { $in: ids } },
+      { advisor: { $in: ids } }
+    ];
+  }
 
   const total = await Session.countDocuments(filter);
   const items = await Session.find(filter)
@@ -59,6 +83,19 @@ export const listRecordings = catchAsync(async (req, res) => {
   } else {
     // all: anything with a recording, plus every text-chat session
     filter = { $or: [hasRecording, chatMatch] };
+  }
+
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    const ids = await userIdsForQuery(q, ['user', 'advisor']);
+    const search = {
+      $or: [
+        { sessionCode: { $regex: q, $options: 'i' } },
+        { user: { $in: ids } },
+        { advisor: { $in: ids } }
+      ]
+    };
+    filter = filter.$and ? { ...filter, $and: filter.$and.concat(search) } : { $and: [filter, search] };
   }
 
   const total = await Session.countDocuments(filter);

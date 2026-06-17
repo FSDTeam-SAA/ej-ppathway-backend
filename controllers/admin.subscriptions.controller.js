@@ -24,8 +24,20 @@ export const deletePlan = catchAsync(async (req, res) => {
   return sendResponse(res, { message: 'Plan deactivated', data: plan });
 });
 
-export const listPlans = catchAsync(async (_req, res) => {
-  const plans = await Plan.find().sort({ sortOrder: 1, pricePerMonth: 1 }).lean();
+export const listPlans = catchAsync(async (req, res) => {
+  const filter = {};
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    filter.$or = [
+      { name: { $regex: q, $options: 'i' } },
+      { description: { $regex: q, $options: 'i' } },
+      { audienceLimit: { $regex: q, $options: 'i' } },
+      { benefits: { $regex: q, $options: 'i' } }
+    ];
+  }
+  if (req.query.status === 'active') filter.isActive = true;
+  if (req.query.status === 'inactive') filter.isActive = false;
+  const plans = await Plan.find(filter).sort({ sortOrder: 1, pricePerMonth: 1 }).lean();
   return sendResponse(res, { data: plans });
 });
 

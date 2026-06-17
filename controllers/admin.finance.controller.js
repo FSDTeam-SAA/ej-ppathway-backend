@@ -271,6 +271,22 @@ export const listTransactions = catchAsync(async (req, res) => {
   const filter = {};
   if (req.query.type) filter.type = req.query.type;
   if (req.query.status) filter.status = req.query.status;
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    const users = await User.find({
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } }
+      ]
+    }).select('_id').lean();
+    const ids = users.map((u) => u._id);
+    filter.$or = [
+      { txCode: { $regex: q, $options: 'i' } },
+      { description: { $regex: q, $options: 'i' } },
+      { user: { $in: ids } },
+      { advisor: { $in: ids } }
+    ];
+  }
 
   const total = await Transaction.countDocuments(filter);
   const items = await Transaction.find(filter)
@@ -285,6 +301,20 @@ export const listPayouts = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = { type: 'advisor_payout' };
   if (req.query.status) filter.withdrawalStatus = req.query.status;
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    const advisors = await User.find({
+      role: 'advisor',
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } }
+      ]
+    }).select('_id').lean();
+    filter.$or = [
+      { txCode: { $regex: q, $options: 'i' } },
+      { advisor: { $in: advisors.map((u) => u._id) } }
+    ];
+  }
 
   const total = await Transaction.countDocuments(filter);
   const items = await Transaction.find(filter)

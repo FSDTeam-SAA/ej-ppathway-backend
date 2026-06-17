@@ -68,6 +68,25 @@ export const sendAdvisorDecisionEmail = async (to, { name, approved, reason }) =
   return sendEmail({ to, subject, html: wrap(subject, body) });
 };
 
+export const sendAdvisorOnboardingEmail = async (to, { name, onboardingUrl }) => {
+  const subject = 'Complete Your Advisor Profile';
+  const body = `
+    <p>Hi ${name || ''},</p>
+    <p>Your advisor contract has been received. Please complete your advisor profile for admin review.</p>
+    ${onboardingUrl ? `<p><a href="${onboardingUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Start Onboarding</a></p>` : ''}
+    <p>Your profile will not be visible to clients until it is reviewed and approved.</p>
+  `;
+  return sendEmail({ to, subject, html: wrap(subject, body) });
+};
+
+export const sendAdvisorProfileDecisionEmail = async (to, { name, approved, reason, loginUrl }) => {
+  const subject = approved ? 'Your Advisor Profile Is Approved' : 'Advisor Profile Update Required';
+  const body = approved
+    ? `<p>Hi ${name || ''},</p><p>Your advisor profile has been approved and is now visible to clients.</p>${loginUrl ? `<p><a href="${loginUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Open Advisor Dashboard</a></p>` : ''}`
+    : `<p>Hi ${name || ''},</p><p>Your advisor profile needs updates before it can be approved.</p>${reason ? `<p><b>Admin notes:</b> ${reason}</p>` : ''}${loginUrl ? `<p><a href="${loginUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Edit Profile</a></p>` : ''}`;
+  return sendEmail({ to, subject, html: wrap(subject, body) });
+};
+
 export const sendAdvisorWelcomeEmail = async (to, { name, email, password, loginUrl }) => {
   const subject = 'Your Advisor Account Is Ready';
   const body = `
@@ -82,4 +101,13 @@ export const sendAdvisorWelcomeEmail = async (to, { name, email, password, login
   return sendEmail({ to, subject, html: wrap(subject, body) });
 };
 
-export default { sendEmail, sendOtpEmail, sendInterviewScheduledEmail, sendAdvisorContractEmail, sendAdvisorDecisionEmail, sendAdvisorWelcomeEmail };
+export default {
+  sendEmail,
+  sendOtpEmail,
+  sendInterviewScheduledEmail,
+  sendAdvisorContractEmail,
+  sendAdvisorDecisionEmail,
+  sendAdvisorOnboardingEmail,
+  sendAdvisorProfileDecisionEmail,
+  sendAdvisorWelcomeEmail
+};

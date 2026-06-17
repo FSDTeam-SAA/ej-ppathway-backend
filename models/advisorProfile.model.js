@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 export const TIERS = ['bronze', 'silver', 'gold'];
+export const PROFILE_REVIEW_STATUSES = ['pending_review', 'approved', 'rejected'];
 
 const dayScheduleSchema = new Schema(
   {
@@ -51,6 +52,17 @@ const advisorProfileSchema = new Schema(
 
     // Admin marks advisors that appear in the homepage "Select a Verified Advisor" rail
     isFeaturedOnHome: { type: Boolean, default: false, index: true },
+
+    profileReviewStatus: {
+      type: String,
+      enum: PROFILE_REVIEW_STATUSES,
+      default: 'pending_review',
+      index: true
+    },
+    profileRejectionReason: { type: String, default: '' },
+    profileSubmittedAt: { type: Date },
+    profileReviewedAt: { type: Date },
+    profileReviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
 
     // Stats
     tier: { type: String, enum: TIERS, default: 'bronze', index: true },

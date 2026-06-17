@@ -10,6 +10,7 @@ import Complaint, {
   COMPLAINT_STATUSES
 } from '../models/complaint.model.js';
 import { createNotification } from '../services/notification.service.js';
+import User from '../models/user.model.js';
 
 const uploadDocs = async (files) => {
   if (!files || !files.length) return [];
@@ -59,6 +60,21 @@ export const myComplaints = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = { user: req.user._id };
   if (req.query.kind) filter.kind = req.query.kind;
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    const users = await User.find({
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } }
+      ]
+    }).select('_id').lean();
+    filter.$or = [
+      { issueType: { $regex: q, $options: 'i' } },
+      { description: { $regex: q, $options: 'i' } },
+      { user: { $in: users.map((u) => u._id) } },
+      { advisor: { $in: users.map((u) => u._id) } }
+    ];
+  }
   const total = await Complaint.countDocuments(filter);
   const items = await Complaint.find(filter)
     .populate('session', 'sessionCode type')

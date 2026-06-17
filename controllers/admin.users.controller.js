@@ -8,6 +8,7 @@ import Wallet from '../models/wallet.model.js';
 import Session from '../models/session.model.js';
 import Transaction from '../models/transaction.model.js';
 import UserSubscription from '../models/userSubscription.model.js';
+import AdminActivity from '../models/adminActivity.model.js';
 import { createNotification } from '../services/notification.service.js';
 import { logAdminActivity } from '../services/activity.service.js';
 
@@ -65,6 +66,23 @@ export const getUserDetails = catchAsync(async (req, res) => {
     { $group: { _id: null, t: { $sum: '$amount' } } }
   ]);
   const sub = await UserSubscription.findOne({ user: user._id, status: 'active' }).populate('plan');
+  const subscriptions = await UserSubscription.find({ user: user._id })
+    .populate('plan')
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .lean();
+  const recentTransactions = await Transaction.find({ user: user._id })
+    .populate('advisor', 'name email profilePhoto')
+    .populate('plan', 'name')
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .lean();
+  const refunds = recentTransactions.filter((t) => ['session_refund', 'subscription_refund'].includes(t.type));
+  const adminActivity = await AdminActivity.find({ targetUser: user._id })
+    .populate('admin', 'name email')
+    .sort({ createdAt: -1 })
+    .limit(15)
+    .lean();
 
   const recentSessions = await Session.find({ user: user._id })
     .populate('advisor', 'name profilePhoto')
@@ -77,6 +95,10 @@ export const getUserDetails = catchAsync(async (req, res) => {
       sessionsCount,
       totalSpent: totalSpentAgg[0]?.t || 0,
       activeSubscription: sub,
+      subscriptions,
+      recentTransactions,
+      refunds,
+      adminActivity,
       recentSessions
     }
   });

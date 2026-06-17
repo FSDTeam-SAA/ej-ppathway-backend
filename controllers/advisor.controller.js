@@ -82,7 +82,15 @@ export const updateMyProfile = catchAsync(async (req, res) => {
 
   const profile = await AdvisorProfile.findOneAndUpdate(
     { user: req.user._id },
-    { $set: profileUpdate, $setOnInsert: { user: req.user._id } },
+    {
+      $set: {
+        ...profileUpdate,
+        profileReviewStatus: 'pending_review',
+        profileSubmittedAt: new Date(),
+        profileRejectionReason: ''
+      },
+      $setOnInsert: { user: req.user._id }
+    },
     { new: true, upsert: true }
   );
   const user = await User.findByIdAndUpdate(req.user._id, userUpdate, { new: true });

@@ -3,6 +3,7 @@ import {
   signupUser,
   signupAdvisor,
   advisorApply,
+  myAdvisorApplication,
   verifyOtp,
   resendOtp,
   login,
@@ -28,6 +29,7 @@ router.post(
   ]),
   advisorApply
 );
+router.get('/advisor-application', auth(), myAdvisorApplication);
 router.post('/verify-otp', verifyOtp);
 router.post('/resend-otp', resendOtp);
 router.post('/login', login);

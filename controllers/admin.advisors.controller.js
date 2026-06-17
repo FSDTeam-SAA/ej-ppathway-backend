@@ -16,6 +16,8 @@ import {
   sendInterviewScheduledEmail,
   sendAdvisorContractEmail,
   sendAdvisorDecisionEmail,
+  sendAdvisorOnboardingEmail,
+  sendAdvisorProfileDecisionEmail,
   sendAdvisorWelcomeEmail
 } from '../services/email.service.js';
 import { createNotification } from '../services/notification.service.js';
@@ -47,12 +49,31 @@ export const listApplications = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = {};
   if (req.query.status === 'new') filter.stage = 'application';
+  if (req.query.status === 'pending_review') filter.status = 'pending_review';
   if (req.query.status === 'under_review') filter.status = 'under_review';
   if (req.query.status === 'interview_pending') filter.stage = 'pre_recorded_interview';
-  if (req.query.status === 'live_interview') filter.stage = 'live_interview';
+  if (req.query.status === 'live_interview') {
+    filter.stage = 'live_interview';
+    filter.status = { $in: ['live_interview', 'scheduled'] };
+  }
   if (req.query.status === 'contract') filter.stage = 'contract';
   if (req.query.status === 'approved') filter.status = 'approved';
   if (req.query.status === 'rejected') filter.status = 'rejected';
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    const users = await User.find({
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } }
+      ]
+    }).select('_id').lean();
+    filter.$or = [
+      { user: { $in: users.map((u) => u._id) } },
+      { professionalTitle: { $regex: q, $options: 'i' } },
+      { bio: { $regex: q, $options: 'i' } },
+      { expertise: { $regex: q, $options: 'i' } }
+    ];
+  }
 
   const total = await AdvisorApplication.countDocuments(filter);
   const apps = await AdvisorApplication.find(filter)
@@ -120,7 +141,7 @@ export const scheduleLiveInterview = catchAsync(async (req, res) => {
     notes: app.liveInterview?.notes
   };
   app.stage = 'live_interview';
-  app.status = 'scheduled';
+  app.status = 'live_interview';
   await app.save();
 
   await safeEmail('interview scheduled', () => sendInterviewScheduledEmail(app.user.email, {
@@ -233,7 +254,11 @@ export const approveApplication = catchAsync(async (req, res) => {
         styles: app.styles,
         languages: app.languages,
         introVideoUrl: app.introVideoUrl,
-        pricing: app.pricing
+        pricing: app.pricing,
+        profileReviewStatus: 'approved',
+        profileSubmittedAt: new Date(),
+        profileReviewedAt: new Date(),
+        profileReviewedBy: req.user?._id
       }
     },
     { upsert: true, new: true }
@@ -284,9 +309,15 @@ export const updateApplicationStatus = catchAsync(async (req, res) => {
   if (status === 'new') {
     app.stage = 'application';
     app.status = 'new';
+  } else if (status === 'pending_review') {
+    app.stage = 'application';
+    app.status = 'pending_review';
+  } else if (status === 'live_interview') {
+    app.stage = 'live_interview';
+    app.status = 'live_interview';
   } else if (status === 'under_review') {
     app.status = 'under_review';
-    if (app.stage === 'application') app.stage = 'pre_recorded_interview';
+    if (app.stage === 'application') app.stage = 'live_interview';
   } else if (status === 'interview_pending') {
     app.stage = 'pre_recorded_interview';
     app.status = 'scheduled';
@@ -305,6 +336,136 @@ export const updateApplicationStatus = catchAsync(async (req, res) => {
   });
 
   return sendResponse(res, { message: 'Application status updated', data: app });
+});
+
+export const sendOnboarding = catchAsync(async (req, res) => {
+  const app = await AdvisorApplication.findById(req.params.id).populate('user');
+  if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+  if (!app.user) throw new ApiError(StatusCodes.BAD_REQUEST, 'This application has no linked user account');
+
+  const profile = await AdvisorProfile.findOneAndUpdate(
+    { user: app.user._id },
+    {
+      $setOnInsert: {
+        user: app.user._id,
+        professionalTitle: app.professionalTitle,
+        bio: app.bio,
+        detailedDescription: app.detailedDescription,
+        yearsOfExperience: app.yearsOfExperience,
+        expertise: app.expertise,
+        styles: app.styles,
+        languages: app.languages,
+        introVideoUrl: app.introVideoUrl,
+        pricing: app.pricing
+      },
+      $set: {
+        profileReviewStatus: 'pending_review',
+        profileSubmittedAt: null,
+        profileRejectionReason: ''
+      }
+    },
+    { upsert: true, new: true }
+  );
+
+  await User.findByIdAndUpdate(app.user._id, {
+    role: 'advisor',
+    status: 'pending_verification',
+    isVerified: true
+  });
+
+  const dashboardBase = (process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '');
+  const onboardingUrl = `${dashboardBase}/profile`;
+
+  await safeEmail('advisor onboarding', () =>
+    sendAdvisorOnboardingEmail(app.user.email, { name: app.user.name, onboardingUrl })
+  );
+  await createNotification({
+    recipient: app.user._id,
+    type: 'admin_announcement',
+    title: 'Complete advisor onboarding',
+    body: 'Please complete your advisor profile for admin review.',
+    data: { applicationId: app._id, profileId: profile._id }
+  });
+
+  return sendResponse(res, { message: 'Onboarding email sent', data: { app, profile } });
+});
+
+export const approveAdvisorProfile = catchAsync(async (req, res) => {
+  const app = await AdvisorApplication.findById(req.params.id).populate('user');
+  if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+
+  const profile = await AdvisorProfile.findOneAndUpdate(
+    { user: app.user._id },
+    {
+      profileReviewStatus: 'approved',
+      profileRejectionReason: '',
+      profileReviewedAt: new Date(),
+      profileReviewedBy: req.user?._id
+    },
+    { new: true }
+  );
+  if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile not found');
+
+  app.status = 'approved';
+  await app.save();
+  await User.findByIdAndUpdate(app.user._id, { role: 'advisor', status: 'active', isVerified: true });
+
+  await safeEmail('advisor profile approved', () =>
+    sendAdvisorProfileDecisionEmail(app.user.email, {
+      name: app.user.name,
+      approved: true,
+      loginUrl: buildAdvisorLoginUrl()
+    })
+  );
+  await createNotification({
+    recipient: app.user._id,
+    type: 'admin_announcement',
+    title: 'Advisor profile approved',
+    body: 'Your profile is now visible to clients.',
+    data: { applicationId: app._id }
+  });
+
+  return sendResponse(res, { message: 'Advisor profile approved', data: { app, profile } });
+});
+
+export const rejectAdvisorProfile = catchAsync(async (req, res) => {
+  const { reason } = req.body || {};
+  if (!reason || !String(reason).trim()) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Rejection notes are required');
+  }
+
+  const app = await AdvisorApplication.findById(req.params.id).populate('user');
+  if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+
+  const profile = await AdvisorProfile.findOneAndUpdate(
+    { user: app.user._id },
+    {
+      profileReviewStatus: 'rejected',
+      profileRejectionReason: String(reason).trim(),
+      profileReviewedAt: new Date(),
+      profileReviewedBy: req.user?._id
+    },
+    { new: true }
+  );
+  if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile not found');
+
+  await safeEmail('advisor profile rejected', () =>
+    sendAdvisorProfileDecisionEmail(app.user.email, {
+      name: app.user.name,
+      approved: false,
+      reason,
+      loginUrl: `${(process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '')}/profile`
+    })
+  );
+  await createNotification({
+    recipient: app.user._id,
+    type: 'admin_announcement',
+    title: 'Advisor profile needs updates',
+    body: String(reason).trim(),
+    data: { applicationId: app._id }
+  });
+
+  return sendResponse(res, { message: 'Advisor profile rejected', data: { app, profile } });
 });
 
 // ====== Advisor management (active advisors) ======

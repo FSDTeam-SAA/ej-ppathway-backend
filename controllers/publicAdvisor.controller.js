@@ -9,7 +9,16 @@ import Review from '../models/review.model.js';
 import Favorite from '../models/favorite.model.js';
 
 const buildFilters = (q) => {
-  const filter = {};
+  const filter = {
+    $and: [
+      {
+        $or: [
+          { profileReviewStatus: 'approved' },
+          { profileReviewStatus: { $exists: false } }
+        ]
+      }
+    ]
+  };
   if (q.expertise) filter.expertise = { $in: String(q.expertise).split(',') };
   if (q.styles) filter.styles = { $in: String(q.styles).split(',') };
   if (q.languages) filter.languages = { $in: String(q.languages).split(',') };
@@ -25,7 +34,7 @@ const buildFilters = (q) => {
       .map((c) => map[c.trim()])
       .filter(Boolean)
       .map((path) => ({ [path]: { $gt: 0 } }));
-    if (conds.length) filter.$and = (filter.$and || []).concat(conds);
+    if (conds.length) filter.$and = filter.$and.concat(conds);
   }
 
   return filter;
@@ -102,6 +111,9 @@ export const getAdvisorDetails = catchAsync(async (req, res) => {
   const user = await User.findOne({ _id: advisorId, role: 'advisor' }).lean();
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: advisorId }).lean();
+  if (profile?.profileReviewStatus && profile.profileReviewStatus !== 'approved') {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+  }
 
   let isFavorite = false;
   if (req.user) {

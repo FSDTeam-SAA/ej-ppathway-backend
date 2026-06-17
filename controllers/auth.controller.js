@@ -245,6 +245,19 @@ export const advisorApply = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.CONFLICT, 'Email already registered');
   }
 
+  if (existing) {
+    const activeApplication = await AdvisorApplication.findOne({
+      user: existing._id,
+      status: { $nin: ['approved', 'rejected'] }
+    }).lean();
+    if (activeApplication) {
+      throw new ApiError(
+        StatusCodes.CONFLICT,
+        'You already have an advisor application in progress.'
+      );
+    }
+  }
+
   let profilePhoto = existing?.profilePhoto || '';
   let introVideoUrl = '';
 
@@ -272,7 +285,7 @@ export const advisorApply = catchAsync(async (req, res) => {
     // Only overwrite the password when one was explicitly supplied; otherwise keep
     // whatever value the account already holds.
     if (password) existing.password = password;
-    existing.role = 'advisor';
+    existing.role = existing.role || 'user';
     if (profilePhoto) existing.profilePhoto = profilePhoto;
     existing.country = iso2 || existing.country;
     existing.state = state || existing.state;
@@ -287,7 +300,7 @@ export const advisorApply = catchAsync(async (req, res) => {
       email: normalizedEmail,
       phone: phone || phoneNumber,
       password: effectivePassword,
-      role: 'advisor',
+      role: 'user',
       profilePhoto,
       country: iso2,
       state: state || '',
@@ -316,7 +329,7 @@ export const advisorApply = catchAsync(async (req, res) => {
     pricing: toPricingField(body),
     preRecordedAnswers: Array.isArray(preRecordedAnswers) ? preRecordedAnswers : [],
     stage: 'application',
-    status: 'new',
+    status: 'pending_review',
     applicantDetails: {
       dateOfBirth,
       address,
@@ -339,6 +352,13 @@ export const advisorApply = catchAsync(async (req, res) => {
     message: 'Advisor application submitted.',
     data: { email: user.email, user, application }
   });
+});
+
+export const myAdvisorApplication = catchAsync(async (req, res) => {
+  const application = await AdvisorApplication.findOne({ user: req.user._id })
+    .sort({ createdAt: -1 })
+    .lean();
+  return sendResponse(res, { data: application });
 });
 
 // ========== Verify OTP ==========

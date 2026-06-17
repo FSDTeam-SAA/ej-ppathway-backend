@@ -11,6 +11,8 @@ export const APP_STAGES = [
 
 export const APP_STATUSES = [
   'new',
+  'pending_review',
+  'live_interview',
   'under_review',
   'awaiting_submission',
   'scheduled',

@@ -23,6 +23,9 @@ import {
   approveApplication,
   rejectApplication,
   updateApplicationStatus,
+  sendOnboarding,
+  approveAdvisorProfile,
+  rejectAdvisorProfile,
   deleteApplication,
   listAdvisors,
   getAdvisor,
@@ -148,6 +151,9 @@ router.patch('/advisor-applications/:id/schedule-interview', scheduleLiveIntervi
 router.get('/advisor-applications/:id/interview-token', interviewToken);
 router.patch('/advisor-applications/:id/contract', documentUpload.single('contract'), sendContract);
 router.patch('/advisor-applications/:id/status', updateApplicationStatus);
+router.patch('/advisor-applications/:id/onboarding', sendOnboarding);
+router.patch('/advisor-applications/:id/profile/approve', approveAdvisorProfile);
+router.patch('/advisor-applications/:id/profile/reject', rejectAdvisorProfile);
 router.patch('/advisor-applications/:id/approve', approveApplication);
 router.patch('/advisor-applications/:id/reject', rejectApplication);
 router.delete('/advisor-applications/:id', deleteApplication);
