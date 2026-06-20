@@ -55,6 +55,29 @@ export const ensureAdminChat = catchAsync(async (req, res) => {
   return sendResponse(res, { data: chat });
 });
 
+// ===== Admin opens (or reuses) a support chat with a specific user =====
+export const ensureAdminChatWith = catchAsync(async (req, res) => {
+  const { userId } = req.params;
+  const target = await User.findById(userId).select('_id');
+  if (!target) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+
+  // Reuse the user's existing support thread if one exists (any admin participant),
+  // otherwise open a fresh one between this admin and the target user.
+  let chat = await Chat.findOne({ kind: 'admin', participants: target._id })
+    .sort({ lastMessageAt: -1, updatedAt: -1 });
+  if (!chat) {
+    chat = await Chat.create({
+      kind: 'admin',
+      participants: [req.user._id, target._id]
+    });
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${String(target._id)}`).emit('chat:updated', { chatId: String(chat._id), lastMessage: '' });
+    }
+  }
+  return sendResponse(res, { data: chat });
+});
+
 export const myChats = catchAsync(async (req, res) => {
   const chats = await Chat.find({ participants: req.user._id })
     .populate('participants', 'name profilePhoto role')

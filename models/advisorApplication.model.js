@@ -85,6 +85,18 @@ const advisorApplicationSchema = new Schema(
     status: { type: String, enum: APP_STATUSES, default: 'new', index: true },
 
     rejectionReason: { type: String },
+
+    // Last pipeline notification email result — surfaced in the admin dashboard so
+    // admins can see whether the advisor was actually emailed for the latest action.
+    lastNotification: {
+      action: { type: String, default: '' },
+      subject: { type: String, default: '' },
+      success: { type: Boolean, default: false },
+      skipped: { type: Boolean, default: false },
+      error: { type: String, default: '' },
+      sentAt: { type: Date }
+    },
+
     submittedAt: { type: Date, default: Date.now }
   },
   { timestamps: true }

@@ -31,10 +31,28 @@ import { logAdminActivity } from '../services/activity.service.js';
 // never roll back or fail the underlying action that already persisted.
 const safeEmail = async (label, fn) => {
   try {
-    await fn();
+    const result = await fn();
+    // sendEmail returns { skipped: true } when SMTP isn't configured.
+    if (result && result.skipped) return { success: false, skipped: true };
+    return { success: true };
   } catch (err) {
     console.error(`[email] ${label} failed:`, err?.message || err);
+    return { success: false, error: err?.message || String(err) };
   }
+};
+
+// Persist the outcome of the latest pipeline notification email on the application
+// so the admin dashboard can show whether the advisor was successfully emailed.
+const recordNotification = async (app, action, subject, mail) => {
+  app.lastNotification = {
+    action,
+    subject,
+    success: !!mail?.success,
+    skipped: !!mail?.skipped,
+    error: mail?.error || '',
+    sentAt: new Date()
+  };
+  await app.save();
 };
 
 const DEFAULT_ADVISOR_DASHBOARD_URL = 'https://ej-ppathway-advisor-dashboard.vercel.app';
@@ -144,11 +162,12 @@ export const scheduleLiveInterview = catchAsync(async (req, res) => {
   app.status = 'live_interview';
   await app.save();
 
-  await safeEmail('interview scheduled', () => sendInterviewScheduledEmail(app.user.email, {
+  const mail = await safeEmail('interview scheduled', () => sendInterviewScheduledEmail(app.user.email, {
     name: app.user.name,
     datetime: new Date(datetime).toUTCString(),
     joinUrl: `${process.env.CLIENT_URL || ''}/advisor/interview/${app._id}`
   }));
+  await recordNotification(app, 'schedule_interview', 'Live Interview Scheduled', mail);
 
   await createNotification({
     recipient: app.user._id,
@@ -212,9 +231,10 @@ export const sendContract = catchAsync(async (req, res) => {
   const dashboardBase = process.env.ADVISOR_DASHBOARD_URL || process.env.CLIENT_URL || '';
   const signingUrl = `${dashboardBase}/contract/sign?token=${token}`;
 
-  await safeEmail('advisor contract', () =>
+  const mail = await safeEmail('advisor contract', () =>
     sendAdvisorContractEmail(app.user.email, { name: app.user.name, contractUrl: signingUrl })
   );
+  await recordNotification(app, 'send_contract', 'Your Advisor Contract', mail);
 
   await createNotification({
     recipient: app.user._id,
@@ -274,7 +294,8 @@ export const approveApplication = catchAsync(async (req, res) => {
     targetUser: app.user._id
   });
 
-  await safeEmail('advisor approved', () => sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: true }));
+  const mail = await safeEmail('advisor approved', () => sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: true }));
+  await recordNotification(app, 'approve', 'Advisor Application Approved', mail);
   await createNotification({
     recipient: app.user._id,
     type: 'admin_announcement',
@@ -295,7 +316,8 @@ export const rejectApplication = catchAsync(async (req, res) => {
   app.rejectionReason = reason || '';
   await app.save();
 
-  await safeEmail('advisor rejected', () => sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: false, reason }));
+  const mail = await safeEmail('advisor rejected', () => sendAdvisorDecisionEmail(app.user.email, { name: app.user.name, approved: false, reason }));
+  await recordNotification(app, 'reject', 'Advisor Application Update', mail);
   return sendResponse(res, { message: 'Application rejected', data: app });
 });
 
@@ -376,9 +398,10 @@ export const sendOnboarding = catchAsync(async (req, res) => {
   const dashboardBase = (process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '');
   const onboardingUrl = `${dashboardBase}/profile`;
 
-  await safeEmail('advisor onboarding', () =>
+  const mail = await safeEmail('advisor onboarding', () =>
     sendAdvisorOnboardingEmail(app.user.email, { name: app.user.name, onboardingUrl })
   );
+  await recordNotification(app, 'onboarding', 'Complete Your Advisor Profile', mail);
   await createNotification({
     recipient: app.user._id,
     type: 'admin_announcement',
@@ -410,13 +433,14 @@ export const approveAdvisorProfile = catchAsync(async (req, res) => {
   await app.save();
   await User.findByIdAndUpdate(app.user._id, { role: 'advisor', status: 'active', isVerified: true });
 
-  await safeEmail('advisor profile approved', () =>
+  const mail = await safeEmail('advisor profile approved', () =>
     sendAdvisorProfileDecisionEmail(app.user.email, {
       name: app.user.name,
       approved: true,
       loginUrl: buildAdvisorLoginUrl()
     })
   );
+  await recordNotification(app, 'profile_approve', 'Your Advisor Profile Is Approved', mail);
   await createNotification({
     recipient: app.user._id,
     type: 'admin_announcement',
@@ -449,7 +473,7 @@ export const rejectAdvisorProfile = catchAsync(async (req, res) => {
   );
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile not found');
 
-  await safeEmail('advisor profile rejected', () =>
+  const mail = await safeEmail('advisor profile rejected', () =>
     sendAdvisorProfileDecisionEmail(app.user.email, {
       name: app.user.name,
       approved: false,
@@ -457,6 +481,7 @@ export const rejectAdvisorProfile = catchAsync(async (req, res) => {
       loginUrl: `${(process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '')}/profile`
     })
   );
+  await recordNotification(app, 'profile_reject', 'Advisor Profile Update Required', mail);
   await createNotification({
     recipient: app.user._id,
     type: 'admin_announcement',

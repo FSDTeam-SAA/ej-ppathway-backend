@@ -4,6 +4,7 @@ import { anyUpload } from '../middlewares/upload.js';
 import {
   ensureSessionChat,
   ensureAdminChat,
+  ensureAdminChatWith,
   myChats,
   getChat,
   listMessages,
@@ -19,6 +20,7 @@ router.get('/mine', myChats);
 router.get('/admin', auth('admin', 'sub_admin'), adminListChats);
 router.post('/session/:sessionId', ensureSessionChat);
 router.post('/admin', ensureAdminChat);
+router.post('/admin/with/:userId', auth('admin', 'sub_admin'), ensureAdminChatWith);
 router.get('/:id', getChat);
 router.get('/:id/messages', listMessages);
 router.post('/:id/messages', anyUpload.array('attachments', 5), sendMessage);
