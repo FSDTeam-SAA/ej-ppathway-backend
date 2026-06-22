@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const { Schema } = mongoose;
 
-export const TIERS = ['bronze', 'silver', 'gold'];
+export const TIERS = ['silver', 'gold', 'platinum'];
 export const PROFILE_REVIEW_STATUSES = ['pending_review', 'approved', 'rejected'];
 
 const dayScheduleSchema = new Schema(
@@ -65,7 +65,7 @@ const advisorProfileSchema = new Schema(
     profileReviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
 
     // Stats
-    tier: { type: String, enum: TIERS, default: 'bronze', index: true },
+    tier: { type: String, enum: TIERS, default: 'silver', index: true },
     totalSessions: { type: Number, default: 0 },
     completedSessions: { type: Number, default: 0 },
     cancelledSessions: { type: Number, default: 0 },

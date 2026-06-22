@@ -165,7 +165,7 @@ export const getDashboard = catchAsync(async (req, res) => {
       activeSessions,
       pendingRequests,
       ratings: profile?.avgRating || 0,
-      tier: profile?.tier || 'bronze',
+      tier: profile?.tier === 'bronze' ? 'silver' : profile?.tier || 'silver',
       walletBalance: wallet?.earningsBalance || 0,
       ongoing,
       upcoming,
@@ -217,7 +217,7 @@ export const getPerformance = catchAsync(async (req, res) => {
       refundRate: refreshed?.refundRate || 0,
       ratingBreakdown: refreshed?.ratingBreakdown || {},
       retention,
-      tier: refreshed?.tier || 'bronze',
+      tier: refreshed?.tier === 'bronze' ? 'silver' : refreshed?.tier || 'silver',
       tierConfig: settings.tierThresholds
     }
   });

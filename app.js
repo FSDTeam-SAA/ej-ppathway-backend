@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 
 import notFound from './middlewares/notFound.js';
 import globalErrorHandler from './middlewares/globalErrorHandler.js';
+import { getJobQueueStatus } from './services/jobQueue.service.js';
 
 // routes
 import authRoutes from './routes/auth.routes.js';
@@ -64,7 +65,12 @@ app.get('/', (_req, res) => {
 });
 
 app.get('/api/v1/health', (_req, res) => {
-  res.status(200).json({ success: true, message: 'OK', time: new Date().toISOString() });
+  res.status(200).json({
+    success: true,
+    message: 'OK',
+    time: new Date().toISOString(),
+    jobs: getJobQueueStatus()
+  });
 });
 
 // public + auth + role-protected route mounting

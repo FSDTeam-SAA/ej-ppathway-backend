@@ -5,7 +5,8 @@ import sendResponse from '../utils/sendResponse.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 import Notification from '../models/notification.model.js';
 import User from '../models/user.model.js';
-import { createNotification } from '../services/notification.service.js';
+import { enqueueBulkJobs } from '../services/jobQueue.service.js';
+import { NOTIFICATION_BROADCAST_JOB } from '../services/notificationJobs.service.js';
 
 export const listMyNotifications = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
@@ -74,13 +75,23 @@ export const adminBroadcast = catchAsync(async (req, res) => {
   else if (audience === 'advisors') filter.role = 'advisor';
 
   const recipients = await User.find(filter).select('_id').lean();
-  const docs = recipients.map((r) => ({
-    recipient: r._id,
-    type: 'admin_announcement',
-    title,
-    body: body || '',
-    data
-  }));
-  if (docs.length) await Notification.insertMany(docs);
-  return sendResponse(res, { message: `Broadcast to ${docs.length} recipients` });
+  const batchSize = Math.max(1, Number(process.env.NOTIFICATION_BROADCAST_BATCH_SIZE || 500));
+  const payloads = [];
+
+  for (let i = 0; i < recipients.length; i += batchSize) {
+    payloads.push({
+      recipientIds: recipients.slice(i, i + batchSize).map((r) => String(r._id)),
+      title,
+      body: body || '',
+      data: data || {},
+      type: 'admin_announcement'
+    });
+  }
+
+  if (payloads.length) await enqueueBulkJobs(NOTIFICATION_BROADCAST_JOB, payloads);
+
+  return sendResponse(res, {
+    message: `Queued broadcast to ${recipients.length} recipients`,
+    data: { recipients: recipients.length, jobs: payloads.length }
+  });
 });
