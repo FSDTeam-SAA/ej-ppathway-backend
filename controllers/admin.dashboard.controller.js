@@ -94,10 +94,10 @@ export const dashboardOverview = catchAsync(async (req, res) => {
   ];
 
   // ---- Advisor performance & activity ----
-  const [totalAdvisors, activeAdvisors, suspendedAdvisors, onlineAdvisors] = await Promise.all([
+  const [totalAdvisors, activeAdvisors, deactivatedAdvisors, onlineAdvisors] = await Promise.all([
     User.countDocuments({ role: 'advisor' }),
     User.countDocuments({ role: 'advisor', status: 'active' }),
-    User.countDocuments({ role: 'advisor', status: 'suspended' }),
+    User.countDocuments({ role: 'advisor', status: { $in: ['deactivated', 'suspended'] } }),
     AdvisorProfile.countDocuments({ isOnline: true })
   ]);
   const topProfiles = await AdvisorProfile.find({})
@@ -154,7 +154,7 @@ export const dashboardOverview = catchAsync(async (req, res) => {
         total: totalAdvisors,
         active: activeAdvisors,
         online: onlineAdvisors,
-        suspended: suspendedAdvisors,
+        suspended: deactivatedAdvisors,
         topPerformers
       },
       approvals: { approved: appApproved, pending: appPending, rejected: appRejected },

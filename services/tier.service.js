@@ -10,17 +10,17 @@ export const computeTier = async (advisorId) => {
   const retention = profile.repeatClientRate || 0;
 
   const t = settings.tierThresholds;
-  let tier = 'bronze';
+  let tier = 'silver';
   if (
+    sessions >= t.platinum.sessions &&
+    rating >= t.platinum.ratings &&
+    retention >= t.platinum.retention
+  ) tier = 'platinum';
+  else if (
     sessions >= t.gold.sessions &&
     rating >= t.gold.ratings &&
     retention >= t.gold.retention
   ) tier = 'gold';
-  else if (
-    sessions >= t.silver.sessions &&
-    rating >= t.silver.ratings &&
-    retention >= t.silver.retention
-  ) tier = 'silver';
 
   if (profile.tier !== tier) {
     profile.tier = tier;
@@ -32,6 +32,7 @@ export const computeTier = async (advisorId) => {
 export const commissionPercentForAdvisor = async (advisorId) => {
   const profile = await AdvisorProfile.findOne({ user: advisorId });
   const settings = await getPlatformSettings();
-  if (!profile) return settings.commissions.bronze;
-  return settings.commissions[profile.tier] ?? settings.commissions.bronze;
+  if (!profile) return settings.commissions.silver;
+  const tier = profile.tier === 'bronze' ? 'silver' : profile.tier;
+  return settings.commissions[tier] ?? settings.commissions.silver;
 };

@@ -186,7 +186,7 @@ export const advisorEarnings = catchAsync(async (req, res) => {
 
   const data = pageItems.map((x) => ({
     advisor: uMap.get(String(x._id)) || null,
-    tier: pMap.get(String(x._id))?.tier || 'bronze',
+    tier: pMap.get(String(x._id))?.tier === 'bronze' ? 'silver' : pMap.get(String(x._id))?.tier || 'silver',
     totalSessions: pMap.get(String(x._id))?.totalSessions || 0,
     grossEarnings: round2(x.grossEarnings),
     platformCommission: round2(x.platformCommission),
@@ -384,11 +384,19 @@ export const rejectPayout = catchAsync(async (req, res) => {
 });
 
 export const updateCommissions = catchAsync(async (req, res) => {
-  const { bronze, silver, gold } = req.body;
+  const { silver, gold, platinum } = req.body;
   const settings = await getPlatformSettings();
-  if (typeof bronze === 'number') settings.commissions.bronze = bronze;
-  if (typeof silver === 'number') settings.commissions.silver = silver;
-  if (typeof gold === 'number') settings.commissions.gold = gold;
+  const apply = (key, value) => {
+    if (typeof value === 'undefined') return;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, `${key} commission must be between 0 and 100`);
+    }
+    settings.commissions[key] = n;
+  };
+  apply('silver', silver);
+  apply('gold', gold);
+  apply('platinum', platinum);
   await settings.save();
   return sendResponse(res, { message: 'Commissions updated', data: settings.commissions });
 });

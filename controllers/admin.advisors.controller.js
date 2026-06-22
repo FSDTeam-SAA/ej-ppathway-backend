@@ -494,14 +494,20 @@ export const rejectAdvisorProfile = catchAsync(async (req, res) => {
 });
 
 // ====== Advisor management (active advisors) ======
-// Tabs: all | active | deactivated | suspended | online | available_now
+const ADVISOR_TIERS = ['silver', 'gold', 'platinum'];
+const normalizeAdvisorTier = (tier) => {
+  if (tier === 'bronze') return 'silver';
+  return ADVISOR_TIERS.includes(tier) ? tier : null;
+};
+
+// Tabs: all | active | deactivated | online | available_now
 export const listAdvisors = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const status = req.query.status;
   const filter = { role: 'advisor' };
 
   // Account-status tabs map straight onto User.status.
-  if (['active', 'suspended', 'deactivated', 'pending_verification'].includes(status)) {
+  if (['active', 'deactivated', 'pending_verification'].includes(status)) {
     filter.status = status;
   }
 
@@ -641,18 +647,18 @@ export const suspendAdvisor = catchAsync(async (req, res) => {
   const { reason } = req.body;
   const user = await User.findByIdAndUpdate(
     req.params.id,
-    { status: 'suspended', suspendedReason: reason || '', suspendedAt: new Date() },
+    { status: 'deactivated', suspendedReason: reason || '', suspendedAt: new Date() },
     { new: true }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   await logAdminActivity({
     adminId: req.user?._id,
-    action: 'advisor.suspend',
-    description: `Suspended advisor account ${user.name}`,
+    action: 'advisor.deactivate',
+    description: `Deactivated advisor account ${user.name}`,
     targetType: 'advisor',
     targetUser: user._id
   });
-  return sendResponse(res, { message: 'Advisor suspended', data: user });
+  return sendResponse(res, { message: 'Advisor deactivated', data: user });
 });
 
 export const unsuspendAdvisor = catchAsync(async (req, res) => {
@@ -705,7 +711,11 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   if (expertise !== undefined) profPatch.expertise = toArray(expertise);
   if (styles !== undefined) profPatch.styles = toArray(styles);
   if (languages !== undefined) profPatch.languages = toArray(languages);
-  if (tier !== undefined && ['bronze', 'silver', 'gold'].includes(tier)) profPatch.tier = tier;
+  if (tier !== undefined) {
+    const normalizedTier = normalizeAdvisorTier(tier);
+    if (!normalizedTier) throw new ApiError(StatusCodes.BAD_REQUEST, 'Tier must be Silver, Gold, or Platinum');
+    profPatch.tier = normalizedTier;
+  }
   if (pricing && typeof pricing === 'object') {
     if (pricing.chatPerMin !== undefined && pricing.chatPerMin !== '') profPatch['pricing.chatPerMin'] = Number(pricing.chatPerMin);
     if (pricing.callPerMin !== undefined && pricing.callPerMin !== '') profPatch['pricing.callPerMin'] = Number(pricing.callPerMin);
@@ -765,10 +775,18 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
     yearsOfExperience: experience || '',
     expertise: expertiseArr,
     styles: stylesArr,
-    languages: languagesArr.length ? languagesArr : ['English']
+    languages: languagesArr.length ? languagesArr : ['English'],
+    profileReviewStatus: 'approved',
+    profileSubmittedAt: new Date(),
+    profileReviewedAt: new Date(),
+    profileReviewedBy: req.user?._id
   };
   if (professionalTitle) profileData.professionalTitle = professionalTitle;
-  if (tier && ['bronze', 'silver', 'gold'].includes(tier)) profileData.tier = tier;
+  if (tier) {
+    const normalizedTier = normalizeAdvisorTier(tier);
+    if (!normalizedTier) throw new ApiError(StatusCodes.BAD_REQUEST, 'Tier must be Silver, Gold, or Platinum');
+    profileData.tier = normalizedTier;
+  }
   if (pricing && typeof pricing === 'object') {
     const p = {};
     if (pricing.chatPerMin !== undefined && pricing.chatPerMin !== '') p.chatPerMin = Number(pricing.chatPerMin);
