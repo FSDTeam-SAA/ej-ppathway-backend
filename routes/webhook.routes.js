@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import express from 'express';
-import { livekitWebhook } from '../controllers/webhook.controller.js';
+import { livekitWebhook, revenueCatWebhook } from '../controllers/webhook.controller.js';
 
 const router = Router();
 
@@ -12,6 +12,12 @@ router.post(
   '/livekit',
   express.raw({ type: () => true, limit: '1mb' }),
   livekitWebhook
+);
+
+router.post(
+  '/revenuecat',
+  express.json({ type: () => true, limit: '1mb' }),
+  revenueCatWebhook
 );
 
 export default router;

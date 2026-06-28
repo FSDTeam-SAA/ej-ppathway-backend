@@ -42,13 +42,13 @@ const sessionSchema = new Schema(
     endedAt: { type: Date },
     actualDurationSec: { type: Number, default: 0 },
 
-    // Pricing snapshot
+    // Pricing snapshot in credits
     ratePerMin: { type: Number, required: true },
     estimatedCost: { type: Number, default: 0 },
 
     // Billing
-    holdAmount: { type: Number, default: 0 },          // initial hold based on duration
-    chargedAmount: { type: Number, default: 0 },       // total charged from user wallet
+    holdAmount: { type: Number, default: 0 },          // initial credit hold based on duration
+    chargedAmount: { type: Number, default: 0 },       // total credits charged from user wallet
     creditsUsed: { type: Number, default: 0 },         // free credits used
     advisorPayout: { type: Number, default: 0 },
     platformCommission: { type: Number, default: 0 },
@@ -60,8 +60,8 @@ const sessionSchema = new Schema(
     recordingConsented: { type: Boolean, default: false },
     recordingPriceUnlocked: { type: Boolean, default: false },
     transcriptPriceUnlocked: { type: Boolean, default: false },
-    unlockChargeRecording: { type: Number, default: 4.99 },
-    unlockChargeTranscript: { type: Number, default: 4.99 },
+    unlockChargeRecording: { type: Number, default: 5 },
+    unlockChargeTranscript: { type: Number, default: 5 },
 
     // Extension
     extensions: [

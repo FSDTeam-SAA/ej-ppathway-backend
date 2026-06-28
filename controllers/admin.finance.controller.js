@@ -15,7 +15,7 @@ import { logAdminActivity } from '../services/activity.service.js';
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
 
 // Money the platform collects from users.
-const REVENUE_TYPES = ['session_charge', 'subscription', 'unlock_recording', 'unlock_transcript', 'promotion_purchase', 'tip'];
+const REVENUE_TYPES = ['credit_pack_purchase', 'wallet_topup', 'subscription', 'promotion_purchase'];
 // Money owed to / earned by advisors.
 const ADVISOR_TYPES = ['advisor_earning', 'advisor_tip'];
 const REFUND_TYPES = ['session_refund', 'subscription_refund'];
@@ -61,7 +61,7 @@ export const overview = catchAsync(async (req, res) => {
 
   // Wallet metrics
   const [deposits, balanceAgg] = await Promise.all([
-    sumTypes(['wallet_topup']),
+    sumTypes(['credit_pack_purchase', 'wallet_topup']),
     Wallet.aggregate([{ $group: { _id: null, balance: { $sum: '$balance' }, free: { $sum: '$freeCredits' } } }])
   ]);
 
@@ -105,7 +105,7 @@ export const overview = catchAsync(async (req, res) => {
   ]);
   const sessMap = Object.fromEntries(sessionRev.map((s) => [s._id, s.total]));
   const [subRev, unlockRev, promoRev] = await Promise.all([
-    sumTypes(['subscription']),
+    sumTypes(['credit_pack_purchase', 'wallet_topup']),
     sumTypes(['unlock_recording', 'unlock_transcript']),
     sumTypes(['promotion_purchase'])
   ]);
@@ -141,7 +141,8 @@ export const overview = catchAsync(async (req, res) => {
         voiceSessions: round2(sessMap.call || 0),
         videoSessions: round2(sessMap.video || 0),
         chatSessions: round2(sessMap.chat || 0),
-        subscriptionRevenue: subRev.amount,
+        creditPackRevenue: subRev.amount,
+        subscriptionRevenue: 0,
         recordingPurchases: unlockRev.amount,
         featuredAdvisorFees: promoRev.amount
       }

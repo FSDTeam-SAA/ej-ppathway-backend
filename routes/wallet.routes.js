@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
 import {
   getMyWallet,
+  getCreditPacks,
   getMyTransactions,
   createTopupCheckout,
   getTopupStatus,
@@ -28,6 +29,7 @@ router.get('/paypal/cancel', paypalTopupCancel);
 router.use(auth());
 
 // User wallet
+router.get('/credit-packs', getCreditPacks);
 router.get('/me', getMyWallet);
 router.get('/transactions', getMyTransactions);
 router.post('/topup', createTopupCheckout);

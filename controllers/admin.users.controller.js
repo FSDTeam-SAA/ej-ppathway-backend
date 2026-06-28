@@ -62,7 +62,7 @@ export const getUserDetails = catchAsync(async (req, res) => {
   const wallet = await Wallet.findOne({ user: user._id });
   const sessionsCount = await Session.countDocuments({ user: user._id });
   const totalSpentAgg = await Transaction.aggregate([
-    { $match: { user: user._id, status: 'completed', type: { $in: ['session_charge','wallet_topup','tip','subscription','unlock_recording','unlock_transcript'] } } },
+    { $match: { user: user._id, status: 'completed', type: { $in: ['session_charge','credit_pack_purchase','wallet_topup','tip','subscription','unlock_recording','unlock_transcript'] } } },
     { $group: { _id: null, t: { $sum: '$amount' } } }
   ]);
   const sub = await UserSubscription.findOne({ user: user._id, status: 'active' }).populate('plan');
@@ -123,21 +123,21 @@ export const giveFreeCredits = catchAsync(async (req, res) => {
     status: 'completed',
     user: user._id,
     amount: value,
-    description: `Admin granted $${value} in free credits`
+    description: `Admin granted ${value} free credits`
   });
 
   await createNotification({
     recipient: user._id,
     type: 'free_credits_granted',
     title: 'Free credits added',
-    body: `You received $${value} in free credits`,
+    body: `You received ${value} free credits`,
     data: { amount: value }
   });
 
   await logAdminActivity({
     adminId: req.user?._id,
     action: 'wallet.credit',
-    description: `Issued $${value} wallet credit to ${user.name}`,
+    description: `Issued ${value} free credits to ${user.name}`,
     targetType: 'user',
     targetUser: user._id
   });

@@ -30,9 +30,9 @@ const advisorProfileSchema = new Schema(
     introVideoUrl: { type: String, default: '' },
 
     pricing: {
-      chatPerMin: { type: Number, default: 1 },
-      callPerMin: { type: Number, default: 1.2 },
-      videoPerMin: { type: Number, default: 1.5 }
+      chatPerMin: { type: Number, default: 1 / 3 },
+      callPerMin: { type: Number, default: 1 },
+      videoPerMin: { type: Number, default: 4 / 3 }
     },
 
     // Availability

@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 export const TX_TYPES = [
+  'credit_pack_purchase',  // user purchased a fixed credit pack
   'wallet_topup',          // user added funds via Stripe
   'session_charge',        // user charged for a session
   'session_refund',        // user refunded
@@ -37,7 +38,7 @@ const transactionSchema = new Schema(
     currency: { type: String, default: 'usd' },         // ISO-4217 (lowercase ok)
     country: { type: String, uppercase: true, trim: true },
     amountUsd: { type: Number },                        // equivalent base USD amount (for reporting)
-    provider: { type: String, enum: ['stripe', 'paypal', 'internal'], default: 'stripe', index: true },
+    provider: { type: String, enum: ['stripe', 'paypal', 'internal', 'revenuecat'], default: 'stripe', index: true },
     description: { type: String, default: '' },
 
     // Stripe links

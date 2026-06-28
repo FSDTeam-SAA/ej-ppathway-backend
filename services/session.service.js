@@ -5,22 +5,23 @@ import AdvisorProfile from '../models/advisorProfile.model.js';
 import { commissionPercentForAdvisor, computeTier } from './tier.service.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
+const roundCredits = (n) => Math.ceil(Number(n || 0));
 
 /**
- * Charge user wallet (free credits first, then balance) for `amount`.
+ * Charge user wallet (free credits first, then purchased credits) for `amount`.
  * Returns details on success, throws on insufficient.
  */
 export const chargeUserWallet = async ({ userId, amount }) => {
   const wallet = await Wallet.findOne({ user: userId });
   if (!wallet) throw new Error('Wallet not found');
-  let amt = round2(amount);
+  let amt = roundCredits(amount);
   let creditsUsed = 0;
   let balanceUsed = 0;
 
   if (wallet.freeCredits > 0) {
     creditsUsed = Math.min(wallet.freeCredits, amt);
     wallet.freeCredits = round2(wallet.freeCredits - creditsUsed);
-    amt = round2(amt - creditsUsed);
+    amt = roundCredits(amt - creditsUsed);
   }
   if (amt > 0) {
     if (wallet.balance < amt) {
@@ -35,7 +36,7 @@ export const chargeUserWallet = async ({ userId, amount }) => {
 };
 
 /**
- * Refund to user wallet (refund goes back to balance, not credits).
+ * Refund to user wallet (refund goes back to purchased credits, not free credits).
  */
 export const refundToUserWallet = async ({ userId, amount }) => {
   const wallet = await Wallet.findOne({ user: userId });
@@ -67,7 +68,7 @@ export const settleSession = async (session) => {
   session.actualDurationSec = sec;
 
   const minutes = sec / 60;
-  const grossUserCharge = round2(minutes * session.ratePerMin);
+  const grossUserCharge = roundCredits(minutes * session.ratePerMin);
 
   // determine commission from advisor tier (snapshot here)
   const commissionPct = await commissionPercentForAdvisor(session.advisor);

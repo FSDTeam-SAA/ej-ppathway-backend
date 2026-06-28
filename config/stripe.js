@@ -12,7 +12,7 @@ const getStripe = () => {
   if (key.includes('replace') || !/^sk_(test|live)_/.test(key)) {
     throw new Error('STRIPE_SECRET_KEY is invalid. Use a real Stripe secret key (sk_test_... or sk_live_...).');
   }
-  _stripe = new Stripe(key, { apiVersion: '2024-11-20.acacia' });
+  _stripe = new Stripe(key, { apiVersion: '2026-02-25.clover' });
   return _stripe;
 };
 

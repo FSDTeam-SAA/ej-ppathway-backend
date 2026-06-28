@@ -63,7 +63,9 @@ import {
 } from '../controllers/admin.finance.controller.js';
 
 import {
+  getCreditSettings,
   getSignupFreeCredits,
+  updateCreditSettings,
   updateSignupFreeCredits
 } from '../controllers/admin.settings.controller.js';
 
@@ -191,7 +193,9 @@ router.get('/finance/commissions', getCommissions);
 router.patch('/finance/commissions', updateCommissions);
 router.patch('/finance/min-withdrawal', updateMinWithdrawal);
 
-// Platform settings — signup free credits
+// Platform settings - signup free credits
+router.get('/settings/credits', getCreditSettings);
+router.patch('/settings/credits', updateCreditSettings);
 router.get('/settings/signup-credits', getSignupFreeCredits);
 router.patch('/settings/signup-credits', updateSignupFreeCredits);
 
@@ -252,4 +256,4 @@ router.get('/contact/:id', adminGetContactMessage);
 router.patch('/contact/:id', adminUpdateContactMessage);
 router.delete('/contact/:id', adminDeleteContactMessage);
 
-export default router;     
+export default router;

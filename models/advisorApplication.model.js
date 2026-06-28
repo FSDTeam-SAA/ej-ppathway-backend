@@ -67,9 +67,9 @@ const advisorApplicationSchema = new Schema(
 
     // Pricing offered (used after approval)
     pricing: {
-      chatPerMin: { type: Number, default: 0 },
-      callPerMin: { type: Number, default: 0 },
-      videoPerMin: { type: Number, default: 0 }
+      chatPerMin: { type: Number, default: 1 / 3 },
+      callPerMin: { type: Number, default: 1 },
+      videoPerMin: { type: Number, default: 4 / 3 }
     },
 
     applicantDetails: {

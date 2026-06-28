@@ -14,6 +14,7 @@ import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { detectCountry } from '../utils/geo.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
+import { DEFAULT_CREDIT_PRICING } from '../services/credit.service.js';
 
 const OTP_EXPIRES_MIN = 10;
 
@@ -53,9 +54,9 @@ const toArrayField = (value) => {
 const toPricingField = (body = {}) => {
   const parsed = parseJsonField(body.pricing, {});
   return {
-    chatPerMin: Number(parsed?.chatPerMin ?? body.chatPerMin ?? 1),
-    callPerMin: Number(parsed?.callPerMin ?? body.callPerMin ?? 1.2),
-    videoPerMin: Number(parsed?.videoPerMin ?? body.videoPerMin ?? 1.5)
+    chatPerMin: Number(parsed?.chatPerMin ?? body.chatPerMin ?? DEFAULT_CREDIT_PRICING.chatPerMin),
+    callPerMin: Number(parsed?.callPerMin ?? body.callPerMin ?? DEFAULT_CREDIT_PRICING.callPerMin),
+    videoPerMin: Number(parsed?.videoPerMin ?? body.videoPerMin ?? DEFAULT_CREDIT_PRICING.videoPerMin)
   };
 };
 
@@ -81,7 +82,11 @@ const grantSignupFreeCredits = async (userId) => {
   try {
     const s = await getPlatformSettings();
     if (s?.signupFreeCredits > 0) {
-      await Wallet.findOneAndUpdate({ user: userId }, { $inc: { freeCredits: s.signupFreeCredits } });
+      await Wallet.findOneAndUpdate(
+        { user: userId },
+        { $inc: { freeCredits: s.signupFreeCredits }, $setOnInsert: { user: userId } },
+        { upsert: true }
+      );
     }
   } catch (err) {
     console.error('grantSignupFreeCredits failed:', err?.message || err);

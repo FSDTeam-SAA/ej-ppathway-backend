@@ -1,6 +1,10 @@
 import { receiveWebhookEvent } from '../config/livekit.js';
 import { resolveRecordingUrl } from '../services/recording.service.js';
 import Session from '../models/session.model.js';
+import Transaction from '../models/transaction.model.js';
+import Wallet from '../models/wallet.model.js';
+import User from '../models/user.model.js';
+import { findCreditPackByRevenueCatProduct } from '../services/credit.service.js';
 
 /**
  * Resolve which session an egress event belongs to.
@@ -66,4 +70,76 @@ export const livekitWebhook = async (req, res) => {
   }
 };
 
-export default { livekitWebhook };
+const revenueCatSecretMatches = (req) => {
+  const expected = process.env.REVENUECAT_WEBHOOK_SECRET;
+  if (!expected) return true;
+  const auth = String(req.get('Authorization') || '').trim();
+  return auth === expected || auth === `Bearer ${expected}`;
+};
+
+export const revenueCatWebhook = async (req, res) => {
+  try {
+    if (!revenueCatSecretMatches(req)) {
+      return res.status(401).json({ ok: false, message: 'Unauthorized' });
+    }
+
+    const event = req.body?.event || req.body;
+    const type = String(event?.type || '').toUpperCase();
+    const shouldCredit = ['INITIAL_PURCHASE', 'NON_RENEWING_PURCHASE', 'VIRTUAL_CURRENCY_TRANSACTION'].includes(type);
+    if (!shouldCredit) return res.status(200).json({ ok: true, skipped: true });
+
+    const productId = event.product_id || event.productId || event.product_identifier;
+    const transactionId = event.transaction_id || event.transactionId || event.id;
+    const appUserId = event.app_user_id || event.appUserId;
+    if (!productId || !transactionId || !appUserId) {
+      return res.status(200).json({ ok: false, skipped: true, message: 'Missing purchase identifiers' });
+    }
+
+    const existing = await Transaction.findOne({
+      provider: 'revenuecat',
+      'metadata.revenueCatTransactionId': String(transactionId)
+    });
+    if (existing) return res.status(200).json({ ok: true, duplicate: true });
+
+    const pack = await findCreditPackByRevenueCatProduct(productId);
+    if (!pack) return res.status(200).json({ ok: false, skipped: true, message: 'Unknown product id' });
+
+    const user = await User.findById(appUserId);
+    if (!user) return res.status(200).json({ ok: false, skipped: true, message: 'Unknown app user id' });
+
+    const wallet = await Wallet.findOneAndUpdate(
+      { user: user._id },
+      { $inc: { balance: pack.credits }, $setOnInsert: { user: user._id } },
+      { new: true, upsert: true }
+    );
+
+    const price = Number(event.price || event.price_in_purchased_currency || pack.priceUsd);
+    const currency = String(event.currency || event.currency_code || 'usd').toLowerCase();
+
+    await Transaction.create({
+      type: 'credit_pack_purchase',
+      status: 'completed',
+      provider: 'revenuecat',
+      user: user._id,
+      amount: Number.isFinite(price) ? price : pack.priceUsd,
+      currency,
+      amountUsd: pack.priceUsd,
+      description: `${pack.label} credit pack via RevenueCat`,
+      metadata: {
+        packId: pack.id,
+        credits: pack.credits,
+        revenueCatProductId: productId,
+        revenueCatTransactionId: transactionId,
+        revenueCatStore: event.store,
+        revenueCatEventType: type
+      }
+    });
+
+    return res.status(200).json({ ok: true, walletBalance: wallet.balance });
+  } catch (e) {
+    console.error('revenueCatWebhook error', e?.message);
+    return res.status(200).json({ ok: false });
+  }
+};
+
+export default { livekitWebhook, revenueCatWebhook };

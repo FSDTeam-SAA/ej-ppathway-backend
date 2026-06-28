@@ -8,12 +8,12 @@ import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import User from '../models/user.model.js';
 import UserSubscription from '../models/userSubscription.model.js';
-import Plan from '../models/plan.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { detectCountry } from '../utils/geo.js';
 import { convertUsd, toProviderMinorUnits } from '../services/pricing.service.js';
 import { createPaypalOrder, capturePaypalOrder } from '../services/paypal.service.js';
 import { isPaypalConfigured } from '../config/paypal.js';
+import { creditUsageSummary, findCreditPack } from '../services/credit.service.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const recentDate = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -44,14 +44,12 @@ const syncTopupWithStripe = async ({ tx, sessionId }) => {
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Stripe session not found');
 
   if (tx.status !== 'completed' && session.payment_status === 'paid') {
-    // Wallet is denominated in USD credit. The Stripe charge was in the user's
-    // local currency, so credit the USD-equivalent we recorded at checkout time.
-    const creditUsd = tx.amountUsd != null ? tx.amountUsd : (session.amount_total || 0) / 100;
-    if (creditUsd <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid Stripe amount');
+    const credits = Number(tx.metadata?.credits || tx.amountUsd || 0);
+    if (credits <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid credit pack');
 
     const wallet = await Wallet.findOneAndUpdate(
       { user: tx.user },
-      { $inc: { balance: creditUsd } },
+      { $inc: { balance: credits } },
       { new: true, upsert: true },
     );
 
@@ -78,7 +76,7 @@ const syncTopupWithStripe = async ({ tx, sessionId }) => {
 const syncRecentPendingTopupsForUser = async (userId) => {
   const pendingTopups = await Transaction.find({
     user: userId,
-    type: 'wallet_topup',
+    type: { $in: ['credit_pack_purchase', 'wallet_topup'] },
     status: 'pending',
     createdAt: { $gte: recentDate(2) },
     stripeCheckoutSessionId: { $exists: true, $ne: '' },
@@ -96,6 +94,10 @@ const syncRecentPendingTopupsForUser = async (userId) => {
 };
 
 // ===== User wallet =====
+export const getCreditPacks = catchAsync(async (_req, res) => {
+  return sendResponse(res, { data: await creditUsageSummary() });
+});
+
 export const getMyWallet = catchAsync(async (req, res) => {
   await syncRecentPendingTopupsForUser(req.user._id);
 
@@ -108,10 +110,14 @@ export const getMyWallet = catchAsync(async (req, res) => {
   // determine plan label
   const sub = await UserSubscription.findOne({ user: req.user._id, status: 'active' }).populate('plan');
 
+  const creditUsage = await creditUsageSummary();
+
   return sendResponse(res, {
     data: {
       wallet,
-      activeSubscription: sub
+      activeSubscription: sub,
+      creditPacks: creditUsage.packs,
+      creditUsage
     }
   });
 });
@@ -128,34 +134,37 @@ export const getMyTransactions = catchAsync(async (req, res) => {
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
 
-// ===== Checkout for top-up (Stripe or PayPal, no webhook flow) =====
-// `amount` is the USD credit the user wants added to their wallet. They are
-// charged the local-currency equivalent for their country; the wallet is credited
-// the USD amount so internal (USD-based) session pricing stays consistent.
+// ===== Checkout for credit packs (Stripe or PayPal, no webhook flow) =====
 export const createTopupCheckout = catchAsync(async (req, res) => {
-  const { amount } = req.body;
+  const { amount, credits, packId } = req.body;
   const provider = (req.body.provider || 'stripe').toLowerCase();
-  const value = Number(amount);
-  if (!value || value <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid amount');
-  if (value < 1) throw new ApiError(StatusCodes.BAD_REQUEST, 'Minimum top-up is $1');
+  const pack = await findCreditPack({ packId, credits: credits ?? amount });
+  if (!pack) throw new ApiError(StatusCodes.BAD_REQUEST, 'Enter a valid credit amount');
   if (!['stripe', 'paypal'].includes(provider)) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'provider must be "stripe" or "paypal"');
   }
 
   const country = detectCountry(req, { user: req.user });
-  const local = await convertUsd(value, country); // { currency, symbol, amount, ... }
+  const local = await convertUsd(pack.priceUsd, country); // { currency, symbol, amount, ... }
 
   // create a pending transaction first
   const tx = await Transaction.create({
-    type: 'wallet_topup',
+    type: 'credit_pack_purchase',
     status: 'pending',
     provider,
     user: req.user._id,
     amount: local.amount,
     currency: local.currency.toLowerCase(),
     country: local.country,
-    amountUsd: value,
-    description: `Wallet top-up of $${value}`
+    amountUsd: pack.priceUsd,
+    description: pack.isCustom ? `${pack.credits} custom credits` : `${pack.label} credit pack`,
+    metadata: {
+      packId: pack.id,
+      credits: pack.credits,
+      priceUsd: pack.priceUsd,
+      isCustom: pack.isCustom === true,
+      creditUsdRate: pack.creditUsdRate
+    }
   });
 
   // ---- PayPal branch ----
@@ -171,7 +180,7 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
     const order = await createPaypalOrder({
       amount: local.amount,
       currency: local.currency,
-      description: `Wallet top-up of $${value}`,
+      description: pack.isCustom ? `${pack.credits} custom credits` : `${pack.label} credit pack`,
       referenceId: tx._id,
       returnUrl: `${successBase}?txId=${tx._id}`,
       cancelUrl: `${cancelBase}?txId=${tx._id}`
@@ -188,7 +197,10 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
         txId: tx._id,
         currency: local.currency,
         amount: local.amount,
-        amountUsd: value
+        amountUsd: pack.priceUsd,
+        credits: pack.credits,
+        packId: pack.id,
+        isCustom: pack.isCustom === true
       }
     });
   }
@@ -212,14 +224,21 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
         price_data: {
           currency: local.currency.toLowerCase(),
           unit_amount: toProviderMinorUnits(local.amount, local.currency),
-          product_data: { name: 'Wallet Top-up' }
+          product_data: { name: pack.label }
         },
         quantity: 1
       }
     ],
     success_url: successUrl,
     cancel_url: cancelUrl,
-    metadata: { type: 'wallet_topup', userId: String(req.user._id), txId: String(tx._id) }
+    metadata: {
+      type: 'credit_pack_purchase',
+      userId: String(req.user._id),
+      txId: String(tx._id),
+      packId: pack.id,
+      credits: String(pack.credits),
+      isCustom: String(pack.isCustom === true)
+    }
   });
 
   tx.stripeCheckoutSessionId = checkout.id;
@@ -233,7 +252,10 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
       txId: tx._id,
       currency: local.currency,
       amount: local.amount,
-      amountUsd: value
+      amountUsd: pack.priceUsd,
+      credits: pack.credits,
+      packId: pack.id,
+      isCustom: pack.isCustom === true
     }
   });
 });
@@ -260,10 +282,10 @@ export const paypalTopupSuccess = catchAsync(async (req, res) => {
     });
   }
 
-  const creditUsd = tx.amountUsd != null ? tx.amountUsd : tx.amount;
+  const credits = Number(tx.metadata?.credits || tx.amountUsd || 0);
   const wallet = await Wallet.findOneAndUpdate(
     { user: tx.user },
-    { $inc: { balance: creditUsd } },
+    { $inc: { balance: credits } },
     { new: true, upsert: true }
   );
 

@@ -12,16 +12,9 @@ import Review from '../models/review.model.js';
 import { generateLiveKitToken, createRoom, deleteRoom, startRoomRecording, stopEgress } from '../config/livekit.js';
 import { settleSession, chargeUserWallet, refundToUserWallet } from '../services/session.service.js';
 import { createNotification } from '../services/notification.service.js';
+import { calculateSessionCredits, getCreditUsage } from '../services/credit.service.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
-
-const sessionTypeRate = (profile, type) => {
-  const p = profile?.pricing || {};
-  if (type === 'chat') return p.chatPerMin || 1;
-  if (type === 'call') return p.callPerMin || 1;
-  if (type === 'video') return p.videoPerMin || 1;
-  return 1;
-};
 
 // ============= Booking =============
 export const createBooking = catchAsync(async (req, res) => {
@@ -38,9 +31,13 @@ export const createBooking = catchAsync(async (req, res) => {
   const profile = await AdvisorProfile.findOne({ user: advisorId });
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
 
-  const ratePerMin = sessionTypeRate(profile, type);
   const duration = Math.max(1, Number(durationMinutes) || 15);
-  const estimatedCost = round2(ratePerMin * duration);
+  const { ratePerMin, credits: estimatedCost } = calculateSessionCredits({
+    profile,
+    type,
+    durationMinutes: duration
+  });
+  const usage = await getCreditUsage();
 
   // verify wallet has enough for estimated cost
   const wallet = await Wallet.findOne({ user: req.user._id });
@@ -59,7 +56,9 @@ export const createBooking = catchAsync(async (req, res) => {
     instantStart: !!instantStart,
     ratePerMin,
     estimatedCost,
-    holdAmount: estimatedCost
+    holdAmount: estimatedCost,
+    unlockChargeRecording: usage.sessionRecording,
+    unlockChargeTranscript: usage.chatTranscript
   });
 
   await createNotification({
@@ -239,7 +238,7 @@ export const advisorStartSession = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, `Cannot start session in status ${session.status}`);
 
   // pre-charge a small hold for first minute (cap at remaining wallet)
-  const holdAmount = Math.min(session.holdAmount || session.estimatedCost || 0, session.ratePerMin * 1);
+  const holdAmount = Math.min(session.holdAmount || session.estimatedCost || 0, Math.ceil(session.ratePerMin * 1));
   if (holdAmount > 0) {
     try {
       const { creditsUsed, balanceUsed } = await chargeUserWallet({ userId: session.user, amount: holdAmount });
@@ -334,7 +333,7 @@ export const sessionHeartbeat = catchAsync(async (req, res) => {
 
   const elapsedSec = Math.max(0, Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000));
   const elapsedMin = elapsedSec / 60;
-  const targetCharge = round2(elapsedMin * session.ratePerMin);
+  const targetCharge = Math.ceil(elapsedMin * session.ratePerMin);
   const diff = round2(targetCharge - (session.chargedAmount || 0));
 
   let lowBalanceWarning = false;
@@ -398,7 +397,7 @@ export const extendSession = catchAsync(async (req, res) => {
   if (String(session.user) !== String(req.user._id)) throw new ApiError(StatusCodes.FORBIDDEN, 'Only the user can extend');
   if (session.status !== 'live') throw new ApiError(StatusCodes.BAD_REQUEST, 'Session is not live');
 
-  const cost = round2((minutes || 0) * session.ratePerMin);
+  const cost = Math.ceil((Number(minutes) || 0) * session.ratePerMin);
   if (cost <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid minutes');
 
   // verify availability of funds
@@ -550,8 +549,9 @@ export const unlockSessionAsset = catchAsync(async (req, res) => {
   if (String(session.user) !== String(req.user._id)) throw new ApiError(StatusCodes.FORBIDDEN, 'Forbidden');
 
   let amount = 0;
-  if (asset === 'recording') amount = session.unlockChargeRecording;
-  else if (asset === 'transcript') amount = session.unlockChargeTranscript;
+  const usage = await getCreditUsage();
+  if (asset === 'recording') amount = session.unlockChargeRecording || usage.sessionRecording;
+  else if (asset === 'transcript') amount = session.unlockChargeTranscript || usage.chatTranscript;
   else throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid asset');
 
   await chargeUserWallet({ userId: session.user, amount });

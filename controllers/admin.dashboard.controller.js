@@ -9,7 +9,7 @@ import AdvisorApplication from '../models/advisorApplication.model.js';
 
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
 
-const REVENUE_TYPES = ['platform_commission', 'subscription', 'wallet_topup', 'unlock_recording', 'unlock_transcript', 'promotion_purchase'];
+const REVENUE_TYPES = ['platform_commission', 'credit_pack_purchase', 'wallet_topup', 'subscription', 'unlock_recording', 'unlock_transcript', 'promotion_purchase'];
 const REFUND_TYPES = ['session_refund', 'subscription_refund'];
 
 // Start of the selected period (defaults to "today").
