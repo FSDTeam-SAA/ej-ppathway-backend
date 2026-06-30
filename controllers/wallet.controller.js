@@ -44,7 +44,7 @@ const syncTopupWithStripe = async ({ tx, sessionId }) => {
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Stripe session not found');
 
   if (tx.status !== 'completed' && session.payment_status === 'paid') {
-    const credits = Number(tx.metadata?.credits || tx.amountUsd || 0);
+    const credits = Number(tx.metadata?.totalCredits || tx.metadata?.credits || tx.amountUsd || 0);
     if (credits <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid credit pack');
 
     const wallet = await Wallet.findOneAndUpdate(
@@ -161,6 +161,8 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
     metadata: {
       packId: pack.id,
       credits: pack.credits,
+      bonusCredits: pack.bonusCredits || 0,
+      totalCredits: pack.totalCredits || pack.credits,
       priceUsd: pack.priceUsd,
       isCustom: pack.isCustom === true,
       creditUsdRate: pack.creditUsdRate
@@ -199,6 +201,8 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
         amount: local.amount,
         amountUsd: pack.priceUsd,
         credits: pack.credits,
+        bonusCredits: pack.bonusCredits || 0,
+        totalCredits: pack.totalCredits || pack.credits,
         packId: pack.id,
         isCustom: pack.isCustom === true
       }
@@ -237,6 +241,8 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
       txId: String(tx._id),
       packId: pack.id,
       credits: String(pack.credits),
+      bonusCredits: String(pack.bonusCredits || 0),
+      totalCredits: String(pack.totalCredits || pack.credits),
       isCustom: String(pack.isCustom === true)
     }
   });
@@ -254,6 +260,8 @@ export const createTopupCheckout = catchAsync(async (req, res) => {
       amount: local.amount,
       amountUsd: pack.priceUsd,
       credits: pack.credits,
+      bonusCredits: pack.bonusCredits || 0,
+      totalCredits: pack.totalCredits || pack.credits,
       packId: pack.id,
       isCustom: pack.isCustom === true
     }
@@ -282,7 +290,7 @@ export const paypalTopupSuccess = catchAsync(async (req, res) => {
     });
   }
 
-  const credits = Number(tx.metadata?.credits || tx.amountUsd || 0);
+  const credits = Number(tx.metadata?.totalCredits || tx.metadata?.credits || tx.amountUsd || 0);
   const wallet = await Wallet.findOneAndUpdate(
     { user: tx.user },
     { $inc: { balance: credits } },

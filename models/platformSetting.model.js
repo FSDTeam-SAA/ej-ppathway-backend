@@ -7,6 +7,7 @@ const creditPackSchema = new Schema(
     id: { type: String, required: true, trim: true },
     label: { type: String, required: true, trim: true },
     credits: { type: Number, required: true, min: 1 },
+    bonusCredits: { type: Number, default: 0, min: 0 },
     priceUsd: { type: Number, required: true, min: 0 },
     revenueCatProductId: { type: String, default: '', trim: true },
     isActive: { type: Boolean, default: true },
@@ -16,10 +17,10 @@ const creditPackSchema = new Schema(
 );
 
 const DEFAULT_CREDIT_PACKS = [
-  { id: 'credits_25', label: '25 Credits', credits: 25, priceUsd: 19, revenueCatProductId: 'credits_25', isActive: true, sortOrder: 1 },
-  { id: 'credits_50', label: '50 Credits', credits: 50, priceUsd: 35, revenueCatProductId: 'credits_50', isActive: true, sortOrder: 2 },
-  { id: 'credits_100', label: '100 Credits', credits: 100, priceUsd: 59, revenueCatProductId: 'credits_100', isActive: true, sortOrder: 3 },
-  { id: 'credits_200', label: '200 Credits', credits: 200, priceUsd: 99, revenueCatProductId: 'credits_200', isActive: true, sortOrder: 4 }
+  { id: 'credits_25', label: '25 Credits', credits: 25, bonusCredits: 0, priceUsd: 19, revenueCatProductId: 'credits_25', isActive: true, sortOrder: 1 },
+  { id: 'credits_50', label: '50 Credits', credits: 50, bonusCredits: 0, priceUsd: 35, revenueCatProductId: 'credits_50', isActive: true, sortOrder: 2 },
+  { id: 'credits_100', label: '100 Credits', credits: 100, bonusCredits: 0, priceUsd: 59, revenueCatProductId: 'credits_100', isActive: true, sortOrder: 3 },
+  { id: 'credits_200', label: '200 Credits', credits: 200, bonusCredits: 0, priceUsd: 99, revenueCatProductId: 'credits_200', isActive: true, sortOrder: 4 }
 ];
 
 const DEFAULT_CREDIT_USAGE = {
@@ -27,6 +28,19 @@ const DEFAULT_CREDIT_USAGE = {
   sessionRecording: 5
 };
 
+const DEFAULT_CREDIT_USAGE_BLOCKS = [
+  { id: 'chat_15', activity: '15-Minute Chat Session', sessionType: 'chat', durationMinutes: 15, credits: 5, isActive: true, sortOrder: 1 },
+  { id: 'voice_5', activity: '5-Minute Voice Call', sessionType: 'call', durationMinutes: 5, credits: 8, isActive: true, sortOrder: 2 },
+  { id: 'voice_10', activity: '10-Minute Voice Call', sessionType: 'call', durationMinutes: 10, credits: 10, isActive: true, sortOrder: 3 },
+  { id: 'voice_15', activity: '15-Minute Voice Call', sessionType: 'call', durationMinutes: 15, credits: 15, isActive: true, sortOrder: 4 },
+  { id: 'video_5', activity: '5-Minute Video Call', sessionType: 'video', durationMinutes: 5, credits: 10, isActive: true, sortOrder: 5 },
+  { id: 'video_10', activity: '10-Minute Video Call', sessionType: 'video', durationMinutes: 10, credits: 15, isActive: true, sortOrder: 6 },
+  { id: 'video_15', activity: '15-Minute Video Call', sessionType: 'video', durationMinutes: 15, credits: 20, isActive: true, sortOrder: 7 },
+  { id: 'session_recording', activity: 'Session Recording', sessionType: 'add_on', durationMinutes: 0, credits: 5, isActive: true, sortOrder: 8 },
+  { id: 'chat_transcript', activity: 'Chat Transcript', sessionType: 'add_on', durationMinutes: 0, credits: 5, isActive: true, sortOrder: 9 }
+];
+
+const DEFAULT_CREDIT_EXPIRATION_DAYS = 60;
 const DEFAULT_CREDIT_USD_RATE = 1;
 
 const DEFAULT_ADVISOR_CREDIT_PRICING = {
@@ -57,12 +71,22 @@ const platformSettingSchema = new Schema(
     minWithdrawal: { type: Number, default: 50 },
     sessionLowBalanceThresholdMin: { type: Number, default: 2 },
     signupFreeCredits: { type: Number, default: 0, min: 0 },
+    creditExpirationDays: { type: Number, default: DEFAULT_CREDIT_EXPIRATION_DAYS, min: 1 },
     creditUsdRate: { type: Number, default: DEFAULT_CREDIT_USD_RATE, min: 0 },
     creditPacks: { type: [creditPackSchema], default: () => DEFAULT_CREDIT_PACKS },
     creditUsage: {
       chatTranscript: { type: Number, default: DEFAULT_CREDIT_USAGE.chatTranscript, min: 0 },
       sessionRecording: { type: Number, default: DEFAULT_CREDIT_USAGE.sessionRecording, min: 0 }
-    }
+    },
+    creditUsageBlocks: { type: [new Schema({
+      id: { type: String, required: true, trim: true },
+      activity: { type: String, required: true, trim: true },
+      sessionType: { type: String, enum: ['chat', 'call', 'video', 'add_on'], required: true },
+      durationMinutes: { type: Number, default: 0, min: 0 },
+      credits: { type: Number, required: true, min: 0 },
+      isActive: { type: Boolean, default: true },
+      sortOrder: { type: Number, default: 0 }
+    }, { _id: false })], default: () => DEFAULT_CREDIT_USAGE_BLOCKS }
   },
   { timestamps: true }
 );
@@ -79,13 +103,22 @@ export const getPlatformSettings = async () => {
   if (!s.tierThresholds?.gold) s.tierThresholds.gold = { sessions: 150, ratings: 4.5, retention: 80 };
   if (!s.tierThresholds?.platinum) s.tierThresholds.platinum = { sessions: 300, ratings: 4.8, retention: 85 };
   if (typeof s.creditUsdRate !== 'number') s.creditUsdRate = DEFAULT_CREDIT_USD_RATE;
+  if (typeof s.creditExpirationDays !== 'number') s.creditExpirationDays = DEFAULT_CREDIT_EXPIRATION_DAYS;
   if (!Array.isArray(s.creditPacks) || s.creditPacks.length === 0) s.creditPacks = DEFAULT_CREDIT_PACKS;
   if (!s.creditUsage) s.creditUsage = DEFAULT_CREDIT_USAGE;
   if (typeof s.creditUsage.chatTranscript !== 'number') s.creditUsage.chatTranscript = DEFAULT_CREDIT_USAGE.chatTranscript;
   if (typeof s.creditUsage.sessionRecording !== 'number') s.creditUsage.sessionRecording = DEFAULT_CREDIT_USAGE.sessionRecording;
+  if (!Array.isArray(s.creditUsageBlocks) || s.creditUsageBlocks.length === 0) s.creditUsageBlocks = DEFAULT_CREDIT_USAGE_BLOCKS;
   return s;
 };
 
-export { DEFAULT_CREDIT_PACKS, DEFAULT_CREDIT_USAGE, DEFAULT_CREDIT_USD_RATE, DEFAULT_ADVISOR_CREDIT_PRICING };
+export {
+  DEFAULT_CREDIT_PACKS,
+  DEFAULT_CREDIT_USAGE,
+  DEFAULT_CREDIT_USAGE_BLOCKS,
+  DEFAULT_CREDIT_EXPIRATION_DAYS,
+  DEFAULT_CREDIT_USD_RATE,
+  DEFAULT_ADVISOR_CREDIT_PRICING
+};
 
 export default PlatformSetting;

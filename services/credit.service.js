@@ -1,7 +1,9 @@
 import {
   DEFAULT_ADVISOR_CREDIT_PRICING,
   DEFAULT_CREDIT_PACKS,
+  DEFAULT_CREDIT_EXPIRATION_DAYS,
   DEFAULT_CREDIT_USAGE,
+  DEFAULT_CREDIT_USAGE_BLOCKS,
   DEFAULT_CREDIT_USD_RATE,
   getPlatformSettings
 } from '../models/platformSetting.model.js';
@@ -17,10 +19,22 @@ const normalizePack = (pack, index = 0) => ({
   id: String(pack.id || `credits_${pack.credits || index + 1}`).trim(),
   label: String(pack.label || `${pack.credits || 0} Credits`).trim(),
   credits: Number(pack.credits || 0),
+  bonusCredits: Number(pack.bonusCredits || 0),
   priceUsd: Number(pack.priceUsd || 0),
   revenueCatProductId: String(pack.revenueCatProductId || pack.id || '').trim(),
   isActive: pack.isActive !== false,
-  sortOrder: Number(pack.sortOrder ?? index + 1)
+  sortOrder: Number(pack.sortOrder ?? index + 1),
+  totalCredits: Number(pack.credits || 0) + Number(pack.bonusCredits || 0)
+});
+
+const normalizeUsageBlock = (block, index = 0) => ({
+  id: String(block.id || `${block.sessionType || 'credit'}_${block.durationMinutes || index + 1}`).trim(),
+  activity: String(block.activity || 'Credit usage').trim(),
+  sessionType: ['chat', 'call', 'video', 'add_on'].includes(block.sessionType) ? block.sessionType : 'add_on',
+  durationMinutes: Number(block.durationMinutes || 0),
+  credits: Number(block.credits || 0),
+  isActive: block.isActive !== false,
+  sortOrder: Number(block.sortOrder ?? index + 1)
 });
 
 export const listCreditPacks = async ({ includeInactive = false } = {}) => {
@@ -37,6 +51,20 @@ export const getCreditUsage = async () => {
     chatTranscript: Number(settings.creditUsage?.chatTranscript ?? DEFAULT_CREDIT_USAGE.chatTranscript),
     sessionRecording: Number(settings.creditUsage?.sessionRecording ?? DEFAULT_CREDIT_USAGE.sessionRecording)
   };
+};
+
+export const listCreditUsageBlocks = async ({ includeInactive = false } = {}) => {
+  const settings = await getPlatformSettings();
+  return (settings.creditUsageBlocks || DEFAULT_CREDIT_USAGE_BLOCKS)
+    .map(normalizeUsageBlock)
+    .filter((block) => includeInactive || block.isActive)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.durationMinutes - b.durationMinutes);
+};
+
+export const getCreditExpirationDays = async () => {
+  const settings = await getPlatformSettings();
+  const days = Number(settings.creditExpirationDays ?? DEFAULT_CREDIT_EXPIRATION_DAYS);
+  return Number.isFinite(days) && days > 0 ? days : DEFAULT_CREDIT_EXPIRATION_DAYS;
 };
 
 export const getCreditUsdRate = async () => {
@@ -62,10 +90,12 @@ export const findCreditPack = async ({ packId, credits }) => {
     id: `custom_${normalizedCredits}`,
     label: `${normalizedCredits} Custom Credits`,
     credits: normalizedCredits,
+    bonusCredits: 0,
     priceUsd: roundMoney(normalizedCredits * creditUsdRate),
     revenueCatProductId: '',
     isActive: true,
     sortOrder: 9999,
+    totalCredits: normalizedCredits,
     isCustom: true,
     creditUsdRate
   };
@@ -86,8 +116,21 @@ export const getAdvisorCreditRate = (profile, type) => {
   return 1;
 };
 
-export const calculateSessionCredits = ({ profile, type, durationMinutes }) => {
+export const calculateSessionCredits = async ({ profile, type, durationMinutes }) => {
   const duration = Math.max(1, Number(durationMinutes) || 15);
+  const blocks = await listCreditUsageBlocks();
+  const exactBlock = blocks.find((block) => (
+    block.sessionType === type &&
+    Number(block.durationMinutes) === duration &&
+    block.isActive !== false
+  ));
+  if (exactBlock) {
+    return {
+      ratePerMin: duration > 0 ? Number(exactBlock.credits || 0) / duration : 0,
+      credits: roundCredits(exactBlock.credits)
+    };
+  }
+
   const ratePerMin = Math.max(0, getAdvisorCreditRate(profile, type));
   return {
     ratePerMin,
@@ -99,5 +142,7 @@ export const creditUsageSummary = async () => ({
   packs: await listCreditPacks(),
   creditUsdRate: await getCreditUsdRate(),
   customPurchasesEnabled: true,
-  addOns: await getCreditUsage()
+  addOns: await getCreditUsage(),
+  usageBlocks: await listCreditUsageBlocks(),
+  creditExpirationDays: await getCreditExpirationDays()
 });

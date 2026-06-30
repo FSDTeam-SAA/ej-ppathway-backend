@@ -107,9 +107,10 @@ export const revenueCatWebhook = async (req, res) => {
     const user = await User.findById(appUserId);
     if (!user) return res.status(200).json({ ok: false, skipped: true, message: 'Unknown app user id' });
 
+    const credited = Number(pack.totalCredits || pack.credits || 0);
     const wallet = await Wallet.findOneAndUpdate(
       { user: user._id },
-      { $inc: { balance: pack.credits }, $setOnInsert: { user: user._id } },
+      { $inc: { balance: credited }, $setOnInsert: { user: user._id } },
       { new: true, upsert: true }
     );
 
@@ -128,6 +129,8 @@ export const revenueCatWebhook = async (req, res) => {
       metadata: {
         packId: pack.id,
         credits: pack.credits,
+        bonusCredits: pack.bonusCredits || 0,
+        totalCredits: credited,
         revenueCatProductId: productId,
         revenueCatTransactionId: transactionId,
         revenueCatStore: event.store,

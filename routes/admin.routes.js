@@ -63,6 +63,7 @@ import {
 } from '../controllers/admin.finance.controller.js';
 
 import {
+  getCreditManagementSummary,
   getCreditSettings,
   getSignupFreeCredits,
   updateCreditSettings,
@@ -194,6 +195,7 @@ router.patch('/finance/commissions', updateCommissions);
 router.patch('/finance/min-withdrawal', updateMinWithdrawal);
 
 // Platform settings - signup free credits
+router.get('/credits/summary', getCreditManagementSummary);
 router.get('/settings/credits', getCreditSettings);
 router.patch('/settings/credits', updateCreditSettings);
 router.get('/settings/signup-credits', getSignupFreeCredits);

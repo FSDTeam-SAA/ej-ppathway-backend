@@ -32,7 +32,7 @@ export const createBooking = catchAsync(async (req, res) => {
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
 
   const duration = Math.max(1, Number(durationMinutes) || 15);
-  const { ratePerMin, credits: estimatedCost } = calculateSessionCredits({
+  const { ratePerMin, credits: estimatedCost } = await calculateSessionCredits({
     profile,
     type,
     durationMinutes: duration

@@ -12,6 +12,7 @@ export const TX_TYPES = [
   'unlock_transcript',     // user paid to unlock transcript
   'subscription',          // user paid for subscription
   'subscription_refund',
+  'credit_expiration',
   'free_credit_grant',     // admin granted credits
   'advisor_earning',       // advisor earned from session
   'advisor_tip',
