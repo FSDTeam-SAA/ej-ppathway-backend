@@ -71,6 +71,23 @@ const userSchema = new Schema(
     stripeConnectId: { type: String, index: true, sparse: true },
     stripeConnectVerified: { type: Boolean, default: false },
 
+    // Hyperwallet payout account (advisors). The Hyperwallet "user" (payee) is
+    // created once; a single active transfer method (bank account or PayPal)
+    // is stored as the payout destination. Managed by the advisor and/or admin.
+    hyperwallet: {
+      userToken: { type: String, index: true, sparse: true }, // usr-…
+      programToken: { type: String },
+      status: { type: String },                               // Hyperwallet user status (e.g. PRE_ACTIVATED)
+      transferMethodToken: { type: String },                  // trm-… active payout destination
+      transferMethodType: { type: String, enum: ['bank_account', 'paypal', null], default: null },
+      // Non-sensitive display hints only — never store full bank/account numbers.
+      methodLabel: { type: String, default: '' },             // e.g. "Bank ****6789" or "PayPal a@b.com"
+      currency: { type: String, default: 'USD' },
+      verified: { type: Boolean, default: false },
+      createdAt: { type: Date },
+      updatedAt: { type: Date }
+    },
+
     // Notifications preferences
     notifPrefs: {
       email: { type: Boolean, default: true },

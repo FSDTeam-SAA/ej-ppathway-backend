@@ -71,6 +71,23 @@ import {
 } from '../controllers/admin.settings.controller.js';
 
 import {
+  getPayoutSettings,
+  updatePayoutSettings,
+  listPayoutAccounts,
+  getAdvisorPayoutAccount,
+  setupAdvisorAccount,
+  addAdvisorBankAccount,
+  addAdvisorPaypalAccount,
+  removeAdvisorMethod,
+  createPayout,
+  processPayout,
+  retryPayoutCtrl,
+  syncPayoutCtrl,
+  markPayoutPaid,
+  payoutStats
+} from '../controllers/admin.payouts.controller.js';
+
+import {
   listSubAdmins,
   getPermissionsList,
   getSubAdmin,
@@ -193,6 +210,24 @@ router.patch('/finance/payouts/:id/reject', rejectPayout);
 router.get('/finance/commissions', getCommissions);
 router.patch('/finance/commissions', updateCommissions);
 router.patch('/finance/min-withdrawal', updateMinWithdrawal);
+// Manual out-of-band completion fallback for a payout.
+router.patch('/finance/payouts/:id/mark-paid', markPayoutPaid);
+
+// Payouts (Hyperwallet) — configuration, advisor accounts, and money movement
+router.get('/payouts/config', getPayoutSettings);
+router.patch('/payouts/config', updatePayoutSettings);
+router.get('/payouts/stats', payoutStats);
+router.get('/payouts/accounts', listPayoutAccounts);
+router.get('/payouts/accounts/:advisorId', getAdvisorPayoutAccount);
+router.post('/payouts/accounts/:advisorId/setup', setupAdvisorAccount);
+router.post('/payouts/accounts/:advisorId/bank', addAdvisorBankAccount);
+router.post('/payouts/accounts/:advisorId/paypal', addAdvisorPaypalAccount);
+router.delete('/payouts/accounts/:advisorId/method', removeAdvisorMethod);
+router.post('/payouts', createPayout);
+router.post('/payouts/:id/process', processPayout);
+router.post('/payouts/:id/retry', retryPayoutCtrl);
+router.post('/payouts/:id/sync', syncPayoutCtrl);
+router.post('/payouts/:id/mark-paid', markPayoutPaid);
 
 // Platform settings - signup free credits
 router.get('/credits/summary', getCreditManagementSummary);

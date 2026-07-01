@@ -69,6 +69,17 @@ const platformSettingSchema = new Schema(
       premium: { price: { type: Number, default: 149 }, days: { type: Number, default: 30 }, impressionsPerDay: { type: Number, default: 0 } }
     },
     minWithdrawal: { type: Number, default: 50 },
+    // Payout configuration (Hyperwallet). Advisor earnings are held in credits;
+    // payoutCreditUsdRate converts credits → real USD when money is sent out. It
+    // is intentionally separate from `creditUsdRate` (the sell rate) so the
+    // platform margin on payouts is controllable.
+    payout: {
+      provider: { type: String, enum: ['hyperwallet', 'manual'], default: 'hyperwallet' },
+      hyperwalletEnabled: { type: Boolean, default: false },
+      payoutCreditUsdRate: { type: Number, default: DEFAULT_CREDIT_USD_RATE, min: 0 },
+      payoutCurrency: { type: String, default: 'USD', uppercase: true, trim: true },
+      minPayoutCredits: { type: Number, default: 50, min: 0 }
+    },
     sessionLowBalanceThresholdMin: { type: Number, default: 2 },
     signupFreeCredits: { type: Number, default: 0, min: 0 },
     creditExpirationDays: { type: Number, default: DEFAULT_CREDIT_EXPIRATION_DAYS, min: 1 },
@@ -109,6 +120,12 @@ export const getPlatformSettings = async () => {
   if (typeof s.creditUsage.chatTranscript !== 'number') s.creditUsage.chatTranscript = DEFAULT_CREDIT_USAGE.chatTranscript;
   if (typeof s.creditUsage.sessionRecording !== 'number') s.creditUsage.sessionRecording = DEFAULT_CREDIT_USAGE.sessionRecording;
   if (!Array.isArray(s.creditUsageBlocks) || s.creditUsageBlocks.length === 0) s.creditUsageBlocks = DEFAULT_CREDIT_USAGE_BLOCKS;
+  if (!s.payout) s.payout = {};
+  if (typeof s.payout.payoutCreditUsdRate !== 'number') s.payout.payoutCreditUsdRate = s.creditUsdRate ?? DEFAULT_CREDIT_USD_RATE;
+  if (!s.payout.payoutCurrency) s.payout.payoutCurrency = 'USD';
+  if (typeof s.payout.minPayoutCredits !== 'number') s.payout.minPayoutCredits = s.minWithdrawal ?? 50;
+  if (typeof s.payout.hyperwalletEnabled !== 'boolean') s.payout.hyperwalletEnabled = false;
+  if (!s.payout.provider) s.payout.provider = 'hyperwallet';
   return s;
 };
 

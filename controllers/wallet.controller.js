@@ -14,6 +14,28 @@ import { convertUsd, toProviderMinorUnits } from '../services/pricing.service.js
 import { createPaypalOrder, capturePaypalOrder } from '../services/paypal.service.js';
 import { isPaypalConfigured } from '../config/paypal.js';
 import { creditUsageSummary, findCreditPack } from '../services/credit.service.js';
+import {
+  getPayoutConfig,
+  creditsToUsd,
+  ensureHyperwalletUser,
+  attachBankAccount,
+  attachPaypalAccount,
+  removePayoutMethod,
+  createPayoutRequest
+} from '../services/payout.service.js';
+
+const publicPayoutAccount = (advisor) => {
+  const hw = advisor.hyperwallet || {};
+  return {
+    configured: Boolean(hw.userToken),
+    status: hw.status || null,
+    hasMethod: Boolean(hw.transferMethodToken),
+    methodType: hw.transferMethodType || null,
+    methodLabel: hw.methodLabel || '',
+    currency: hw.currency || 'USD',
+    verified: Boolean(hw.verified)
+  };
+};
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const recentDate = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -390,35 +412,72 @@ export const getTopupStatus = catchAsync(async (req, res) => {
 });
 
 // ===== Withdrawal =====
+// Advisor requests a payout of `credits` from their earnings balance. Credits are
+// held immediately; an admin then approves/sends the payout via Hyperwallet.
 export const requestWithdrawal = catchAsync(async (req, res) => {
   if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
-  const { amount } = req.body;
-  const value = Number(amount);
+  const credits = Number(req.body.credits ?? req.body.amount);
 
-  const settings = await getPlatformSettings();
-  const min = settings.minWithdrawal || 50;
-  if (!value || value < min) throw new ApiError(StatusCodes.BAD_REQUEST, `Minimum withdrawal is $${min}`);
-
-  const wallet = await Wallet.findOne({ user: req.user._id });
-  if (!wallet) throw new ApiError(StatusCodes.NOT_FOUND, 'Wallet not found');
-  if (wallet.earningsBalance < value) throw new ApiError(StatusCodes.PAYMENT_REQUIRED, 'Insufficient earnings balance');
-
-  // hold funds
-  wallet.earningsBalance = round2(wallet.earningsBalance - value);
-  wallet.pendingPayouts = round2(wallet.pendingPayouts + value);
-  await wallet.save();
-
-  const tx = await Transaction.create({
-    type: 'advisor_payout',
-    status: 'pending',
-    advisor: req.user._id,
-    amount: value,
-    description: 'Advisor payout request',
-    withdrawalStatus: 'requested',
-    withdrawalRequestedAt: new Date()
+  const advisor = await User.findById(req.user._id);
+  const tx = await createPayoutRequest({
+    advisor,
+    credits,
+    initiatedBy: req.user._id,
+    note: 'Advisor payout request',
+    autoProcess: false
   });
 
   return sendResponse(res, { message: 'Withdrawal requested', data: tx });
+});
+
+// ===== Advisor self-service payout account (Hyperwallet) =====
+export const getMyPayoutAccount = catchAsync(async (req, res) => {
+  if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
+  const advisor = await User.findById(req.user._id).select('name email country state hyperwallet');
+  const cfg = await getPayoutConfig();
+  const wallet = await Wallet.findOne({ user: req.user._id }).select('earningsBalance pendingPayouts').lean();
+  const available = Math.round(wallet?.earningsBalance || 0);
+  return sendResponse(res, {
+    data: {
+      account: publicPayoutAccount(advisor),
+      config: { payoutCreditUsdRate: cfg.payoutCreditUsdRate, payoutCurrency: cfg.payoutCurrency, minPayoutCredits: cfg.minPayoutCredits },
+      balance: { availableCredits: available, availableUsd: creditsToUsd(available, cfg) }
+    }
+  });
+});
+
+export const setupMyPayoutAccount = catchAsync(async (req, res) => {
+  if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
+  const advisor = await User.findById(req.user._id);
+  await ensureHyperwalletUser(advisor, req.body || {});
+  return sendResponse(res, { message: 'Payout account ready', data: publicPayoutAccount(advisor) });
+});
+
+export const addMyBankAccount = catchAsync(async (req, res) => {
+  if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
+  const { branchId, bankAccountId, bankAccountPurpose, currency } = req.body;
+  if (!branchId || !bankAccountId) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'branchId (routing number) and bankAccountId are required');
+  }
+  const advisor = await User.findById(req.user._id);
+  await attachBankAccount(advisor, { branchId, bankAccountId, bankAccountPurpose, currency, extra: req.body });
+  return sendResponse(res, { message: 'Bank account added', data: publicPayoutAccount(advisor) });
+});
+
+export const addMyPaypalAccount = catchAsync(async (req, res) => {
+  if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
+  const { email, currency } = req.body;
+  if (!email) throw new ApiError(StatusCodes.BAD_REQUEST, 'PayPal email is required');
+  const advisor = await User.findById(req.user._id);
+  await attachPaypalAccount(advisor, { email, currency, extra: req.body });
+  return sendResponse(res, { message: 'PayPal account added', data: publicPayoutAccount(advisor) });
+});
+
+export const removeMyPayoutMethod = catchAsync(async (req, res) => {
+  if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
+  const advisor = await User.findById(req.user._id);
+  await removePayoutMethod(advisor);
+  return sendResponse(res, { message: 'Payout method removed', data: publicPayoutAccount(advisor) });
 });
 
 export const myEarningsOverview = catchAsync(async (req, res) => {

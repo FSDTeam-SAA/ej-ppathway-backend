@@ -11,6 +11,13 @@ import User from '../models/user.model.js';
 import AdvisorProfile from '../models/advisorProfile.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { logAdminActivity } from '../services/activity.service.js';
+import {
+  getPayoutConfig,
+  hasPayoutMethod,
+  executePayout,
+  markPaidManually,
+  rejectPayout as rejectPayoutSvc
+} from '../services/payout.service.js';
 
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
 
@@ -128,8 +135,10 @@ export const overview = catchAsync(async (req, res) => {
       payouts: {
         pending: pay('requested'),
         approved: pay('approved'),
+        processing: pay('processing'),
         paid: pay('paid'),
-        failed: pay('rejected')
+        failed: pay('failed'),
+        rejected: pay('rejected')
       },
       advisors: {
         totalEarnings: pAll.advisorPayouts,
@@ -324,64 +333,72 @@ export const listPayouts = catchAsync(async (req, res) => {
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
 
+// Approve a payout by actually sending the money via Hyperwallet. Falls back
+// with a clear error when Hyperwallet is unavailable so the admin can use the
+// manual "mark as paid" action instead. (See admin.payouts.controller.)
 export const approvePayout = catchAsync(async (req, res) => {
   const tx = await Transaction.findById(req.params.id);
   if (!tx || tx.type !== 'advisor_payout') throw new ApiError(StatusCodes.NOT_FOUND, 'Payout not found');
-  if (tx.withdrawalStatus !== 'requested') throw new ApiError(StatusCodes.BAD_REQUEST, 'Payout not in requested state');
+  if (!['requested', 'approved'].includes(tx.withdrawalStatus)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Payout not in requested state');
+  }
 
-  // Move pendingPayouts -> totalWithdrawn on advisor wallet (assume external transfer)
-  const wallet = await Wallet.findOne({ user: tx.advisor });
-  if (!wallet) throw new ApiError(StatusCodes.NOT_FOUND, 'Wallet not found');
-  if (wallet.pendingPayouts < tx.amount) throw new ApiError(StatusCodes.BAD_REQUEST, 'Wallet pending payouts mismatch');
+  const cfg = await getPayoutConfig();
+  const advisor = await User.findById(tx.advisor);
 
-  wallet.pendingPayouts = round2(wallet.pendingPayouts - tx.amount);
-  wallet.totalWithdrawn = round2(wallet.totalWithdrawn + tx.amount);
-  await wallet.save();
+  // Manual fallback: admin explicitly opts out of Hyperwallet, or the provider
+  // is configured to be manual — mark as paid without an external transfer.
+  const manual = req.body?.manual === true || cfg.provider === 'manual' || !cfg.hyperwalletEnabled;
+  if (manual) {
+    const updated = await markPaidManually(tx, req.user._id);
+    await logAdminActivity({
+      adminId: req.user?._id,
+      action: 'payout.approve',
+      description: `Marked advisor payout ${tx.txCode || tx._id} as paid (manual)`,
+      targetType: 'payout',
+      targetUser: tx.advisor
+    });
+    return sendResponse(res, { message: 'Payout marked as paid', data: updated });
+  }
 
-  tx.withdrawalStatus = 'paid';
-  tx.status = 'completed';
+  if (!hasPayoutMethod(advisor)) {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      'Advisor has no Hyperwallet payout method. Add one, or use "Mark as paid" for a manual transfer.'
+    );
+  }
+
   tx.withdrawalApprovedBy = req.user._id;
   await tx.save();
+  const updated = await executePayout(tx, advisor);
 
   await logAdminActivity({
     adminId: req.user?._id,
     action: 'payout.approve',
-    description: `Approved advisor payout of $${tx.amount}`,
+    description: `Approved & sent advisor payout ${tx.txCode || tx._id} ($${updated.amountUsd}) via Hyperwallet`,
     targetType: 'payout',
     targetUser: tx.advisor
   });
 
-  return sendResponse(res, { message: 'Payout approved', data: tx });
+  return sendResponse(res, { message: 'Payout sent to Hyperwallet', data: updated });
 });
 
 export const rejectPayout = catchAsync(async (req, res) => {
   const { reason } = req.body;
   const tx = await Transaction.findById(req.params.id);
   if (!tx || tx.type !== 'advisor_payout') throw new ApiError(StatusCodes.NOT_FOUND, 'Payout not found');
-  if (tx.withdrawalStatus !== 'requested') throw new ApiError(StatusCodes.BAD_REQUEST, 'Payout not in requested state');
 
-  // Return funds to advisor earnings balance
-  const wallet = await Wallet.findOne({ user: tx.advisor });
-  if (wallet) {
-    wallet.pendingPayouts = round2(Math.max(0, wallet.pendingPayouts - tx.amount));
-    wallet.earningsBalance = round2(wallet.earningsBalance + tx.amount);
-    await wallet.save();
-  }
-
-  tx.withdrawalStatus = 'rejected';
-  tx.withdrawalRejectedReason = reason || '';
-  tx.status = 'cancelled';
-  await tx.save();
+  const updated = await rejectPayoutSvc(tx, reason || '', req.user?._id);
 
   await logAdminActivity({
     adminId: req.user?._id,
     action: 'payout.reject',
-    description: `Rejected advisor payout of $${tx.amount}`,
+    description: `Rejected advisor payout ${tx.txCode || tx._id} of ${updated.payoutCredits ?? updated.amount} credits`,
     targetType: 'payout',
     targetUser: tx.advisor
   });
 
-  return sendResponse(res, { message: 'Payout rejected', data: tx });
+  return sendResponse(res, { message: 'Payout rejected', data: updated });
 });
 
 export const updateCommissions = catchAsync(async (req, res) => {

@@ -5,6 +5,7 @@ import Transaction from '../models/transaction.model.js';
 import Wallet from '../models/wallet.model.js';
 import User from '../models/user.model.js';
 import { findCreditPackByRevenueCatProduct } from '../services/credit.service.js';
+import { applyPaymentWebhook } from '../services/payout.service.js';
 
 /**
  * Resolve which session an egress event belongs to.
@@ -145,4 +146,46 @@ export const revenueCatWebhook = async (req, res) => {
   }
 };
 
-export default { livekitWebhook, revenueCatWebhook };
+/**
+ * Hyperwallet webhook receiver.
+ *
+ * Configure the program's webhook URL to POST notifications here:
+ *   https://your-backend/api/v1/webhooks/hyperwallet
+ *
+ * Hyperwallet posts `{ token, type, object, ... }` where `type` looks like
+ * "PAYMENTS.COMPLETED" / "PAYMENTS.FAILED" and `object` is the payment resource.
+ * We only act on PAYMENTS.* events and reconcile the matching advisor payout.
+ *
+ * Optional shared-secret gate: set HYPERWALLET_WEBHOOK_SECRET and Hyperwallet's
+ * custom Authorization header to match (sandbox lacks JWS in most setups).
+ */
+const hyperwalletSecretMatches = (req) => {
+  const expected = process.env.HYPERWALLET_WEBHOOK_SECRET;
+  if (!expected) return true;
+  const auth = String(req.get('Authorization') || '').trim();
+  return auth === expected || auth === `Bearer ${expected}`;
+};
+
+export const hyperwalletWebhook = async (req, res) => {
+  try {
+    if (!hyperwalletSecretMatches(req)) {
+      return res.status(401).json({ ok: false, message: 'Unauthorized' });
+    }
+
+    const event = req.body || {};
+    const type = String(event.type || '').toUpperCase();
+    if (!type.startsWith('PAYMENTS')) {
+      return res.status(200).json({ ok: true, skipped: true });
+    }
+
+    const payment = event.object || event.payment || event;
+    const tx = await applyPaymentWebhook(payment);
+    return res.status(200).json({ ok: true, matched: Boolean(tx) });
+  } catch (e) {
+    console.error('hyperwalletWebhook error', e?.message);
+    // Always 200 so Hyperwallet does not endlessly retry on our parsing bugs.
+    return res.status(200).json({ ok: false });
+  }
+};
+
+export default { livekitWebhook, revenueCatWebhook, hyperwalletWebhook };
