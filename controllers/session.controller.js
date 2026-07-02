@@ -1,9 +1,11 @@
 import { StatusCodes } from 'http-status-codes';
+import mongoose from 'mongoose';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 import Session from '../models/session.model.js';
+import SessionSlotLock from '../models/sessionSlotLock.model.js';
 import User from '../models/user.model.js';
 import Wallet from '../models/wallet.model.js';
 import AdvisorProfile from '../models/advisorProfile.model.js';
@@ -11,10 +13,341 @@ import Transaction from '../models/transaction.model.js';
 import Review from '../models/review.model.js';
 import { generateLiveKitToken, createRoom, deleteRoom, startRoomRecording, stopEgress } from '../config/livekit.js';
 import { settleSession, chargeUserWallet, refundToUserWallet } from '../services/session.service.js';
-import { createNotification } from '../services/notification.service.js';
+import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { calculateSessionCredits, getCreditUsage } from '../services/credit.service.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
+const UNSTARTED_TIMEOUT_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'];
+const BOOKING_BLOCKING_STATUSES = ['pending', 'consent', 'waiting', 'scheduled', 'live', 'flagged', 'disputed'];
+const SLOT_STEP_MINUTES = 15;
+
+const createAndBroadcastNotification = async (req, payload, sessionEvent) => {
+  const notification = await createNotification(payload);
+  const io = req.app.get('io');
+  if (io && notification) {
+    const data = payload.data || {};
+    const socketPayload = {
+      _id: String(notification._id),
+      type: notification.type,
+      title: notification.title,
+      body: notification.body,
+      data
+    };
+    broadcastSocket(io, payload.recipient, 'notification:new', socketPayload);
+    if (data.sessionId) {
+      const sessionPayload = {
+        sessionId: String(data.sessionId),
+        type: notification.type
+      };
+      broadcastSocket(io, payload.recipient, 'session:updated', sessionPayload);
+      if (sessionEvent) {
+        broadcastSocket(io, payload.recipient, sessionEvent, sessionPayload);
+      }
+    }
+  }
+  return notification;
+};
+
+const scheduledEndTime = (session) => {
+  if (!session?.scheduledFor) return null;
+  return new Date(new Date(session.scheduledFor).getTime() + (Number(session.durationMinutes) || 0) * 60 * 1000);
+};
+
+const liveEndTime = (session) => {
+  if (!session?.startedAt) return null;
+  return new Date(new Date(session.startedAt).getTime() + (Number(session.durationMinutes) || 0) * 60 * 1000);
+};
+
+const isScheduledWindowLive = (session) => {
+  if (!session?.scheduledFor || session.startedAt) return false;
+  if (!UNSTARTED_TIMEOUT_STATUSES.includes(session.status)) return false;
+  const now = new Date();
+  const end = scheduledEndTime(session);
+  return new Date(session.scheduledFor) <= now && end && end > now;
+};
+
+const reconcileTimedOutSession = async (session) => {
+  if (!session) return session;
+  const now = new Date();
+
+  if (session.status === 'live') {
+    const end = liveEndTime(session);
+    if (end && end <= now) {
+      session.endedAt = session.endedAt || end;
+      await settleSession(session);
+      await session.save();
+      if (session.livekitRoom) await deleteRoom(session.livekitRoom);
+    }
+    return session;
+  }
+
+  if (!session.startedAt && UNSTARTED_TIMEOUT_STATUSES.includes(session.status)) {
+    const end = scheduledEndTime(session);
+    if (end && end <= now) {
+      session.status = 'expired';
+      session.endedAt = session.endedAt || end;
+      await session.save();
+      if (session.livekitRoom) await deleteRoom(session.livekitRoom);
+    }
+  }
+
+  return session;
+};
+
+const reconcileTimedOutSessions = async (sessions) => {
+  return Promise.all(sessions.map((session) => reconcileTimedOutSession(session)));
+};
+
+const pad2 = (value) => String(value).padStart(2, '0');
+
+const toMinutes = (hhmm) => {
+  if (!hhmm || typeof hhmm !== 'string') return null;
+  const [hour, minute] = hhmm.split(':').map((part) => Number.parseInt(part, 10));
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return hour * 60 + minute;
+};
+
+const zonedParts = (date, timezone = 'UTC') => {
+  let formatter;
+  try {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    });
+  } catch {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    });
+  }
+  const parts = formatter.formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    weekday: (get('weekday') || '').toLowerCase(),
+    hour: Number.parseInt(get('hour') || '0', 10),
+    minute: Number.parseInt(get('minute') || '0', 10)
+  };
+};
+
+const localDateKey = (parts) => `${parts.year}-${parts.month}-${parts.day}`;
+
+const formatTimeInZone = (date, timezone = 'UTC') => {
+  let formatter;
+  try {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  }
+  return formatter.format(date);
+};
+
+const isWithinDaySchedule = (weeklySchedule, date, timezone) => {
+  if (!weeklySchedule) return false;
+  const parts = zonedParts(date, timezone);
+  const schedule = weeklySchedule[parts.weekday];
+  if (!schedule || schedule.enabled === false) return false;
+  const from = toMinutes(schedule.from);
+  const to = toMinutes(schedule.to);
+  if (from == null || to == null) return false;
+  const minuteOfDay = parts.hour * 60 + parts.minute;
+  if (to <= from) return minuteOfDay >= from || minuteOfDay < to;
+  return minuteOfDay >= from && minuteOfDay < to;
+};
+
+const sessionRange = (session) => {
+  if (!session?.scheduledFor) return null;
+  const start = new Date(session.scheduledFor);
+  const end = new Date(start.getTime() + (Number(session.durationMinutes) || 0) * 60 * 1000);
+  return { start, end };
+};
+
+const rangesOverlap = (startA, endA, startB, endB) => startA < endB && endA > startB;
+
+const findBlockingBookings = async ({ advisorId, start, end, excludeSessionId }) => {
+  const windowStart = new Date(start.getTime() - 24 * 60 * 60 * 1000);
+  const windowEnd = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+  const filter = {
+    advisor: advisorId,
+    status: { $in: BOOKING_BLOCKING_STATUSES },
+    scheduledFor: { $gte: windowStart, $lte: windowEnd }
+  };
+  if (excludeSessionId) filter._id = { $ne: excludeSessionId };
+  const sessions = await Session.find(filter)
+    .populate('user', 'name profilePhoto')
+    .sort({ scheduledFor: 1 });
+  return sessions.filter((session) => {
+    const range = sessionRange(session);
+    return range && rangesOverlap(start, end, range.start, range.end);
+  });
+};
+
+const assertAdvisorSlotAvailable = async ({ advisorId, profile, start, durationMinutes, excludeSessionId }) => {
+  if (!start || Number.isNaN(start.getTime())) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid scheduled time');
+  }
+  const duration = Math.max(1, Number(durationMinutes) || 15);
+  const end = new Date(start.getTime() + duration * 60 * 1000);
+  if (start < new Date(Date.now() - 60 * 1000)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Please choose a future time slot');
+  }
+  const timezone = profile?.user?.timezone || profile?.timezone || 'UTC';
+  if (!isWithinDaySchedule(profile?.weeklySchedule, start, timezone) || !isWithinDaySchedule(profile?.weeklySchedule, new Date(end.getTime() - 60 * 1000), timezone)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Advisor is not available at this time');
+  }
+  const conflicts = await findBlockingBookings({ advisorId, start, end, excludeSessionId });
+  if (conflicts.length) {
+    throw new ApiError(StatusCodes.CONFLICT, 'This time is already booked. Please choose another available slot.');
+  }
+};
+
+const lockStartsForRange = (start, durationMinutes) => {
+  const slots = [];
+  const duration = Math.max(1, Number(durationMinutes) || 15);
+  const stepMs = SLOT_STEP_MINUTES * 60 * 1000;
+  const endMs = start.getTime() + duration * 60 * 1000;
+  const firstSlotMs = Math.floor(start.getTime() / stepMs) * stepMs;
+  for (let ms = firstSlotMs; ms < endMs; ms += stepMs) {
+    slots.push(new Date(ms));
+  }
+  return slots;
+};
+
+const reserveSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }) => {
+  const docs = lockStartsForRange(start, durationMinutes).map((slotStart) => ({
+    advisor: advisorId,
+    session: sessionId,
+    slotStart
+  }));
+  try {
+    await SessionSlotLock.insertMany(docs, { ordered: true });
+  } catch (error) {
+    if (error?.code === 11000 || error?.writeErrors?.some((item) => item?.code === 11000)) {
+      throw new ApiError(StatusCodes.CONFLICT, 'This time is already booked. Please choose another available slot.');
+    }
+    throw error;
+  }
+};
+
+const releaseSlotLocks = (sessionId) => SessionSlotLock.deleteMany({ session: sessionId });
+
+const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes }) => {
+  const advisor = await User.findOne({ _id: advisorId, role: 'advisor' }).select('name timezone status');
+  if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+  const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone');
+  if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
+
+  const duration = Math.max(1, Number(durationMinutes) || 15);
+  const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : localDateKey(zonedParts(new Date(), advisor.timezone));
+  const [year, month, day] = dateKey.split('-').map((part) => Number.parseInt(part, 10));
+  const timezone = advisor.timezone || 'UTC';
+  const probeDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const weekday = zonedParts(probeDate, timezone).weekday;
+  const scheduleForDay = profile.weeklySchedule?.[weekday] || null;
+  const searchStart = new Date(Date.UTC(year, month - 1, day - 1, 0, 0, 0));
+  const searchEnd = new Date(Date.UTC(year, month - 1, day + 2, 0, 0, 0));
+  const now = new Date();
+
+  const bookedDocs = await Session.find({
+    advisor: advisorId,
+    status: { $in: BOOKING_BLOCKING_STATUSES },
+    scheduledFor: { $gte: searchStart, $lt: searchEnd }
+  })
+    .populate('user', 'name profilePhoto')
+    .sort({ scheduledFor: 1 });
+
+  const bookedSlots = bookedDocs
+    .map((session) => {
+      const range = sessionRange(session);
+      if (!range) return null;
+      const parts = zonedParts(range.start, timezone);
+      if (localDateKey(parts) !== dateKey) return null;
+      return {
+        sessionId: String(session._id),
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        startLabel: formatTimeInZone(range.start, timezone),
+        endLabel: formatTimeInZone(range.end, timezone),
+        durationMinutes: session.durationMinutes,
+        type: session.type,
+        status: session.status
+      };
+    })
+    .filter(Boolean);
+
+  const availableSlots = [];
+  for (let ms = searchStart.getTime(); ms < searchEnd.getTime(); ms += SLOT_STEP_MINUTES * 60 * 1000) {
+    const start = new Date(ms);
+    const end = new Date(ms + duration * 60 * 1000);
+    if (start <= now) continue;
+    if (localDateKey(zonedParts(start, timezone)) !== dateKey) continue;
+    if (!isWithinDaySchedule(profile.weeklySchedule, start, timezone)) continue;
+    if (!isWithinDaySchedule(profile.weeklySchedule, new Date(end.getTime() - 60 * 1000), timezone)) continue;
+    const overlaps = bookedDocs.some((session) => {
+      const range = sessionRange(session);
+      return range && rangesOverlap(start, end, range.start, range.end);
+    });
+    if (!overlaps) {
+      availableSlots.push({
+        start: start.toISOString(),
+        end: end.toISOString(),
+        startLabel: formatTimeInZone(start, timezone),
+        endLabel: formatTimeInZone(end, timezone),
+        durationMinutes: duration
+      });
+    }
+  }
+
+  return {
+    advisorId: String(advisor._id),
+    advisorName: advisor.name,
+    timezone,
+    date: dateKey,
+    durationMinutes: duration,
+    stepMinutes: SLOT_STEP_MINUTES,
+    scheduleWindow: scheduleForDay && scheduleForDay.enabled !== false
+      ? {
+          from: scheduleForDay.from,
+          to: scheduleForDay.to
+        }
+      : null,
+    availableSlots,
+    bookedSlots
+  };
+};
+
+export const advisorAvailability = catchAsync(async (req, res) => {
+  const data = await buildAdvisorAvailability({
+    advisorId: req.params.advisorId,
+    date: req.query.date,
+    durationMinutes: req.query.durationMinutes
+  });
+  return sendResponse(res, { data });
+});
 
 // ============= Booking =============
 export const createBooking = catchAsync(async (req, res) => {
@@ -28,10 +361,18 @@ export const createBooking = catchAsync(async (req, res) => {
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   if (advisor.status !== 'active') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisor not available');
 
-  const profile = await AdvisorProfile.findOne({ user: advisorId });
+  const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone');
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
 
   const duration = Math.max(1, Number(durationMinutes) || 15);
+  const scheduledStart = instantStart ? new Date() : scheduledFor ? new Date(scheduledFor) : new Date();
+  await assertAdvisorSlotAvailable({
+    advisorId,
+    profile,
+    start: scheduledStart,
+    durationMinutes: duration
+  });
+
   const { ratePerMin, credits: estimatedCost } = await calculateSessionCredits({
     profile,
     type,
@@ -46,12 +387,23 @@ export const createBooking = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.PAYMENT_REQUIRED, 'Insufficient wallet balance to book');
   }
 
-  const session = await Session.create({
+  const sessionId = new mongoose.Types.ObjectId();
+  await reserveSlotLocks({
+    advisorId,
+    sessionId,
+    start: scheduledStart,
+    durationMinutes: duration
+  });
+
+  let session;
+  try {
+    session = await Session.create({
+    _id: sessionId,
     user: req.user._id,
     advisor: advisorId,
     type,
     status: 'pending',
-    scheduledFor: instantStart ? new Date() : scheduledFor ? new Date(scheduledFor) : new Date(),
+    scheduledFor: scheduledStart,
     durationMinutes: duration,
     instantStart: !!instantStart,
     ratePerMin,
@@ -60,21 +412,25 @@ export const createBooking = catchAsync(async (req, res) => {
     unlockChargeRecording: usage.sessionRecording,
     unlockChargeTranscript: usage.chatTranscript
   });
+  } catch (error) {
+    await releaseSlotLocks(sessionId);
+    throw error;
+  }
 
-  await createNotification({
+  await createAndBroadcastNotification(req, {
     recipient: advisorId,
     type: 'session_request',
     title: 'New session request',
     body: `${req.user.name} requested a ${type} session`,
     data: { sessionId: session._id }
-  });
-  await createNotification({
+  }, 'session:created');
+  await createAndBroadcastNotification(req, {
     recipient: req.user._id,
     type: 'session_confirmed',
     title: 'Booking confirmed',
     body: `Your ${type} session is booked`,
     data: { sessionId: session._id }
-  });
+  }, 'session:created');
 
   return sendResponse(res, {
     statusCode: StatusCodes.CREATED,
@@ -104,10 +460,12 @@ export const myUserSessions = catchAsync(async (req, res) => {
   }
 
   const total = await Session.countDocuments(filter);
-  const items = await Session.find(filter)
+  const docs = await Session.find(filter)
     .populate('advisor', 'name profilePhoto')
     .sort({ scheduledFor: -1, createdAt: -1 })
-    .skip(skip).limit(limit).lean();
+    .skip(skip).limit(limit);
+  const reconciled = await reconcileTimedOutSessions(docs);
+  const items = reconciled.map((s) => s.toObject());
 
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
@@ -116,19 +474,29 @@ export const myUserSessions = catchAsync(async (req, res) => {
 export const myAdvisorSessions = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = { advisor: req.user._id };
+  const now = new Date();
 
   const tab = req.query.tab; // live|completed|cancelled|disputed|flagged
-  if (tab === 'live') filter.status = 'live';
+  if (tab === 'live') {
+    filter.$or = [
+      { status: 'live' },
+      { status: { $in: UNSTARTED_TIMEOUT_STATUSES }, scheduledFor: { $lte: now } }
+    ];
+  }
   else if (tab === 'completed') filter.status = 'completed';
   else if (tab === 'cancelled') filter.status = 'cancelled';
   else if (tab === 'disputed') filter.status = 'disputed';
   else if (tab === 'flagged') filter.status = 'flagged';
 
-  const total = await Session.countDocuments(filter);
-  const items = await Session.find(filter)
+  const docs = await Session.find(filter)
     .populate('user', 'name profilePhoto')
     .sort({ createdAt: -1 })
-    .skip(skip).limit(limit).lean();
+    .skip(skip).limit(limit);
+  const reconciled = await reconcileTimedOutSessions(docs);
+  const items = reconciled
+    .filter((s) => tab !== 'live' || s.status === 'live' || isScheduledWindowLive(s))
+    .map((s) => s.toObject());
+  const total = tab === 'live' ? items.length : await Session.countDocuments(filter);
 
   // Attach rating for completed sessions in a single batched query.
   const completedIds = items
@@ -158,21 +526,23 @@ export const advisorBookingsCalendar = catchAsync(async (req, res) => {
   if (from) filter.scheduledFor.$gte = new Date(from);
   if (to) filter.scheduledFor.$lte = new Date(to);
 
-  const items = await Session.find(filter)
+  const docs = await Session.find(filter)
     .populate('user', 'name profilePhoto')
-    .sort({ scheduledFor: 1 }).lean();
+    .sort({ scheduledFor: 1 });
+  const reconciled = await reconcileTimedOutSessions(docs);
+  const items = reconciled.map((s) => s.toObject());
 
   return sendResponse(res, { data: items });
 });
 
 // ============= Session Details =============
 export const getSession = catchAsync(async (req, res) => {
-  const session = await Session.findById(req.params.id)
+  const sessionDoc = await Session.findById(req.params.id)
     .populate('user', 'name profilePhoto')
-    .populate('advisor', 'name profilePhoto')
-    .lean();
-  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
-  return sendResponse(res, { data: session });
+    .populate('advisor', 'name profilePhoto');
+  if (!sessionDoc) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+  const session = await reconcileTimedOutSession(sessionDoc);
+  return sendResponse(res, { data: session.toObject() });
 });
 
 // ============= Recording consent (user) =============
@@ -229,9 +599,13 @@ export const getLiveKitToken = catchAsync(async (req, res) => {
 
 // ============= Advisor starts session =============
 export const advisorStartSession = catchAsync(async (req, res) => {
-  const session = await Session.findById(req.params.id);
+  let session = await Session.findById(req.params.id);
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   if (String(session.advisor) !== String(req.user._id)) throw new ApiError(StatusCodes.FORBIDDEN, 'Forbidden');
+  session = await reconcileTimedOutSession(session);
+  if (session.status === 'expired') {
+    return sendResponse(res, { message: 'Session time expired', data: session.toObject() });
+  }
 
   if (session.status === 'live') return sendResponse(res, { data: session });
   if (!['waiting', 'consent', 'pending'].includes(session.status))
@@ -272,13 +646,13 @@ export const advisorStartSession = catchAsync(async (req, res) => {
 
   await session.save();
 
-  await createNotification({
+  await createAndBroadcastNotification(req, {
     recipient: session.user,
     type: 'session_started',
     title: 'Session started',
     body: 'Your advisor has started the session',
     data: { sessionId: session._id }
-  });
+  }, 'session:started');
 
   return sendResponse(res, { message: 'Session live', data: session });
 });
@@ -303,20 +677,20 @@ export const endSession = catchAsync(async (req, res) => {
   // tear down room
   if (session.livekitRoom) await deleteRoom(session.livekitRoom);
 
-  await createNotification({
+  await createAndBroadcastNotification(req, {
     recipient: session.user,
     type: 'session_completed',
     title: 'Session completed',
     body: 'Your session has ended. Leave a review?',
     data: { sessionId: session._id }
-  });
-  await createNotification({
+  }, 'session:ended');
+  await createAndBroadcastNotification(req, {
     recipient: session.advisor,
     type: 'session_completed',
     title: 'Session completed',
     body: 'Session ended successfully',
     data: { sessionId: session._id }
-  });
+  }, 'session:ended');
 
   return sendResponse(res, { message: 'Session ended', data: session });
 });
@@ -359,13 +733,13 @@ export const sessionHeartbeat = catchAsync(async (req, res) => {
       if (session.egressId) await stopEgress(session.egressId);
       await settleSession(session);
       autoEnded = true;
-      await createNotification({
+      await createAndBroadcastNotification(req, {
         recipient: session.user,
         type: 'low_balance',
         title: 'Session ended — low balance',
         body: 'Your wallet ran out of funds. Add funds to continue next time.',
         data: { sessionId: session._id }
-      });
+      }, 'session:ended');
     }
   }
 
@@ -446,6 +820,7 @@ export const cancelSession = catchAsync(async (req, res) => {
   session.cancelReason = reason || '';
   session.cancelledAt = new Date();
   await session.save();
+  await releaseSlotLocks(session._id);
 
   if (session.livekitRoom) await deleteRoom(session.livekitRoom);
 
@@ -454,13 +829,13 @@ export const cancelSession = catchAsync(async (req, res) => {
     await AdvisorProfile.findOneAndUpdate({ user: session.advisor }, { $inc: { cancelledSessions: 1 } });
   }
 
-  await createNotification({
+  await createAndBroadcastNotification(req, {
     recipient: isUser ? session.advisor : session.user,
     type: 'session_cancelled',
     title: 'Session cancelled',
     body: `Session was cancelled${reason ? ': ' + reason : ''}`,
     data: { sessionId: session._id }
-  });
+  }, 'session:cancelled');
 
   return sendResponse(res, { message: 'Session cancelled and any holds refunded', data: session });
 });
@@ -479,19 +854,51 @@ export const rescheduleSession = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, `Cannot reschedule session in status ${session.status}`);
   }
 
+  const profile = await AdvisorProfile.findOne({ user: session.advisor }).populate('user', 'timezone');
+  if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
+  const nextStart = new Date(newScheduledFor);
+  await assertAdvisorSlotAvailable({
+    advisorId: session.advisor,
+    profile,
+    start: nextStart,
+    durationMinutes: session.durationMinutes,
+    excludeSessionId: session._id
+  });
+
+  const previousStart = session.scheduledFor;
+  await releaseSlotLocks(session._id);
+  try {
+    await reserveSlotLocks({
+      advisorId: session.advisor,
+      sessionId: session._id,
+      start: nextStart,
+      durationMinutes: session.durationMinutes
+    });
+  } catch (error) {
+    if (previousStart) {
+      await reserveSlotLocks({
+        advisorId: session.advisor,
+        sessionId: session._id,
+        start: previousStart,
+        durationMinutes: session.durationMinutes
+      });
+    }
+    throw error;
+  }
+
   session.rescheduledFrom = session.scheduledFor;
-  session.scheduledFor = new Date(newScheduledFor);
+  session.scheduledFor = nextStart;
   session.rescheduleReason = reason || '';
   session.rescheduledAt = new Date();
   await session.save();
 
-  await createNotification({
+  await createAndBroadcastNotification(req, {
     recipient: String(req.user._id) === String(session.user) ? session.advisor : session.user,
     type: 'session_rescheduled',
     title: 'Session rescheduled',
     body: `Session moved to ${session.scheduledFor.toISOString()}`,
     data: { sessionId: session._id }
-  });
+  }, 'session:rescheduled');
 
   return sendResponse(res, { message: 'Session rescheduled', data: session });
 });
@@ -530,13 +937,13 @@ export const tipAdvisor = catchAsync(async (req, res) => {
   session.tipAmount = round2((session.tipAmount || 0) + amt);
   await session.save();
 
-  await createNotification({
+  await createAndBroadcastNotification(req, {
     recipient: session.advisor,
     type: 'tip_received',
     title: 'You received a tip',
     body: `$${amt} tip from your client`,
     data: { sessionId: session._id, amount: amt }
-  });
+  }, 'session:updated');
 
   return sendResponse(res, { message: 'Tip sent', data: session });
 });
@@ -575,23 +982,26 @@ export const unlockSessionAsset = catchAsync(async (req, res) => {
 export const getOngoing = catchAsync(async (req, res) => {
   const isAdvisor = req.user.role === 'advisor';
   const filter = isAdvisor ? { advisor: req.user._id, status: 'live' } : { user: req.user._id, status: 'live' };
-  const session = await Session.findOne(filter)
+  const sessionDoc = await Session.findOne(filter)
     .populate('user', 'name profilePhoto')
-    .populate('advisor', 'name profilePhoto')
-    .lean();
-  return sendResponse(res, { data: session });
+    .populate('advisor', 'name profilePhoto');
+  const session = await reconcileTimedOutSession(sessionDoc);
+  if (session?.status !== 'live') {
+    return sendResponse(res, { data: null });
+  }
+  return sendResponse(res, { data: session.toObject() });
 });
 
 // ============= Session complete summary (for "Session Completed" modal) =============
 export const sessionSummary = catchAsync(async (req, res) => {
-  const session = await Session.findById(req.params.id)
+  const sessionDoc = await Session.findById(req.params.id)
     .populate('user', 'name profilePhoto')
-    .populate('advisor', 'name profilePhoto')
-    .lean();
-  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+    .populate('advisor', 'name profilePhoto');
+  if (!sessionDoc) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+  const session = await reconcileTimedOutSession(sessionDoc);
 
   const review = await Review.findOne({ session: session._id }).lean();
-  return sendResponse(res, { data: { session, review } });
+  return sendResponse(res, { data: { session: session.toObject(), review } });
 });
 
 // ============= Save advisor session note =============

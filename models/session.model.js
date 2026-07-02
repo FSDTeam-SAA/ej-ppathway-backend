@@ -9,6 +9,7 @@ export const SESSION_STATUSES = [
   'waiting',     // waiting room (advisor not joined)
   'live',        // ongoing
   'completed',
+  'expired',
   'cancelled',
   'no_show',
   'flagged',

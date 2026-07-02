@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
 import {
   createBooking,
+  advisorAvailability,
   myUserSessions,
   myAdvisorSessions,
   advisorBookingsCalendar,
@@ -27,6 +28,7 @@ router.use(auth());
 
 // Booking
 router.post('/book', createBooking);
+router.get('/advisors/:advisorId/availability', advisorAvailability);
 
 // Listings
 router.get('/mine/user', myUserSessions);
