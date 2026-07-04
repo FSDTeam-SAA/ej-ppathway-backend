@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
-import { imageUpload, videoUpload } from '../middlewares/upload.js';
+import { imageUpload, introMediaUpload } from '../middlewares/upload.js';
 import {
   getMyApplication,
   updateMyApplication,
@@ -22,7 +22,7 @@ router.use(auth('advisor'));
 // Application
 router.get('/application', getMyApplication);
 router.patch('/application', updateMyApplication);
-router.post('/application/intro-video', videoUpload.single('video'), uploadIntroVideo);
+router.post('/application/intro-video', introMediaUpload.single('video'), uploadIntroVideo);
 
 // Profile management
 router.get('/profile', getMyProfile);

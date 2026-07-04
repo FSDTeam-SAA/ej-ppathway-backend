@@ -7,7 +7,7 @@ export const PROFILE_REVIEW_STATUSES = ['pending_review', 'approved', 'rejected'
 
 const dayScheduleSchema = new Schema(
   {
-    enabled: { type: Boolean, default: true },
+    enabled: { type: Boolean, default: false },
     from: { type: String, default: '09:00' },
     to: { type: String, default: '18:00' }
   },
@@ -30,13 +30,13 @@ const advisorProfileSchema = new Schema(
     introVideoUrl: { type: String, default: '' },
 
     pricing: {
-      chatPerMin: { type: Number, default: 1 / 3 },
-      callPerMin: { type: Number, default: 1 },
-      videoPerMin: { type: Number, default: 4 / 3 }
+      chatPerMin: { type: Number, default: 0 },
+      callPerMin: { type: Number, default: 0 },
+      videoPerMin: { type: Number, default: 0 }
     },
 
     // Availability
-    autoOnlineMode: { type: Boolean, default: true },
+    autoOnlineMode: { type: Boolean, default: false },
     weeklySchedule: {
       monday: { type: dayScheduleSchema, default: () => ({}) },
       tuesday: { type: dayScheduleSchema, default: () => ({}) },

@@ -44,7 +44,7 @@ export const updateMyApplication = catchAsync(async (req, res) => {
 
 export const uploadIntroVideo = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
-  if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'video file required');
+  if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'audio or video file required');
   const result = await uploadBufferToCloudinary(req.file.buffer, 'advisor-intro-videos', 'video');
   await AdvisorApplication.findOneAndUpdate({ user: req.user._id }, { introVideoUrl: result.secure_url }, { upsert: true });
   await AdvisorProfile.findOneAndUpdate({ user: req.user._id }, { introVideoUrl: result.secure_url }, { upsert: true });

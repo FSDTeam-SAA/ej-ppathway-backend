@@ -22,6 +22,29 @@ export const videoUpload = multer({
   fileFilter: buildFilter(['video/'])
 });
 
+export const introMediaUpload = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: buildFilter(['video/', 'audio/'])
+});
+
+export const advisorApplicationUpload = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedByField = {
+      introVideo: ['video/', 'audio/'],
+      profilePhoto: ['image/']
+    };
+    const allowed = allowedByField[file.fieldname];
+    if (!allowed) {
+      cb(new ApiError(StatusCodes.BAD_REQUEST, `Unsupported upload field: ${file.fieldname}`), false);
+      return;
+    }
+    buildFilter(allowed)(req, file, cb);
+  }
+});
+
 export const documentUpload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },

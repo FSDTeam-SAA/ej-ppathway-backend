@@ -166,6 +166,46 @@ const formatTimeInZone = (date, timezone = 'UTC') => {
   return formatter.format(date);
 };
 
+const fixedOffsetParts = (date, offsetMinutes = 0) => {
+  const shifted = new Date(date.getTime() + offsetMinutes * 60 * 1000);
+  return {
+    year: String(shifted.getUTCFullYear()),
+    month: pad2(shifted.getUTCMonth() + 1),
+    day: pad2(shifted.getUTCDate()),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes()
+  };
+};
+
+const formatTimeWithOffset = (date, offsetMinutes = 0) => {
+  const parts = fixedOffsetParts(date, offsetMinutes);
+  const suffix = parts.hour >= 12 ? 'PM' : 'AM';
+  const hour12 = parts.hour % 12 === 0 ? 12 : parts.hour % 12;
+  return `${hour12}:${pad2(parts.minute)} ${suffix}`;
+};
+
+const parseOffsetMinutes = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed < -14 * 60 || parsed > 14 * 60) return null;
+  return parsed;
+};
+
+const viewerDateParts = (date, { timezone, offsetMinutes }) => {
+  if (offsetMinutes !== null && offsetMinutes !== undefined) {
+    return fixedOffsetParts(date, offsetMinutes);
+  }
+  return zonedParts(date, timezone || 'UTC');
+};
+
+const formatViewerTime = (date, { timezone, offsetMinutes }) => {
+  if (offsetMinutes !== null && offsetMinutes !== undefined) {
+    return formatTimeWithOffset(date, offsetMinutes);
+  }
+  return formatTimeInZone(date, timezone || 'UTC');
+};
+
 const isWithinDaySchedule = (weeklySchedule, date, timezone) => {
   if (!weeklySchedule) return false;
   const parts = zonedParts(date, timezone);
@@ -255,14 +295,18 @@ const reserveSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }
 
 const releaseSlotLocks = (sessionId) => SessionSlotLock.deleteMany({ session: sessionId });
 
-const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes }) => {
+const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes }) => {
   const advisor = await User.findOne({ _id: advisorId, role: 'advisor' }).select('name timezone status');
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone');
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
 
   const duration = Math.max(1, Number(durationMinutes) || 15);
-  const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : localDateKey(zonedParts(new Date(), advisor.timezone));
+  const viewer = {
+    timezone: viewerTimezone || advisor.timezone || 'UTC',
+    offsetMinutes: viewerOffsetMinutes
+  };
+  const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : localDateKey(viewerDateParts(new Date(), viewer));
   const [year, month, day] = dateKey.split('-').map((part) => Number.parseInt(part, 10));
   const timezone = advisor.timezone || 'UTC';
   const probeDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
@@ -284,14 +328,14 @@ const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes }) =>
     .map((session) => {
       const range = sessionRange(session);
       if (!range) return null;
-      const parts = zonedParts(range.start, timezone);
+      const parts = viewerDateParts(range.start, viewer);
       if (localDateKey(parts) !== dateKey) return null;
       return {
         sessionId: String(session._id),
         start: range.start.toISOString(),
         end: range.end.toISOString(),
-        startLabel: formatTimeInZone(range.start, timezone),
-        endLabel: formatTimeInZone(range.end, timezone),
+        startLabel: formatViewerTime(range.start, viewer),
+        endLabel: formatViewerTime(range.end, viewer),
         durationMinutes: session.durationMinutes,
         type: session.type,
         status: session.status
@@ -304,7 +348,7 @@ const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes }) =>
     const start = new Date(ms);
     const end = new Date(ms + duration * 60 * 1000);
     if (start <= now) continue;
-    if (localDateKey(zonedParts(start, timezone)) !== dateKey) continue;
+    if (localDateKey(viewerDateParts(start, viewer)) !== dateKey) continue;
     if (!isWithinDaySchedule(profile.weeklySchedule, start, timezone)) continue;
     if (!isWithinDaySchedule(profile.weeklySchedule, new Date(end.getTime() - 60 * 1000), timezone)) continue;
     const overlaps = bookedDocs.some((session) => {
@@ -315,8 +359,8 @@ const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes }) =>
       availableSlots.push({
         start: start.toISOString(),
         end: end.toISOString(),
-        startLabel: formatTimeInZone(start, timezone),
-        endLabel: formatTimeInZone(end, timezone),
+        startLabel: formatViewerTime(start, viewer),
+        endLabel: formatViewerTime(end, viewer),
         durationMinutes: duration
       });
     }
@@ -326,6 +370,8 @@ const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes }) =>
     advisorId: String(advisor._id),
     advisorName: advisor.name,
     timezone,
+    displayTimezone: viewer.timezone,
+    displayTimezoneOffsetMinutes: viewer.offsetMinutes,
     date: dateKey,
     durationMinutes: duration,
     stepMinutes: SLOT_STEP_MINUTES,
@@ -344,7 +390,9 @@ export const advisorAvailability = catchAsync(async (req, res) => {
   const data = await buildAdvisorAvailability({
     advisorId: req.params.advisorId,
     date: req.query.date,
-    durationMinutes: req.query.durationMinutes
+    durationMinutes: req.query.durationMinutes,
+    viewerTimezone: req.query.timezone,
+    viewerOffsetMinutes: parseOffsetMinutes(req.query.timezoneOffsetMinutes)
   });
   return sendResponse(res, { data });
 });

@@ -83,7 +83,7 @@ export const sendAdvisorProfileDecisionEmail = async (to, { name, approved, reas
   const subject = approved ? 'Your Advisor Profile Is Approved' : 'Advisor Profile Update Required';
   const body = approved
     ? `<p>Hi ${name || ''},</p><p>Your advisor profile has been approved and is now visible to clients.</p>${loginUrl ? `<p><a href="${loginUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Open Advisor Dashboard</a></p>` : ''}`
-    : `<p>Hi ${name || ''},</p><p>Your advisor profile needs updates before it can be approved.</p>${reason ? `<p><b>Admin notes:</b> ${reason}</p>` : ''}${loginUrl ? `<p><a href="${loginUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Edit Profile</a></p>` : ''}`;
+    : `<p>Hi ${name || ''},</p><p>Your advisor profile needs updates before it can be approved.</p>${reason ? `<p><b>Reason and requested corrections:</b></p><p>${reason}</p>` : ''}<p>Please edit your profile and resubmit it for review. Your updated profile will return to Pending Review until an administrator approves it.</p>${loginUrl ? `<p><a href="${loginUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Edit Profile</a></p>` : ''}`;
   return sendEmail({ to, subject, html: wrap(subject, body) });
 };
 

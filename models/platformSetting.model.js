@@ -44,9 +44,9 @@ const DEFAULT_CREDIT_EXPIRATION_DAYS = 60;
 const DEFAULT_CREDIT_USD_RATE = 1;
 
 const DEFAULT_ADVISOR_CREDIT_PRICING = {
-  chatPerMin: 1 / 3,
-  callPerMin: 1,
-  videoPerMin: 4 / 3
+  chatPerMin: 0,
+  callPerMin: 0,
+  videoPerMin: 0
 };
 
 // Singleton-like document holding global commission/tier rates and other platform settings.
