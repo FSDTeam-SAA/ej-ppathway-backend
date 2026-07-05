@@ -8,6 +8,7 @@ export const NOTIF_TYPES = [
   'session_cancelled',
   'session_rescheduled',
   'session_started',
+  'session_updated',
   'session_completed',
   'new_review',
   'new_message',
