@@ -181,6 +181,37 @@ export const sendMessage = catchAsync(async (req, res) => {
     }
   }
 
+  if (chat.kind === 'session') {
+    const preview = (text || '').trim();
+    const body = preview ? (preview.length > 140 ? `${preview.slice(0, 140)}…` : preview) : '[attachment]';
+    const recipients = chat.participants.filter((p) => String(p) !== String(req.user._id));
+    await Promise.all(recipients.map(async (recipient) => {
+      const notif = await createNotification({
+        recipient,
+        type: 'new_message',
+        title: `New message from ${req.user.name || 'a participant'}`,
+        body,
+        data: { chatId: String(chat._id), sessionId: chat.session ? String(chat.session) : undefined, messageId: String(msg._id), kind: 'session' }
+      });
+      if (io && notif) {
+        const payload = {
+          _id: String(notif._id),
+          type: 'new_message',
+          title: notif.title,
+          body: notif.body,
+          data: notif.data || {}
+        };
+        broadcastSocket(io, recipient, 'notification:new', payload);
+        if (chat.session) {
+          broadcastSocket(io, recipient, 'session:updated', {
+            sessionId: String(chat.session),
+            type: 'new_message'
+          });
+        }
+      }
+    }));
+  }
+
   return sendResponse(res, { data: msg });
 });
 

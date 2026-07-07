@@ -631,15 +631,19 @@ export const myAdvisorSessions = catchAsync(async (req, res) => {
   const filter = { advisor: req.user._id };
   const now = new Date();
 
-  const tab = req.query.tab; // live|completed|cancelled|disputed|flagged
+  const tab = req.query.tab; // all|live|upcoming|completed|cancelled|canceled|disputed|flagged
   if (tab === 'live') {
     filter.$or = [
       { status: 'live' },
       { status: { $in: UNSTARTED_TIMEOUT_STATUSES }, scheduledFor: { $lte: now } }
     ];
   }
+  else if (tab === 'upcoming') {
+    filter.status = { $in: ['pending', 'consent', 'waiting'] };
+    filter.scheduledFor = { $gte: now };
+  }
   else if (tab === 'completed') filter.status = 'completed';
-  else if (tab === 'cancelled') filter.status = 'cancelled';
+  else if (tab === 'cancelled' || tab === 'canceled') filter.status = 'cancelled';
   else if (tab === 'disputed') filter.status = 'disputed';
   else if (tab === 'flagged') filter.status = 'flagged';
 
@@ -938,6 +942,14 @@ export const extendSession = catchAsync(async (req, res) => {
   session.durationMinutes = (session.durationMinutes || 0) + Number(minutes);
   session.extensions.push({ minutes: Number(minutes), cost });
   await session.save();
+
+  await createAndBroadcastNotification(req, {
+    recipient: session.advisor,
+    type: 'session_updated',
+    title: 'Session updated',
+    body: `Session extended by ${Number(minutes)} minutes`,
+    data: { sessionId: session._id }
+  }, 'session:updated');
 
   return sendResponse(res, { message: 'Session extended', data: session });
 });
