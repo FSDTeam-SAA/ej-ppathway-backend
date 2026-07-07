@@ -68,6 +68,17 @@ export const sendAdvisorDecisionEmail = async (to, { name, approved, reason }) =
   return sendEmail({ to, subject, html: wrap(subject, body) });
 };
 
+export const sendAdvisorStatusUpdateEmail = async (to, { name, status, message }) => {
+  const subject = 'Advisor Application Status Updated';
+  const label = String(status || '').replace(/_/g, ' ');
+  const body = `
+    <p>Hi ${name || ''},</p>
+    <p>Your advisor application status has been updated to <b>${label}</b>.</p>
+    ${message ? `<p>${message}</p>` : '<p>Please check your advisor dashboard for any next steps.</p>'}
+  `;
+  return sendEmail({ to, subject, html: wrap(subject, body) });
+};
+
 export const sendAdvisorOnboardingEmail = async (to, { name, onboardingUrl }) => {
   const subject = 'Complete Your Advisor Profile';
   const body = `
@@ -107,6 +118,7 @@ export default {
   sendInterviewScheduledEmail,
   sendAdvisorContractEmail,
   sendAdvisorDecisionEmail,
+  sendAdvisorStatusUpdateEmail,
   sendAdvisorOnboardingEmail,
   sendAdvisorProfileDecisionEmail,
   sendAdvisorWelcomeEmail

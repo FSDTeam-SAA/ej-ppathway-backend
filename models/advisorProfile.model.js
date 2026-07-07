@@ -9,7 +9,38 @@ const dayScheduleSchema = new Schema(
   {
     enabled: { type: Boolean, default: false },
     from: { type: String, default: '09:00' },
-    to: { type: String, default: '18:00' }
+    to: { type: String, default: '18:00' },
+    slots: {
+      type: [
+        new Schema(
+          {
+            from: { type: String, default: '09:00' },
+            to: { type: String, default: '18:00' }
+          },
+          { _id: false }
+        )
+      ],
+      default: undefined
+    }
+  },
+  { _id: false }
+);
+
+const dateAvailabilitySchema = new Schema(
+  {
+    unavailable: { type: Boolean, default: false },
+    slots: {
+      type: [
+        new Schema(
+          {
+            from: { type: String, default: '09:00' },
+            to: { type: String, default: '18:00' }
+          },
+          { _id: false }
+        )
+      ],
+      default: undefined
+    }
   },
   { _id: false }
 );
@@ -46,6 +77,7 @@ const advisorProfileSchema = new Schema(
       saturday: { type: dayScheduleSchema, default: () => ({}) },
       sunday: { type: dayScheduleSchema, default: () => ({}) }
     },
+    dateAvailability: { type: Map, of: dateAvailabilitySchema, default: () => ({}) },
 
     isOnline: { type: Boolean, default: false, index: true },
     lastSeenAt: { type: Date },
@@ -95,7 +127,7 @@ const advisorProfileSchema = new Schema(
 
     // Active promotion
     activePromotion: {
-      plan: { type: String, enum: ['basic', 'pro', 'premium'] },
+      plan: { type: String },
       startsAt: { type: Date },
       expiresAt: { type: Date },
       impressions: { type: Number, default: 0 },

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
+import { getPublicCreditBanner } from '../controllers/admin.settings.controller.js';
 import {
   getMyWallet,
   getCreditPacks,
@@ -30,6 +31,7 @@ router.get('/topup/success', stripeTopupSuccess);
 router.get('/topup/cancel', stripeTopupCancel);
 router.get('/paypal/success', paypalTopupSuccess);
 router.get('/paypal/cancel', paypalTopupCancel);
+router.get('/credit-banner', getPublicCreditBanner);
 
 router.use(auth());
 

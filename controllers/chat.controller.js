@@ -155,24 +155,27 @@ export const sendMessage = catchAsync(async (req, res) => {
     }
   }
 
-  // When a customer writes into a support chat, raise a bell notification for the admin.
-  if (chat.kind === 'admin' && !isAdmin) {
-    const adminId = chat.participants.find((p) => String(p) !== String(req.user._id));
-    if (adminId) {
+  // Support-chat notifications are symmetric: admin/sub-admin messages notify
+  // advisors/users, and advisor/user messages notify the admin side.
+  if (chat.kind === 'admin') {
+    const recipients = chat.participants.filter((p) => String(p) !== String(req.user._id));
+    for (const recipient of recipients) {
       const preview = (text || '').trim();
       const notif = await createNotification({
-        recipient: adminId,
+        recipient,
         type: 'new_message',
-        title: `New support message from ${req.user.name || 'a customer'}`,
+        title: `New support message from ${req.user.name || 'Support'}`,
         body: preview ? (preview.length > 140 ? `${preview.slice(0, 140)}…` : preview) : '[attachment]',
         data: { chatId: String(chat._id), messageId: String(msg._id), kind: 'support' }
       });
       if (io && notif) {
-        broadcastSocket(io, adminId, 'notification:new', {
+        broadcastSocket(io, recipient, 'notification:new', {
           _id: String(notif._id),
           type: 'new_message',
           title: notif.title,
-          body: notif.body
+          body: notif.body,
+          data: notif.data,
+          createdAt: notif.createdAt
         });
       }
     }
@@ -197,10 +200,15 @@ export const markChatRead = catchAsync(async (req, res) => {
 export const adminListChats = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = { kind: 'admin' };
+  const userFilter = {};
+  if (['user', 'advisor'].includes(req.query.role)) {
+    userFilter.role = req.query.role;
+  }
   if (req.query.q) {
-    // search by participant name
-    const term = req.query.q;
-    const users = await User.find({ name: { $regex: term, $options: 'i' } }).select('_id').lean();
+    userFilter.name = { $regex: req.query.q, $options: 'i' };
+  }
+  if (Object.keys(userFilter).length > 0) {
+    const users = await User.find(userFilter).select('_id').lean();
     filter.participants = { $in: users.map((u) => u._id) };
   }
   const total = await Chat.countDocuments(filter);

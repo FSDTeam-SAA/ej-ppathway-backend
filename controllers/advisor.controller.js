@@ -18,6 +18,101 @@ const ensureAdvisor = (user) => {
   if (user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
 };
 
+const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+const normalizeWeeklySchedule = (weeklySchedule) => {
+  if (!weeklySchedule || typeof weeklySchedule !== 'object') return weeklySchedule;
+  const normalized = {};
+  for (const day of DAY_KEYS) {
+    const current = weeklySchedule[day] || {};
+    const rawSlots = Array.isArray(current.slots) && current.slots.length
+      ? current.slots
+      : [{ from: current.from || '09:00', to: current.to || '18:00' }];
+    const slots = rawSlots
+      .map((slot) => ({
+        from: String(slot?.from || '09:00').trim(),
+        to: String(slot?.to || '18:00').trim()
+      }))
+      .filter((slot) => slot.from && slot.to);
+    const first = slots[0] || { from: '09:00', to: '18:00' };
+    normalized[day] = {
+      enabled: current.enabled === true,
+      from: first.from,
+      to: first.to,
+      slots: slots.length ? slots : [first]
+    };
+  }
+  return normalized;
+};
+
+const normalizeDateAvailability = (dateAvailability) => {
+  if (!dateAvailability || typeof dateAvailability !== 'object') return {};
+  const entries = dateAvailability instanceof Map
+    ? Array.from(dateAvailability.entries())
+    : Object.entries(dateAvailability);
+  const normalized = {};
+  for (const [date, current] of entries) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const rawSlots = Array.isArray(current?.slots) ? current.slots : [];
+    const slots = rawSlots
+      .map((slot) => ({
+        from: String(slot?.from || '09:00').trim(),
+        to: String(slot?.to || '18:00').trim()
+      }))
+      .filter((slot) => slot.from && slot.to);
+    normalized[date] = {
+      unavailable: current?.unavailable === true,
+      slots: current?.unavailable === true ? [] : slots
+    };
+  }
+  return normalized;
+};
+
+const stringifyComparable = (value) => JSON.stringify(value);
+
+const normalizePricing = (pricing = {}) => ({
+  chatPerMin: Number(pricing.chatPerMin || 0),
+  callPerMin: Number(pricing.callPerMin || 0),
+  videoPerMin: Number(pricing.videoPerMin || 0)
+});
+
+const pricingChanged = (existingProfile, profileUpdate) => {
+  if (typeof profileUpdate.pricing === 'undefined') return false;
+  if (!existingProfile) return true;
+
+  const before = normalizePricing(existingProfile.pricing || {});
+  const after = normalizePricing(profileUpdate.pricing || {});
+  return stringifyComparable(before) !== stringifyComparable(after);
+};
+
+const markProfilePendingReview = async (userId) => {
+  await Promise.all([
+    AdvisorProfile.findOneAndUpdate(
+      { user: userId },
+      {
+        $set: {
+          profileReviewStatus: 'pending_review',
+          profileSubmittedAt: new Date(),
+          profileRejectionReason: ''
+        },
+        $setOnInsert: { user: userId }
+      },
+      { upsert: true }
+    ),
+    AdvisorApplication.findOneAndUpdate(
+      { user: userId },
+      {
+        $set: {
+          status: 'pending_review',
+          stage: 'application'
+        },
+        $setOnInsert: { user: userId }
+      },
+      { upsert: true }
+    )
+  ]);
+};
+
 // ===== Application =====
 export const getMyApplication = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
@@ -63,13 +158,20 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const allowedProfile = [
     'professionalTitle', 'bio', 'detailedDescription', 'yearsOfExperience',
-    'expertise', 'styles', 'languages', 'pricing', 'autoOnlineMode', 'weeklySchedule', 'introVideoUrl'
+    'expertise', 'styles', 'languages', 'pricing', 'autoOnlineMode', 'weeklySchedule', 'dateAvailability', 'introVideoUrl'
   ];
   const allowedUser = ['name', 'phone', 'country', 'city', 'profilePhoto', 'language', 'timezone'];
   const profileUpdate = {};
   const userUpdate = {};
   for (const k of allowedProfile) if (typeof req.body[k] !== 'undefined') profileUpdate[k] = req.body[k];
   for (const k of allowedUser) if (typeof req.body[k] !== 'undefined') userUpdate[k] = req.body[k];
+
+  if (typeof profileUpdate.weeklySchedule !== 'undefined') {
+    profileUpdate.weeklySchedule = normalizeWeeklySchedule(profileUpdate.weeklySchedule);
+  }
+  if (typeof profileUpdate.dateAvailability !== 'undefined') {
+    profileUpdate.dateAvailability = normalizeDateAvailability(profileUpdate.dateAvailability);
+  }
 
   // Keep the displayed currency in sync with the selected country (the country's
   // own default currency, so the right symbol shows everywhere).
@@ -80,21 +182,38 @@ export const updateMyProfile = catchAsync(async (req, res) => {
       : '';
   }
 
+  const existingProfile = await AdvisorProfile.findOne({ user: req.user._id }).lean();
+  const requiresAdminReview = pricingChanged(existingProfile, profileUpdate);
+
   const profile = await AdvisorProfile.findOneAndUpdate(
     { user: req.user._id },
     {
       $set: {
         ...profileUpdate,
-        profileReviewStatus: 'pending_review',
-        profileSubmittedAt: new Date(),
-        profileRejectionReason: ''
+        ...(requiresAdminReview
+          ? {
+              profileReviewStatus: 'pending_review',
+              profileSubmittedAt: new Date(),
+              profileRejectionReason: ''
+            }
+          : {})
       },
       $setOnInsert: { user: req.user._id }
     },
     { new: true, upsert: true }
   );
   const user = await User.findByIdAndUpdate(req.user._id, userUpdate, { new: true });
-  return sendResponse(res, { message: 'Profile updated', data: { user, profile } });
+
+  if (requiresAdminReview) {
+    await markProfilePendingReview(req.user._id);
+  }
+
+  return sendResponse(res, {
+    message: requiresAdminReview
+      ? 'Pricing changes submitted for admin review'
+      : 'Profile updated',
+    data: { user, profile, requiresAdminReview }
+  });
 });
 
 export const uploadProfilePhoto = catchAsync(async (req, res) => {
@@ -121,10 +240,17 @@ export const getDashboard = catchAsync(async (req, res) => {
   const profile = await AdvisorProfile.findOne({ user: req.user._id }).lean();
   const wallet = await Wallet.findOne({ user: req.user._id }).lean();
 
-  // earnings today
-  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-  const todayEarnings = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'advisor_earning', status: 'completed', createdAt: { $gte: startOfDay } } },
+  const range = ['week', 'month'].includes(req.query.range) ? req.query.range : 'today';
+  const startOfRange = new Date();
+  startOfRange.setHours(0, 0, 0, 0);
+  if (range === 'week') {
+    startOfRange.setDate(startOfRange.getDate() - 6);
+  } else if (range === 'month') {
+    startOfRange.setDate(1);
+  }
+
+  const rangeEarnings = await Transaction.aggregate([
+    { $match: { advisor: req.user._id, type: 'advisor_earning', status: 'completed', createdAt: { $gte: startOfRange } } },
     { $group: { _id: null, total: { $sum: '$amount' } } }
   ]);
 
@@ -161,7 +287,8 @@ export const getDashboard = catchAsync(async (req, res) => {
 
   return sendResponse(res, {
     data: {
-      earningsToday: todayEarnings[0]?.total || 0,
+      earningsToday: rangeEarnings[0]?.total || 0,
+      dashboardRange: range,
       activeSessions,
       pendingRequests,
       ratings: profile?.avgRating || 0,
@@ -226,15 +353,39 @@ export const getPerformance = catchAsync(async (req, res) => {
 // ===== Promotions =====
 export const getPromotionPlans = catchAsync(async (_req, res) => {
   const settings = await getPlatformSettings();
-  return sendResponse(res, { data: settings.promotionPlans });
+  const entries = settings.promotionPlans instanceof Map
+    ? Array.from(settings.promotionPlans.entries())
+    : Object.entries(settings.promotionPlans || {});
+  const plans = Object.fromEntries(
+    entries
+      .filter(([, plan]) => plan?.isActive !== false)
+      .sort(([, a], [, b]) => Number(a?.sortOrder || 0) - Number(b?.sortOrder || 0))
+      .map(([id, plan]) => [
+        id,
+        {
+          label: plan.label || id,
+          price: Number(plan.price || 0),
+          days: Number(plan.days || 1),
+          visibilityBoost: Number(plan.visibilityBoost || 1),
+          impressionsPerDay: Number(plan.impressionsPerDay || 0),
+          features: Array.isArray(plan.features) ? plan.features : [],
+          tone: plan.tone || 'emerald',
+          isPopular: plan.isPopular === true,
+          sortOrder: Number(plan.sortOrder || 0)
+        }
+      ])
+  );
+  return sendResponse(res, { data: plans });
 });
 
 export const activatePromotion = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
-  const { plan } = req.body; // basic|pro|premium
+  const { plan } = req.body;
   const settings = await getPlatformSettings();
-  const planCfg = settings.promotionPlans[plan];
-  if (!planCfg) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid plan');
+  const planCfg = settings.promotionPlans instanceof Map
+    ? settings.promotionPlans.get(plan)
+    : settings.promotionPlans?.[plan];
+  if (!planCfg || planCfg.isActive === false) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid plan');
 
   const wallet = await Wallet.findOne({ user: req.user._id });
   if (!wallet || wallet.earningsBalance < planCfg.price) {

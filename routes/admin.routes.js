@@ -65,7 +65,11 @@ import {
 import {
   getCreditManagementSummary,
   getCreditSettings,
+  createPromotionPlan,
+  deletePromotionPlan,
   getSignupFreeCredits,
+  listPromotionPlans,
+  updatePromotionPlan,
   updateCreditSettings,
   updateSignupFreeCredits
 } from '../controllers/admin.settings.controller.js';
@@ -235,6 +239,10 @@ router.get('/settings/credits', getCreditSettings);
 router.patch('/settings/credits', updateCreditSettings);
 router.get('/settings/signup-credits', getSignupFreeCredits);
 router.patch('/settings/signup-credits', updateSignupFreeCredits);
+router.get('/promotion-plans', listPromotionPlans);
+router.post('/promotion-plans', createPromotionPlan);
+router.patch('/promotion-plans/:id', updatePromotionPlan);
+router.delete('/promotion-plans/:id', deletePromotionPlan);
 
 // Sub-admins
 router.get('/sub-admins/permissions', getPermissionsList);

@@ -7,6 +7,7 @@ import User from '../models/user.model.js';
 import AdvisorProfile from '../models/advisorProfile.model.js';
 import Review from '../models/review.model.js';
 import Favorite from '../models/favorite.model.js';
+import { buildAdvisorAvailability } from './session.controller.js';
 
 const buildFilters = (q) => {
   const filter = {
@@ -48,12 +49,26 @@ const buildSort = (q) => {
   return { tier: -1, avgRating: -1, totalSessions: -1 };
 };
 
+const parseTimezoneOffsetMinutes = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed < -14 * 60 || parsed > 14 * 60) return null;
+  return parsed;
+};
+
+
 const populateUser = async (profiles) => {
   const ids = profiles.map((p) => p.user);
   const users = await User.find({ _id: { $in: ids } }).lean();
   const map = new Map(users.map((u) => [String(u._id), u]));
   return profiles.map((p) => ({ profile: p, user: map.get(String(p.user)) || null }));
 };
+
+const normalizeTags = (items = []) =>
+  items
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
 
 // Home featured = admin-curated picks, fallback to top tier+rating when none flagged
 export const featured = catchAsync(async (req, res) => {
@@ -133,4 +148,85 @@ export const getAdvisorDetails = catchAsync(async (req, res) => {
     .lean();
 
   return sendResponse(res, { data: { user, profile, reviews, isFavorite } });
+});
+
+export const recommendedAdvisors = catchAsync(async (req, res) => {
+  const { advisorId } = req.params;
+  const { limit } = parsePagination(req.query);
+
+  const profile = await AdvisorProfile.findOne({ user: advisorId }).lean();
+  if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+
+  const expertise = normalizeTags(profile.expertise);
+  const styles = normalizeTags(profile.styles);
+  const languages = normalizeTags(profile.languages);
+
+  const approvedFilter = {
+    user: { $ne: profile.user },
+    $and: [
+      {
+        $or: [
+          { profileReviewStatus: 'approved' },
+          { profileReviewStatus: { $exists: false } }
+        ]
+      }
+    ]
+  };
+
+  const matchFilters = [];
+  if (expertise.length) matchFilters.push({ expertise: { $in: expertise } });
+  if (styles.length) matchFilters.push({ styles: { $in: styles } });
+  if (languages.length) matchFilters.push({ languages: { $in: languages } });
+
+  const matchedProfiles = matchFilters.length
+    ? await AdvisorProfile.find({ ...approvedFilter, $or: matchFilters }).lean()
+    : [];
+
+  const matchedIds = new Set(matchedProfiles.map((item) => String(item._id)));
+  let profiles = matchedProfiles;
+
+  if (profiles.length < limit) {
+    const fallback = await AdvisorProfile.find({
+      ...approvedFilter,
+      _id: { $nin: Array.from(matchedIds) }
+    })
+      .sort({ avgRating: -1, ratingsCount: -1, totalSessions: -1 })
+      .limit(limit - profiles.length)
+      .lean();
+    profiles = profiles.concat(fallback);
+  }
+
+  const score = (candidate) => {
+    const candidateExpertise = new Set(normalizeTags(candidate.expertise));
+    const candidateStyles = new Set(normalizeTags(candidate.styles));
+    const candidateLanguages = new Set(normalizeTags(candidate.languages));
+    const expertiseScore = expertise.filter((item) => candidateExpertise.has(item)).length * 10;
+    const styleScore = styles.filter((item) => candidateStyles.has(item)).length * 4;
+    const languageScore = languages.filter((item) => candidateLanguages.has(item)).length * 2;
+    return (
+      expertiseScore +
+      styleScore +
+      languageScore +
+      Number(candidate.avgRating || 0) +
+      Math.min(Number(candidate.totalSessions || 0) / 100, 5)
+    );
+  };
+
+  const ranked = profiles
+    .sort((a, b) => score(b) - score(a))
+    .slice(0, limit);
+  const data = await populateUser(ranked);
+
+  return sendResponse(res, { data });
+});
+
+export const getAdvisorAvailability = catchAsync(async (req, res) => {
+  const data = await buildAdvisorAvailability({
+    advisorId: req.params.advisorId,
+    date: req.query.date,
+    durationMinutes: req.query.durationMinutes,
+    viewerTimezone: req.query.timezone,
+    viewerOffsetMinutes: parseTimezoneOffsetMinutes(req.query.timezoneOffsetMinutes)
+  });
+  return sendResponse(res, { data });
 });

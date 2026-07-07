@@ -42,12 +42,69 @@ const DEFAULT_CREDIT_USAGE_BLOCKS = [
 
 const DEFAULT_CREDIT_EXPIRATION_DAYS = 60;
 const DEFAULT_CREDIT_USD_RATE = 1;
+const DEFAULT_CREDIT_BANNER_TITLE = 'Prophetic Guidance';
+const DEFAULT_CREDIT_BANNER_SUBTITLE = 'As low as $1 per credit';
 
 const DEFAULT_ADVISOR_CREDIT_PRICING = {
   chatPerMin: 0,
   callPerMin: 0,
   videoPerMin: 0
 };
+
+const DEFAULT_PROMOTION_PLANS = {
+  basic: {
+    label: 'Basic Boost',
+    price: 29,
+    days: 7,
+    visibilityBoost: 2,
+    impressionsPerDay: 100,
+    features: ['2x profile visibility', '100 impressions/day', 'Standard placement'],
+    tone: 'emerald',
+    isActive: true,
+    isPopular: false,
+    sortOrder: 1
+  },
+  pro: {
+    label: 'Pro Featured',
+    price: 79,
+    days: 14,
+    visibilityBoost: 5,
+    impressionsPerDay: 500,
+    features: ['5x profile visibility', '500 impressions/day', 'Featured in category', 'Top of search results'],
+    tone: 'violet',
+    isActive: true,
+    isPopular: true,
+    sortOrder: 2
+  },
+  premium: {
+    label: 'Premium Spotlight',
+    price: 149,
+    days: 30,
+    visibilityBoost: 10,
+    impressionsPerDay: 0,
+    features: ['10x profile visibility', 'Unlimited impressions', 'Homepage featured', 'Top search placement', 'Social media promotion'],
+    tone: 'amber',
+    isActive: true,
+    isPopular: false,
+    sortOrder: 3
+  }
+};
+
+const promotionPlanSchema = new Schema(
+  {
+    label: { type: String, required: true, trim: true },
+    price: { type: Number, required: true, min: 0 },
+    days: { type: Number, required: true, min: 1 },
+    visibilityBoost: { type: Number, default: 1, min: 0 },
+    impressionsPerDay: { type: Number, default: 0, min: 0 },
+    features: { type: [String], default: [] },
+    tone: { type: String, enum: ['emerald', 'violet', 'amber', 'sky', 'slate'], default: 'emerald' },
+    isActive: { type: Boolean, default: true },
+    isPopular: { type: Boolean, default: false },
+    sortOrder: { type: Number, default: 0 }
+  },
+  { _id: false }
+);
 
 // Singleton-like document holding global commission/tier rates and other platform settings.
 const platformSettingSchema = new Schema(
@@ -63,11 +120,7 @@ const platformSettingSchema = new Schema(
       gold: { sessions: { type: Number, default: 150 }, ratings: { type: Number, default: 4.5 }, retention: { type: Number, default: 80 } },
       platinum: { sessions: { type: Number, default: 300 }, ratings: { type: Number, default: 4.8 }, retention: { type: Number, default: 85 } }
     },
-    promotionPlans: {
-      basic: { price: { type: Number, default: 29 }, days: { type: Number, default: 7 }, impressionsPerDay: { type: Number, default: 100 } },
-      pro: { price: { type: Number, default: 79 }, days: { type: Number, default: 14 }, impressionsPerDay: { type: Number, default: 500 } },
-      premium: { price: { type: Number, default: 149 }, days: { type: Number, default: 30 }, impressionsPerDay: { type: Number, default: 0 } }
-    },
+    promotionPlans: { type: Map, of: promotionPlanSchema, default: () => DEFAULT_PROMOTION_PLANS },
     minWithdrawal: { type: Number, default: 50 },
     // Payout configuration (Hyperwallet). Advisor earnings are held in credits;
     // payoutCreditUsdRate converts credits → real USD when money is sent out. It
@@ -84,6 +137,8 @@ const platformSettingSchema = new Schema(
     signupFreeCredits: { type: Number, default: 0, min: 0 },
     creditExpirationDays: { type: Number, default: DEFAULT_CREDIT_EXPIRATION_DAYS, min: 1 },
     creditUsdRate: { type: Number, default: DEFAULT_CREDIT_USD_RATE, min: 0 },
+    creditBannerTitle: { type: String, default: DEFAULT_CREDIT_BANNER_TITLE, trim: true },
+    creditBannerSubtitle: { type: String, default: DEFAULT_CREDIT_BANNER_SUBTITLE, trim: true },
     creditPacks: { type: [creditPackSchema], default: () => DEFAULT_CREDIT_PACKS },
     creditUsage: {
       chatTranscript: { type: Number, default: DEFAULT_CREDIT_USAGE.chatTranscript, min: 0 },
@@ -113,7 +168,15 @@ export const getPlatformSettings = async () => {
   if (!s.tierThresholds?.silver) s.tierThresholds.silver = { sessions: 50, ratings: 4, retention: 70 };
   if (!s.tierThresholds?.gold) s.tierThresholds.gold = { sessions: 150, ratings: 4.5, retention: 80 };
   if (!s.tierThresholds?.platinum) s.tierThresholds.platinum = { sessions: 300, ratings: 4.8, retention: 85 };
+  if (!s.promotionPlans || (s.promotionPlans instanceof Map && s.promotionPlans.size === 0)) {
+    s.promotionPlans = DEFAULT_PROMOTION_PLANS;
+  }
+  if (!(s.promotionPlans instanceof Map)) {
+    s.promotionPlans = new Map(Object.entries(s.promotionPlans || DEFAULT_PROMOTION_PLANS));
+  }
   if (typeof s.creditUsdRate !== 'number') s.creditUsdRate = DEFAULT_CREDIT_USD_RATE;
+  if (!s.creditBannerTitle) s.creditBannerTitle = DEFAULT_CREDIT_BANNER_TITLE;
+  if (!s.creditBannerSubtitle) s.creditBannerSubtitle = DEFAULT_CREDIT_BANNER_SUBTITLE;
   if (typeof s.creditExpirationDays !== 'number') s.creditExpirationDays = DEFAULT_CREDIT_EXPIRATION_DAYS;
   if (!Array.isArray(s.creditPacks) || s.creditPacks.length === 0) s.creditPacks = DEFAULT_CREDIT_PACKS;
   if (!s.creditUsage) s.creditUsage = DEFAULT_CREDIT_USAGE;
@@ -135,7 +198,10 @@ export {
   DEFAULT_CREDIT_USAGE_BLOCKS,
   DEFAULT_CREDIT_EXPIRATION_DAYS,
   DEFAULT_CREDIT_USD_RATE,
-  DEFAULT_ADVISOR_CREDIT_PRICING
+  DEFAULT_CREDIT_BANNER_TITLE,
+  DEFAULT_CREDIT_BANNER_SUBTITLE,
+  DEFAULT_ADVISOR_CREDIT_PRICING,
+  DEFAULT_PROMOTION_PLANS
 };
 
 export default PlatformSetting;

@@ -4,8 +4,78 @@ import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
 import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
-import { getPlatformSettings } from '../models/platformSetting.model.js';
+import { DEFAULT_PROMOTION_PLANS, getPlatformSettings } from '../models/platformSetting.model.js';
 import { creditUsageSummary } from '../services/credit.service.js';
+
+const bannerPayload = (settings) => ({
+  creditBannerTitle: settings.creditBannerTitle || 'Prophetic Guidance',
+  creditBannerSubtitle: settings.creditBannerSubtitle || 'As low as $1 per credit'
+});
+
+const promotionPlanEntries = (promotionPlans) => {
+  if (promotionPlans instanceof Map) return Array.from(promotionPlans.entries());
+  return Object.entries(promotionPlans || {});
+};
+
+const serializePromotionPlans = (promotionPlans) =>
+  promotionPlanEntries(promotionPlans)
+    .map(([id, plan], index) => ({
+      id,
+      label: plan.label || DEFAULT_PROMOTION_PLANS[id]?.label || id,
+      price: Number(plan.price || 0),
+      days: Number(plan.days || 1),
+      visibilityBoost: Number(plan.visibilityBoost || DEFAULT_PROMOTION_PLANS[id]?.visibilityBoost || 1),
+      impressionsPerDay: Number(plan.impressionsPerDay || 0),
+      features: Array.isArray(plan.features) ? plan.features : [],
+      tone: plan.tone || DEFAULT_PROMOTION_PLANS[id]?.tone || 'emerald',
+      isActive: plan.isActive !== false,
+      isPopular: plan.isPopular === true,
+      sortOrder: Number(plan.sortOrder ?? DEFAULT_PROMOTION_PLANS[id]?.sortOrder ?? index + 1)
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
+
+const normalizePromotionPlan = (body = {}, id, index = 0, existing = {}) => {
+  const cleanId = String(id || body.id || '').trim().toLowerCase();
+  if (!/^[a-z0-9_-]+$/.test(cleanId)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Plan ID may contain lowercase letters, numbers, underscores, and hyphens only');
+  }
+
+  const label = String(body.label ?? existing.label ?? '').trim();
+  const price = Number(body.price ?? existing.price);
+  const days = Number(body.days ?? existing.days);
+  const visibilityBoost = Number(body.visibilityBoost ?? existing.visibilityBoost ?? 1);
+  const impressionsPerDay = Number(body.impressionsPerDay ?? existing.impressionsPerDay ?? 0);
+  const sortOrder = Number(body.sortOrder ?? existing.sortOrder ?? index + 1);
+  const features = Array.isArray(body.features ?? existing.features)
+    ? (body.features ?? existing.features).map((item) => String(item || '').trim()).filter(Boolean)
+    : String(body.features || '')
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  const tone = ['emerald', 'violet', 'amber', 'sky', 'slate'].includes(body.tone ?? existing.tone)
+    ? body.tone ?? existing.tone
+    : 'emerald';
+
+  if (!label || !Number.isFinite(price) || price < 0 || !Number.isFinite(days) || days <= 0) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Each promotion plan needs a label, non-negative price, and positive days');
+  }
+  if (!Number.isFinite(visibilityBoost) || visibilityBoost < 0 || !Number.isFinite(impressionsPerDay) || impressionsPerDay < 0) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Visibility boost and impressions must be non-negative numbers');
+  }
+
+  return {
+    label,
+    price,
+    days,
+    visibilityBoost,
+    impressionsPerDay,
+    features,
+    tone,
+    isActive: body.isActive ?? existing.isActive ?? true,
+    isPopular: body.isPopular ?? existing.isPopular ?? false,
+    sortOrder
+  };
+};
 
 const normalizePacks = (packs = []) => {
   if (!Array.isArray(packs) || packs.length === 0) {
@@ -63,6 +133,52 @@ const normalizeUsageBlocks = (blocks = []) => {
   });
 };
 
+// GET /api/v1/admin/promotion-plans
+export const listPromotionPlans = catchAsync(async (_req, res) => {
+  const settings = await getPlatformSettings();
+  return sendResponse(res, { data: serializePromotionPlans(settings.promotionPlans) });
+});
+
+// POST /api/v1/admin/promotion-plans
+export const createPromotionPlan = catchAsync(async (req, res) => {
+  const settings = await getPlatformSettings();
+  const id = String(req.body.id || '').trim().toLowerCase();
+  if (settings.promotionPlans.get(id)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'A promotion plan with this ID already exists');
+  }
+  const plan = normalizePromotionPlan(req.body, id, settings.promotionPlans.size);
+  settings.promotionPlans.set(id, plan);
+  await settings.save();
+  return sendResponse(res, {
+    statusCode: StatusCodes.CREATED,
+    message: 'Promotion plan created',
+    data: { id, ...plan }
+  });
+});
+
+// PATCH /api/v1/admin/promotion-plans/:id
+export const updatePromotionPlan = catchAsync(async (req, res) => {
+  const settings = await getPlatformSettings();
+  const id = String(req.params.id || '').trim().toLowerCase();
+  const existing = settings.promotionPlans.get(id);
+  if (!existing) throw new ApiError(StatusCodes.NOT_FOUND, 'Promotion plan not found');
+
+  const plan = normalizePromotionPlan(req.body, id, 0, existing);
+  settings.promotionPlans.set(id, plan);
+  await settings.save();
+  return sendResponse(res, { message: 'Promotion plan updated', data: { id, ...plan } });
+});
+
+// DELETE /api/v1/admin/promotion-plans/:id
+export const deletePromotionPlan = catchAsync(async (req, res) => {
+  const settings = await getPlatformSettings();
+  const id = String(req.params.id || '').trim().toLowerCase();
+  if (!settings.promotionPlans.get(id)) throw new ApiError(StatusCodes.NOT_FOUND, 'Promotion plan not found');
+  settings.promotionPlans.delete(id);
+  await settings.save();
+  return sendResponse(res, { message: 'Promotion plan deleted', data: { id } });
+});
+
 // GET /api/v1/admin/settings/signup-credits
 export const getSignupFreeCredits = catchAsync(async (_req, res) => {
   const settings = await getPlatformSettings();
@@ -91,6 +207,7 @@ export const getCreditSettings = catchAsync(async (_req, res) => {
       signupFreeCredits: settings.signupFreeCredits,
       creditExpirationDays: settings.creditExpirationDays,
       creditUsdRate: settings.creditUsdRate,
+      ...bannerPayload(settings),
       creditPacks: creditUsage.packs,
       creditUsage: creditUsage.addOns,
       creditUsageBlocks: creditUsage.usageBlocks
@@ -126,6 +243,22 @@ export const updateCreditSettings = catchAsync(async (req, res) => {
     settings.creditExpirationDays = value;
   }
 
+  if (typeof req.body.creditBannerTitle !== 'undefined') {
+    const value = String(req.body.creditBannerTitle || '').trim();
+    if (!value) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'creditBannerTitle is required');
+    }
+    settings.creditBannerTitle = value;
+  }
+
+  if (typeof req.body.creditBannerSubtitle !== 'undefined') {
+    const value = String(req.body.creditBannerSubtitle || '').trim();
+    if (!value) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'creditBannerSubtitle is required');
+    }
+    settings.creditBannerSubtitle = value;
+  }
+
   if (typeof req.body.creditPacks !== 'undefined') {
     settings.creditPacks = normalizePacks(req.body.creditPacks);
   }
@@ -156,11 +289,18 @@ export const updateCreditSettings = catchAsync(async (req, res) => {
       signupFreeCredits: settings.signupFreeCredits,
       creditExpirationDays: settings.creditExpirationDays,
       creditUsdRate: settings.creditUsdRate,
+      ...bannerPayload(settings),
       creditPacks: creditUsage.packs,
       creditUsage: creditUsage.addOns,
       creditUsageBlocks: creditUsage.usageBlocks
     }
   });
+});
+
+// GET /api/v1/wallet/credit-banner
+export const getPublicCreditBanner = catchAsync(async (_req, res) => {
+  const settings = await getPlatformSettings();
+  return sendResponse(res, { data: bannerPayload(settings) });
 });
 
 // GET /api/v1/admin/credits/summary

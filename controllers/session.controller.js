@@ -20,6 +20,7 @@ const round2 = (n) => Math.round(n * 100) / 100;
 const UNSTARTED_TIMEOUT_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'];
 const BOOKING_BLOCKING_STATUSES = ['pending', 'consent', 'waiting', 'scheduled', 'live', 'flagged', 'disputed'];
 const SLOT_STEP_MINUTES = 15;
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 const createAndBroadcastNotification = async (req, payload, sessionEvent) => {
   const notification = await createNotification(payload);
@@ -105,6 +106,117 @@ const toMinutes = (hhmm) => {
   const [hour, minute] = hhmm.split(':').map((part) => Number.parseInt(part, 10));
   if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
   return hour * 60 + minute;
+};
+
+const previousWeekday = (weekday) => {
+  const index = WEEKDAYS.indexOf(weekday);
+  return WEEKDAYS[(index + 6) % 7] || weekday;
+};
+
+const scheduleSlots = (day) => {
+  if (!day || day.enabled === false) return [];
+  const rawSlots = Array.isArray(day.slots) && day.slots.length
+    ? day.slots
+    : [{ from: day.from, to: day.to }];
+  return rawSlots
+    .map((slot) => ({
+      from: slot?.from || '09:00',
+      to: slot?.to || '18:00',
+      fromMinutes: toMinutes(slot?.from || '09:00'),
+      toMinutes: toMinutes(slot?.to || '18:00')
+    }))
+    .filter((slot) => slot.fromMinutes !== null && slot.toMinutes !== null);
+};
+
+const slotContainsMinute = (slot, minuteOfDay, { previousDay = false } = {}) => {
+  if (slot.toMinutes <= slot.fromMinutes) {
+    return previousDay
+      ? minuteOfDay < slot.toMinutes
+      : minuteOfDay >= slot.fromMinutes;
+  }
+  return !previousDay && minuteOfDay >= slot.fromMinutes && minuteOfDay < slot.toMinutes;
+};
+
+const matchingScheduleSlot = (weeklySchedule, date, timezone) => {
+  if (!weeklySchedule) return null;
+  const parts = zonedParts(date, timezone);
+  const minuteOfDay = parts.hour * 60 + parts.minute;
+  const daySlots = scheduleSlots(weeklySchedule[parts.weekday]);
+  const currentSlot = daySlots.find((slot) => slotContainsMinute(slot, minuteOfDay));
+  if (currentSlot) return { weekday: parts.weekday, ...currentSlot };
+
+  const prevWeekday = previousWeekday(parts.weekday);
+  const previousSlot = scheduleSlots(weeklySchedule[prevWeekday]).find((slot) =>
+    slot.toMinutes <= slot.fromMinutes && slotContainsMinute(slot, minuteOfDay, { previousDay: true })
+  );
+  return previousSlot ? { weekday: prevWeekday, ...previousSlot } : null;
+};
+
+const scheduleWindowsForDay = (weeklySchedule, weekday) => scheduleSlots(weeklySchedule?.[weekday])
+  .map(({ from, to }) => ({ from, to }));
+
+const dateAvailabilityEntry = (dateAvailability, dateKey) => {
+  if (!dateAvailability || !dateKey) return null;
+  if (dateAvailability instanceof Map) return dateAvailability.get(dateKey) || null;
+  return dateAvailability[dateKey] || null;
+};
+
+const dateAvailabilitySlots = (day) => {
+  if (!day || day.unavailable === true) return [];
+  return (Array.isArray(day.slots) ? day.slots : [])
+    .map((slot) => ({
+      from: slot?.from,
+      to: slot?.to,
+      fromMinutes: toMinutes(slot?.from),
+      toMinutes: toMinutes(slot?.to)
+    }))
+    .filter((slot) => slot.fromMinutes !== null && slot.toMinutes !== null);
+};
+
+const matchingAvailabilitySlot = (profile, date, timezone) => {
+  const parts = zonedParts(date, timezone);
+  const dateKey = localDateKey(parts);
+  const currentDay = dateAvailabilityEntry(profile?.dateAvailability, dateKey);
+  if (currentDay) {
+    if (currentDay.unavailable === true) return null;
+    const minuteOfDay = parts.hour * 60 + parts.minute;
+    const currentSlot = dateAvailabilitySlots(currentDay).find((slot) =>
+      slotContainsMinute(slot, minuteOfDay)
+    );
+    if (currentSlot) return { date: dateKey, ...currentSlot };
+    return null;
+  }
+
+  const prevDate = new Date(date.getTime() - 24 * 60 * 60 * 1000);
+  const prevKey = localDateKey(zonedParts(prevDate, timezone));
+  const previousDay = dateAvailabilityEntry(profile?.dateAvailability, prevKey);
+  if (previousDay && previousDay.unavailable !== true) {
+    const minuteOfDay = parts.hour * 60 + parts.minute;
+    const previousSlot = dateAvailabilitySlots(previousDay).find((slot) =>
+      slot.toMinutes <= slot.fromMinutes && slotContainsMinute(slot, minuteOfDay, { previousDay: true })
+    );
+    if (previousSlot) return { date: prevKey, ...previousSlot };
+  }
+
+  return matchingScheduleSlot(profile?.weeklySchedule, date, timezone);
+};
+
+const availabilityForDate = (profile, dateKey, weekday) => {
+  const dateRule = dateAvailabilityEntry(profile?.dateAvailability, dateKey);
+  if (dateRule) {
+    const windows = dateRule.unavailable === true
+      ? []
+      : dateAvailabilitySlots(dateRule).map(({ from, to }) => ({ from, to }));
+    return {
+      scheduleForDay: dateRule.unavailable === true ? null : { enabled: true, slots: dateRule.slots },
+      scheduleWindows: windows
+    };
+  }
+  const scheduleForDay = profile?.weeklySchedule?.[weekday] || null;
+  return {
+    scheduleForDay,
+    scheduleWindows: scheduleWindowsForDay(profile?.weeklySchedule, weekday)
+  };
 };
 
 const zonedParts = (date, timezone = 'UTC') => {
@@ -207,16 +319,7 @@ const formatViewerTime = (date, { timezone, offsetMinutes }) => {
 };
 
 const isWithinDaySchedule = (weeklySchedule, date, timezone) => {
-  if (!weeklySchedule) return false;
-  const parts = zonedParts(date, timezone);
-  const schedule = weeklySchedule[parts.weekday];
-  if (!schedule || schedule.enabled === false) return false;
-  const from = toMinutes(schedule.from);
-  const to = toMinutes(schedule.to);
-  if (from == null || to == null) return false;
-  const minuteOfDay = parts.hour * 60 + parts.minute;
-  if (to <= from) return minuteOfDay >= from || minuteOfDay < to;
-  return minuteOfDay >= from && minuteOfDay < to;
+  return !!matchingScheduleSlot(weeklySchedule, date, timezone);
 };
 
 const sessionRange = (session) => {
@@ -256,7 +359,9 @@ const assertAdvisorSlotAvailable = async ({ advisorId, profile, start, durationM
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Please choose a future time slot');
   }
   const timezone = profile?.user?.timezone || profile?.timezone || 'UTC';
-  if (!isWithinDaySchedule(profile?.weeklySchedule, start, timezone) || !isWithinDaySchedule(profile?.weeklySchedule, new Date(end.getTime() - 60 * 1000), timezone)) {
+  const startSlot = matchingAvailabilitySlot(profile, start, timezone);
+  const endSlot = matchingAvailabilitySlot(profile, new Date(end.getTime() - 60 * 1000), timezone);
+  if (!startSlot || !endSlot || (startSlot.weekday || startSlot.date) !== (endSlot.weekday || endSlot.date) || startSlot.from !== endSlot.from || startSlot.to !== endSlot.to) {
     throw new ApiError(StatusCodes.CONFLICT, 'Advisor is not available at this time');
   }
   const conflicts = await findBlockingBookings({ advisorId, start, end, excludeSessionId });
@@ -295,7 +400,7 @@ const reserveSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }
 
 const releaseSlotLocks = (sessionId) => SessionSlotLock.deleteMany({ session: sessionId });
 
-const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes }) => {
+export const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes }) => {
   const advisor = await User.findOne({ _id: advisorId, role: 'advisor' }).select('name timezone status');
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone');
@@ -311,7 +416,7 @@ const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, view
   const timezone = advisor.timezone || 'UTC';
   const probeDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   const weekday = zonedParts(probeDate, timezone).weekday;
-  const scheduleForDay = profile.weeklySchedule?.[weekday] || null;
+  const { scheduleForDay, scheduleWindows } = availabilityForDate(profile, dateKey, weekday);
   const searchStart = new Date(Date.UTC(year, month - 1, day - 1, 0, 0, 0));
   const searchEnd = new Date(Date.UTC(year, month - 1, day + 2, 0, 0, 0));
   const now = new Date();
@@ -349,8 +454,9 @@ const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, view
     const end = new Date(ms + duration * 60 * 1000);
     if (start <= now) continue;
     if (localDateKey(viewerDateParts(start, viewer)) !== dateKey) continue;
-    if (!isWithinDaySchedule(profile.weeklySchedule, start, timezone)) continue;
-    if (!isWithinDaySchedule(profile.weeklySchedule, new Date(end.getTime() - 60 * 1000), timezone)) continue;
+    const startSlot = matchingAvailabilitySlot(profile, start, timezone);
+    const endSlot = matchingAvailabilitySlot(profile, new Date(end.getTime() - 60 * 1000), timezone);
+    if (!startSlot || !endSlot || (startSlot.weekday || startSlot.date) !== (endSlot.weekday || endSlot.date) || startSlot.from !== endSlot.from || startSlot.to !== endSlot.to) continue;
     const overlaps = bookedDocs.some((session) => {
       const range = sessionRange(session);
       return range && rangesOverlap(start, end, range.start, range.end);
@@ -377,10 +483,11 @@ const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, view
     stepMinutes: SLOT_STEP_MINUTES,
     scheduleWindow: scheduleForDay && scheduleForDay.enabled !== false
       ? {
-          from: scheduleForDay.from,
-          to: scheduleForDay.to
+          from: scheduleWindows[0]?.from || scheduleForDay.from,
+          to: scheduleWindows[0]?.to || scheduleForDay.to
         }
       : null,
+    scheduleWindows: scheduleForDay && scheduleForDay.enabled !== false ? scheduleWindows : [],
     availableSlots,
     bookedSlots
   };

@@ -16,6 +16,7 @@ import {
   sendInterviewScheduledEmail,
   sendAdvisorContractEmail,
   sendAdvisorDecisionEmail,
+  sendAdvisorStatusUpdateEmail,
   sendAdvisorOnboardingEmail,
   sendAdvisorProfileDecisionEmail,
   sendAdvisorWelcomeEmail
@@ -106,33 +107,6 @@ export const getApplication = catchAsync(async (req, res) => {
     .populate('user', 'name email profilePhoto country city currency createdAt')
     .lean();
   if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
-
-  // The application only holds an apply-time snapshot. The advisor's *current*
-  // pricing, expertise, intro video, etc. live on their AdvisorProfile (edited
-  // from the advisor dashboard), and their address now lives on the User. Merge
-  // those in so the admin always sees the advisor's real, up-to-date data.
-  const profile = app.user?._id
-    ? await AdvisorProfile.findOne({ user: app.user._id }).lean()
-    : null;
-
-  if (profile) {
-    app.pricing = profile.pricing || app.pricing;
-    if (profile.expertise?.length) app.expertise = profile.expertise;
-    if (profile.styles?.length) app.styles = profile.styles;
-    if (profile.languages?.length) app.languages = profile.languages;
-    app.professionalTitle = profile.professionalTitle || app.professionalTitle;
-    app.bio = profile.bio || app.bio;
-    app.detailedDescription = profile.detailedDescription || app.detailedDescription;
-    app.yearsOfExperience = profile.yearsOfExperience || app.yearsOfExperience;
-    app.introVideoUrl = app.introVideoUrl || profile.introVideoUrl;
-  }
-
-  // Address now lives on the User (country + city dropdowns); fall back to it.
-  app.applicantDetails = {
-    ...(app.applicantDetails || {}),
-    country: app.applicantDetails?.country || app.user?.country || '',
-    city: app.applicantDetails?.city || app.user?.city || ''
-  };
 
   return sendResponse(res, { data: app });
 });
@@ -357,6 +331,21 @@ export const updateApplicationStatus = catchAsync(async (req, res) => {
     targetUser: app.user?._id
   });
 
+  const mail = await safeEmail('advisor application status', () =>
+    sendAdvisorStatusUpdateEmail(app.user?.email, {
+      name: app.user?.name,
+      status,
+      message: status === 'live_interview'
+        ? 'A live interview is the next step in your advisor review process.'
+        : status === 'under_review'
+          ? 'The admin team is reviewing your submitted application.'
+          : status === 'pending_review'
+            ? 'Your application is waiting for admin review.'
+            : 'Please check your advisor dashboard for any next steps.'
+    })
+  );
+  await recordNotification(app, 'application_status', 'Advisor Application Status Updated', mail);
+
   return sendResponse(res, { message: 'Application status updated', data: app });
 });
 
@@ -515,14 +504,14 @@ export const listAdvisors = catchAsync(async (req, res) => {
   // first resolve the matching advisor ids and constrain the user query to them.
   if (status === 'online' || status === 'available_now') {
     const onlineProfiles = await AdvisorProfile.find({ isOnline: true })
-      .select('user weeklySchedule')
+      .select('user weeklySchedule dateAvailability')
       .lean();
     let matchIds = onlineProfiles.map((p) => p.user);
     if (status === 'available_now') {
       const tzUsers = await User.find({ _id: { $in: matchIds } }).select('timezone').lean();
       const tzMap = new Map(tzUsers.map((u) => [String(u._id), u.timezone]));
       matchIds = onlineProfiles
-        .filter((p) => isWithinSchedule(p.weeklySchedule, tzMap.get(String(p.user))))
+        .filter((p) => isWithinSchedule(p.weeklySchedule, tzMap.get(String(p.user)), p.dateAvailability))
         .map((p) => p.user);
     }
     filter._id = { $in: matchIds };
@@ -635,7 +624,7 @@ export const getAdvisor = catchAsync(async (req, res) => {
     },
     availability: {
       isOnline: !!profile?.isOnline,
-      availableNow: !!profile?.isOnline && isWithinSchedule(profile?.weeklySchedule, user.timezone),
+      availableNow: !!profile?.isOnline && isWithinSchedule(profile?.weeklySchedule, user.timezone, profile?.dateAvailability),
       weeklySchedule: profile?.weeklySchedule || null
     }
   };
@@ -687,7 +676,8 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   const {
     name, phoneNumber, country, state, city, timezone,
     professionalTitle, bio, detailedDescription, yearsOfExperience,
-    expertise, styles, languages, tier, pricing
+    expertise, styles, languages, tier, pricing,
+    isOnline, autoOnlineMode, weeklySchedule
   } = req.body;
 
   const userPatch = {};
@@ -711,6 +701,9 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   if (expertise !== undefined) profPatch.expertise = toArray(expertise);
   if (styles !== undefined) profPatch.styles = toArray(styles);
   if (languages !== undefined) profPatch.languages = toArray(languages);
+  if (isOnline !== undefined) profPatch.isOnline = !!isOnline;
+  if (autoOnlineMode !== undefined) profPatch.autoOnlineMode = !!autoOnlineMode;
+  if (weeklySchedule && typeof weeklySchedule === 'object') profPatch.weeklySchedule = weeklySchedule;
   if (tier !== undefined) {
     const normalizedTier = normalizeAdvisorTier(tier);
     if (!normalizedTier) throw new ApiError(StatusCodes.BAD_REQUEST, 'Tier must be Silver, Gold, or Platinum');

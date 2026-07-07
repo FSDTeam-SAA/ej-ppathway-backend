@@ -9,6 +9,49 @@ const toMinutes = (hhmm) => {
   return h * 60 + m;
 };
 
+const scheduleSlots = (day) => {
+  if (!day || day.enabled === false) return [];
+  const rawSlots = Array.isArray(day.slots) && day.slots.length
+    ? day.slots
+    : [{ from: day.from, to: day.to }];
+  return rawSlots
+    .map((slot) => ({
+      from: toMinutes(slot?.from || '09:00'),
+      to: toMinutes(slot?.to || '18:00')
+    }))
+    .filter((slot) => slot.from !== null && slot.to !== null);
+};
+
+const dateAvailabilityEntry = (dateAvailability, dateKey) => {
+  if (!dateAvailability || !dateKey) return null;
+  if (dateAvailability instanceof Map) return dateAvailability.get(dateKey) || null;
+  return dateAvailability[dateKey] || null;
+};
+
+const dateAvailabilitySlots = (day) => {
+  if (!day || day.unavailable === true) return [];
+  return (Array.isArray(day.slots) ? day.slots : [])
+    .map((slot) => ({
+      from: toMinutes(slot?.from),
+      to: toMinutes(slot?.to)
+    }))
+    .filter((slot) => slot.from !== null && slot.to !== null);
+};
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+const previousWeekday = (weekday) => {
+  const index = WEEKDAYS.indexOf(weekday);
+  return WEEKDAYS[(index + 6) % 7] || weekday;
+};
+
+const slotContains = (slot, minutes, { previousDay = false } = {}) => {
+  if (slot.to <= slot.from) {
+    return previousDay ? minutes < slot.to : minutes >= slot.from;
+  }
+  return !previousDay && minutes >= slot.from && minutes < slot.to;
+};
+
 // Resolve the advisor's local weekday + minutes-of-day for an IANA timezone.
 const localParts = (timezone) => {
   let fmt;
@@ -38,18 +81,43 @@ const localParts = (timezone) => {
   return { weekday, minutes: hour * 60 + minute };
 };
 
+const localDateKey = (timezone) => {
+  let fmt;
+  try {
+    fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+  } catch {
+    fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+  }
+  const parts = fmt.formatToParts(new Date());
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
+
 // True when "now" is inside the advisor's schedule window for the current weekday.
 // Supports overnight windows (e.g. 18:00 → 00:30) which the schedule UI allows.
-export const isWithinSchedule = (weeklySchedule, timezone) => {
+export const isWithinSchedule = (weeklySchedule, timezone, dateAvailability) => {
   if (!weeklySchedule) return false;
   const { weekday, minutes } = localParts(timezone);
-  const day = weeklySchedule[weekday];
-  if (!day || day.enabled === false) return false;
-  const from = toMinutes(day.from);
-  const to = toMinutes(day.to);
-  if (from == null || to == null) return false;
-  if (to <= from) return minutes >= from || minutes < to; // overnight
-  return minutes >= from && minutes < to;
+  const todayRule = dateAvailabilityEntry(dateAvailability, localDateKey(timezone));
+  if (todayRule) {
+    return dateAvailabilitySlots(todayRule).some((slot) => slotContains(slot, minutes));
+  }
+  if (scheduleSlots(weeklySchedule[weekday]).some((slot) => slotContains(slot, minutes))) {
+    return true;
+  }
+  return scheduleSlots(weeklySchedule[previousWeekday(weekday)]).some((slot) =>
+    slot.to <= slot.from && slotContains(slot, minutes, { previousDay: true })
+  );
 };
 
 export default { isWithinSchedule };
