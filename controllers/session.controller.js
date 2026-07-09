@@ -161,6 +161,12 @@ const dateAvailabilityEntry = (dateAvailability, dateKey) => {
   return dateAvailability[dateKey] || null;
 };
 
+// A date rule overrides the weekly schedule only when it explicitly marks the
+// day unavailable or defines its own slots. An empty/stale entry (no slots and
+// not marked unavailable) is ignored so the advisor's regular weekly hours apply.
+const dateOverrideActive = (entry) =>
+  !!entry && (entry.unavailable === true || (Array.isArray(entry.slots) && entry.slots.length > 0));
+
 const dateAvailabilitySlots = (day) => {
   if (!day || day.unavailable === true) return [];
   return (Array.isArray(day.slots) ? day.slots : [])
@@ -177,7 +183,7 @@ const matchingAvailabilitySlot = (profile, date, timezone) => {
   const parts = zonedParts(date, timezone);
   const dateKey = localDateKey(parts);
   const currentDay = dateAvailabilityEntry(profile?.dateAvailability, dateKey);
-  if (currentDay) {
+  if (dateOverrideActive(currentDay)) {
     if (currentDay.unavailable === true) return null;
     const minuteOfDay = parts.hour * 60 + parts.minute;
     const currentSlot = dateAvailabilitySlots(currentDay).find((slot) =>
@@ -190,7 +196,7 @@ const matchingAvailabilitySlot = (profile, date, timezone) => {
   const prevDate = new Date(date.getTime() - 24 * 60 * 60 * 1000);
   const prevKey = localDateKey(zonedParts(prevDate, timezone));
   const previousDay = dateAvailabilityEntry(profile?.dateAvailability, prevKey);
-  if (previousDay && previousDay.unavailable !== true) {
+  if (dateOverrideActive(previousDay) && previousDay.unavailable !== true) {
     const minuteOfDay = parts.hour * 60 + parts.minute;
     const previousSlot = dateAvailabilitySlots(previousDay).find((slot) =>
       slot.toMinutes <= slot.fromMinutes && slotContainsMinute(slot, minuteOfDay, { previousDay: true })
@@ -203,7 +209,7 @@ const matchingAvailabilitySlot = (profile, date, timezone) => {
 
 const availabilityForDate = (profile, dateKey, weekday) => {
   const dateRule = dateAvailabilityEntry(profile?.dateAvailability, dateKey);
-  if (dateRule) {
+  if (dateOverrideActive(dateRule)) {
     const windows = dateRule.unavailable === true
       ? []
       : dateAvailabilitySlots(dateRule).map(({ from, to }) => ({ from, to }));
@@ -470,6 +476,21 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
         durationMinutes: duration
       });
     }
+  }
+
+  if (!availableSlots.length) {
+    console.log('[availability:empty]', {
+      advisorId: String(advisor._id),
+      dateKey,
+      weekday,
+      scheduleTimezone: timezone,
+      viewerTimezone: viewer.timezone,
+      viewerOffsetMinutes: viewer.offsetMinutes ?? null,
+      now: now.toISOString(),
+      scheduleForDay,
+      scheduleWindows,
+      dateOverride: dateOverrideActive(dateAvailabilityEntry(profile?.dateAvailability, dateKey))
+    });
   }
 
   return {

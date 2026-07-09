@@ -158,7 +158,8 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const allowedProfile = [
     'professionalTitle', 'bio', 'detailedDescription', 'yearsOfExperience',
-    'expertise', 'styles', 'languages', 'pricing', 'autoOnlineMode', 'weeklySchedule', 'dateAvailability', 'introVideoUrl'
+    'expertise', 'styles', 'languages', 'pricing', 'autoOnlineMode', 'weeklySchedule', 'dateAvailability', 'introVideoUrl',
+    'psychicExtension', 'tools', 'wordsOfWisdom', 'endorsements'
   ];
   const allowedUser = ['name', 'phone', 'country', 'city', 'profilePhoto', 'language', 'timezone'];
   const profileUpdate = {};

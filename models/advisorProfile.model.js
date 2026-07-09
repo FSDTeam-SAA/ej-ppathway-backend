@@ -58,6 +58,27 @@ const advisorProfileSchema = new Schema(
     styles: { type: [String], default: [] },
     languages: { type: [String], default: ['English'] },
 
+    // Public profile presentation (Psychic Source-style detail screen).
+    // Reader's public extension/handle shown next to the name (e.g. "x3615").
+    psychicExtension: { type: String, default: '', trim: true },
+    // Free-text "Tools" line (e.g. "Tarot, Oracle Cards" or "Can Read Without Tools").
+    tools: { type: String, default: '', trim: true },
+    // Short pull-quote surfaced under the bio.
+    wordsOfWisdom: { type: String, default: '', trim: true },
+    // Customer endorsement counts grouped by topic, shown as a bulleted tally.
+    endorsements: {
+      type: [
+        new Schema(
+          {
+            category: { type: String, required: true, trim: true },
+            count: { type: Number, default: 0, min: 0 }
+          },
+          { _id: false }
+        )
+      ],
+      default: []
+    },
+
     introVideoUrl: { type: String, default: '' },
 
     pricing: {
