@@ -57,6 +57,7 @@ const recordNotification = async (app, action, subject, mail) => {
 };
 
 const DEFAULT_ADVISOR_DASHBOARD_URL = 'https://ej-ppathway-advisor-dashboard.vercel.app';
+const DEFAULT_PUBLIC_SITE_URL = 'https://www.propheticpathway.com';
 
 const buildAdvisorLoginUrl = () => {
   const base = (process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '');
@@ -108,7 +109,10 @@ export const getApplication = catchAsync(async (req, res) => {
     .lean();
   if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
 
-  return sendResponse(res, { data: app });
+  const profile = await AdvisorProfile.findOne({ user: app.user?._id || app.user })
+    .lean();
+
+  return sendResponse(res, { data: { ...app, profile: profile || null } });
 });
 
 export const scheduleLiveInterview = catchAsync(async (req, res) => {
@@ -199,11 +203,14 @@ export const sendContract = catchAsync(async (req, res) => {
     contractId: String(app._id),
     type: 'contract-sign'
   });
-  // The signing page lives in the advisor dashboard. Prefer ADVISOR_DASHBOARD_URL
-  // so the emailed link and the in-dashboard notification both open the same page;
-  // fall back to CLIENT_URL for older deployments.
-  const dashboardBase = process.env.ADVISOR_DASHBOARD_URL || process.env.CLIENT_URL || '';
-  const signingUrl = `${dashboardBase}/contract/sign?token=${token}`;
+  // The login-less signing page lives on the public website. Using the advisor
+  // dashboard base here can open a blank page when that app has no /contract/sign route.
+  const publicBase = (
+    process.env.PUBLIC_SITE_URL ||
+    process.env.CLIENT_URL ||
+    DEFAULT_PUBLIC_SITE_URL
+  ).replace(/\/+$/, '');
+  const signingUrl = `${publicBase}/contract/sign?token=${encodeURIComponent(token)}`;
 
   const mail = await safeEmail('advisor contract', () =>
     sendAdvisorContractEmail(app.user.email, { name: app.user.name, contractUrl: signingUrl })
@@ -247,6 +254,7 @@ export const approveApplication = catchAsync(async (req, res) => {
         expertise: app.expertise,
         styles: app.styles,
         languages: app.languages,
+        audioMessageUrl: app.audioMessageUrl,
         introVideoUrl: app.introVideoUrl,
         pricing: app.pricing,
         profileReviewStatus: 'approved',
@@ -366,6 +374,7 @@ export const sendOnboarding = catchAsync(async (req, res) => {
         expertise: app.expertise,
         styles: app.styles,
         languages: app.languages,
+        audioMessageUrl: app.audioMessageUrl,
         introVideoUrl: app.introVideoUrl,
         pricing: app.pricing
       },
@@ -384,8 +393,12 @@ export const sendOnboarding = catchAsync(async (req, res) => {
     isVerified: true
   });
 
-  const dashboardBase = (process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '');
-  const onboardingUrl = `${dashboardBase}/profile`;
+  const token = signContractToken({
+    applicationId: String(app._id),
+    type: 'advisor-onboarding'
+  });
+  const publicBase = (process.env.PUBLIC_SITE_URL || process.env.CLIENT_URL || DEFAULT_PUBLIC_SITE_URL).replace(/\/+$/, '');
+  const onboardingUrl = `${publicBase}/advisor-onboarding?token=${encodeURIComponent(token)}`;
 
   const mail = await safeEmail('advisor onboarding', () =>
     sendAdvisorOnboardingEmail(app.user.email, { name: app.user.name, onboardingUrl })
@@ -517,6 +530,17 @@ export const listAdvisors = catchAsync(async (req, res) => {
     filter._id = { $in: matchIds };
   }
 
+  if (['silver', 'gold', 'platinum'].includes(req.query.tier)) {
+    const tierProfiles = await AdvisorProfile.find({ tier: req.query.tier }).select('user').lean();
+    const tierIds = tierProfiles.map((p) => p.user);
+    if (filter._id?.$in) {
+      const tierSet = new Set(tierIds.map(String));
+      filter._id = { $in: filter._id.$in.filter((id) => tierSet.has(String(id))) };
+    } else {
+      filter._id = { $in: tierIds };
+    }
+  }
+
   if (req.query.q) {
     filter.$and = [
       {
@@ -625,7 +649,8 @@ export const getAdvisor = catchAsync(async (req, res) => {
     availability: {
       isOnline: !!profile?.isOnline,
       availableNow: !!profile?.isOnline && isWithinSchedule(profile?.weeklySchedule, user.timezone, profile?.dateAvailability),
-      weeklySchedule: profile?.weeklySchedule || null
+      weeklySchedule: profile?.weeklySchedule || null,
+      dateAvailability: profile?.dateAvailability || null
     }
   };
 
@@ -677,7 +702,7 @@ export const updateAdvisor = catchAsync(async (req, res) => {
     name, phoneNumber, country, state, city, timezone,
     professionalTitle, bio, detailedDescription, yearsOfExperience,
     expertise, styles, languages, tier, pricing,
-    isOnline, autoOnlineMode, weeklySchedule
+    isOnline, autoOnlineMode, weeklySchedule, dateAvailability
   } = req.body;
 
   const userPatch = {};
@@ -704,6 +729,7 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   if (isOnline !== undefined) profPatch.isOnline = !!isOnline;
   if (autoOnlineMode !== undefined) profPatch.autoOnlineMode = !!autoOnlineMode;
   if (weeklySchedule && typeof weeklySchedule === 'object') profPatch.weeklySchedule = weeklySchedule;
+  if (dateAvailability && typeof dateAvailability === 'object') profPatch.dateAvailability = dateAvailability;
   if (tier !== undefined) {
     const normalizedTier = normalizeAdvisorTier(tier);
     if (!normalizedTier) throw new ApiError(StatusCodes.BAD_REQUEST, 'Tier must be Silver, Gold, or Platinum');

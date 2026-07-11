@@ -16,6 +16,36 @@ import User from '../models/user.model.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+const dateFilterFromQuery = (query) => {
+  const range = {};
+  const now = new Date();
+  if (query.period === 'today') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    range.$gte = start;
+  } else if (query.period === 'week') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - start.getDay());
+    range.$gte = start;
+  } else if (query.period === 'month') {
+    range.$gte = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else if (query.from || query.to) {
+    if (query.from) {
+      const from = new Date(query.from);
+      if (!Number.isNaN(from.getTime())) range.$gte = from;
+    }
+    if (query.to) {
+      const to = new Date(query.to);
+      if (!Number.isNaN(to.getTime())) {
+        to.setHours(23, 59, 59, 999);
+        range.$lte = to;
+      }
+    }
+  }
+  return Object.keys(range).length ? range : null;
+};
+
 const uploadDocs = async (files) => {
   if (!files || !files.length) return [];
   const urls = [];
@@ -96,6 +126,8 @@ export const getDispute = catchAsync(async (req, res) => {
 export const adminListDisputes = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = {};
+  const createdAt = dateFilterFromQuery(req.query);
+  if (createdAt) filter.createdAt = createdAt;
   if (req.query.status) filter.status = req.query.status;
   if (req.query.q) {
     const q = String(req.query.q).trim();
@@ -116,9 +148,15 @@ export const adminListDisputes = catchAsync(async (req, res) => {
   const items = await Dispute.find(filter)
     .populate('user', 'name profilePhoto email')
     .populate('advisor', 'name profilePhoto email')
-    .populate('session', 'sessionCode type chargedAmount')
+    .populate('resolvedBy', 'name email')
+    .populate('session', 'sessionCode type chargedAmount actualDurationSec durationMinutes scheduledFor startedAt endedAt recordingUrl transcriptUrl status')
     .sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
-  return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
+  const statsFilter = createdAt ? { createdAt } : {};
+  const [open, resolved] = await Promise.all([
+    Dispute.countDocuments({ ...statsFilter, status: { $in: ['open', 'investigating'] } }),
+    Dispute.countDocuments({ ...statsFilter, status: 'resolved' })
+  ]);
+  return sendResponse(res, { data: items, meta: { ...buildMeta({ page, limit, total }), totals: { open, resolved } } });
 });
 
 export const adminResolveDispute = catchAsync(async (req, res) => {
@@ -259,4 +297,10 @@ export const adminMarkInvestigating = catchAsync(async (req, res) => {
   const dispute = await Dispute.findByIdAndUpdate(req.params.id, { status: 'investigating' }, { new: true });
   if (!dispute) throw new ApiError(StatusCodes.NOT_FOUND, 'Dispute not found');
   return sendResponse(res, { data: dispute });
+});
+
+export const adminDeleteDispute = catchAsync(async (req, res) => {
+  const dispute = await Dispute.findByIdAndDelete(req.params.id);
+  if (!dispute) throw new ApiError(StatusCodes.NOT_FOUND, 'Dispute not found');
+  return sendResponse(res, { message: 'Dispute deleted' });
 });

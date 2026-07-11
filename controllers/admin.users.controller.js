@@ -12,13 +12,54 @@ import AdminActivity from '../models/adminActivity.model.js';
 import { createNotification } from '../services/notification.service.js';
 import { logAdminActivity } from '../services/activity.service.js';
 
+export const createUser = catchAsync(async (req, res) => {
+  const { name, email, phone, password, country, city, state } = req.body || {};
+  if (!name || !email || !password) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'name, email, and password are required');
+  }
+  if (String(password).length < 6) throw new ApiError(StatusCodes.BAD_REQUEST, 'Password too short');
+
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const existing = await User.findOne({ email: normalizedEmail });
+  if (existing) throw new ApiError(StatusCodes.CONFLICT, 'Email already registered');
+
+  const user = await User.create({
+    name: String(name).trim(),
+    email: normalizedEmail,
+    phone: phone || '',
+    password,
+    role: 'user',
+    country: country || '',
+    city: city || '',
+    state: state || '',
+    isVerified: true,
+    status: 'active'
+  });
+  await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
+
+  await logAdminActivity({
+    adminId: req.user?._id,
+    action: 'user.create',
+    description: `Created user ${user.name}`,
+    targetType: 'user',
+    targetUser: user._id
+  });
+
+  return sendResponse(res, {
+    statusCode: StatusCodes.CREATED,
+    message: 'User created',
+    data: user
+  });
+});
+
 export const listUsers = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = { role: 'user' };
   if (req.query.q) {
     filter.$or = [
       { name: { $regex: req.query.q, $options: 'i' } },
-      { email: { $regex: req.query.q, $options: 'i' } }
+      { email: { $regex: req.query.q, $options: 'i' } },
+      { phone: { $regex: req.query.q, $options: 'i' } }
     ];
   }
   if (req.query.status) filter.status = req.query.status;

@@ -279,7 +279,10 @@ export const deleteTransaction = catchAsync(async (req, res) => {
 export const listTransactions = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = {};
-  if (req.query.type) filter.type = req.query.type;
+  if (req.query.type) {
+    const types = String(req.query.type).split(',').map((item) => item.trim()).filter(Boolean);
+    filter.type = types.length > 1 ? { $in: types } : types[0];
+  }
   if (req.query.status) filter.status = req.query.status;
   if (req.query.q) {
     const q = String(req.query.q).trim();

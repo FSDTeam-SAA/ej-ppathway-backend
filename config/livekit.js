@@ -194,7 +194,8 @@ export const stopEgress = async (egressId) => {
   if (!egressClient || !egressId) return null;
   try {
     return await egressClient.stopEgress(egressId);
-  } catch {
+  } catch (e) {
+    console.error('stopEgress error', e?.message || e);
     return null;
   }
 };

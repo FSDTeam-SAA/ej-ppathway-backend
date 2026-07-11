@@ -1,4 +1,5 @@
 import { StatusCodes } from 'http-status-codes';
+import mongoose from 'mongoose';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
@@ -140,14 +141,35 @@ export const getAdvisorDetails = catchAsync(async (req, res) => {
     await AdvisorProfile.updateOne({ user: advisorId }, { $inc: { 'activePromotion.profileViews': 1 } });
   }
 
+  const advisorObjectId = new mongoose.Types.ObjectId(advisorId);
+  const reviewFilter = { advisor: advisorObjectId, isAdminShowcase: { $ne: true } };
+  const [reviewStats] = await Review.aggregate([
+    { $match: reviewFilter },
+    {
+      $group: {
+        _id: '$advisor',
+        ratingsCount: { $sum: 1 },
+        avgRating: { $avg: '$rating' }
+      }
+    }
+  ]);
+
+  const publicProfile = profile
+    ? {
+        ...profile,
+        avgRating: reviewStats ? Math.round(reviewStats.avgRating * 100) / 100 : 0,
+        ratingsCount: reviewStats?.ratingsCount || 0
+      }
+    : profile;
+
   // Recent reviews
-  const reviews = await Review.find({ advisor: advisorId })
+  const reviews = await Review.find(reviewFilter)
     .sort({ createdAt: -1 })
     .limit(10)
     .populate('user', 'name profilePhoto')
     .lean();
 
-  return sendResponse(res, { data: { user, profile, reviews, isFavorite } });
+  return sendResponse(res, { data: { user, profile: publicProfile, reviews, isFavorite } });
 });
 
 export const recommendedAdvisors = catchAsync(async (req, res) => {

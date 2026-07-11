@@ -140,10 +140,27 @@ export const updateMyApplication = catchAsync(async (req, res) => {
 export const uploadIntroVideo = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'audio or video file required');
-  const result = await uploadBufferToCloudinary(req.file.buffer, 'advisor-intro-videos', 'video');
-  await AdvisorApplication.findOneAndUpdate({ user: req.user._id }, { introVideoUrl: result.secure_url }, { upsert: true });
-  await AdvisorProfile.findOneAndUpdate({ user: req.user._id }, { introVideoUrl: result.secure_url }, { upsert: true });
-  return sendResponse(res, { data: { url: result.secure_url } });
+  const isAudio = req.file.mimetype?.startsWith('audio/');
+  const field = isAudio ? 'audioMessageUrl' : 'introVideoUrl';
+  const folder = isAudio ? 'advisor-audio-messages' : 'advisor-intro-videos';
+  const result = await uploadBufferToCloudinary(req.file.buffer, folder, 'video');
+  await AdvisorApplication.findOneAndUpdate(
+    { user: req.user._id },
+    { [field]: result.secure_url },
+    { upsert: true }
+  );
+  await AdvisorProfile.findOneAndUpdate(
+    { user: req.user._id },
+    { [field]: result.secure_url },
+    { upsert: true }
+  );
+  return sendResponse(res, {
+    data: {
+      url: result.secure_url,
+      mediaType: isAudio ? 'audio' : 'video',
+      field
+    }
+  });
 });
 
 // ===== Profile =====
@@ -158,7 +175,7 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const allowedProfile = [
     'professionalTitle', 'bio', 'detailedDescription', 'yearsOfExperience',
-    'expertise', 'styles', 'languages', 'pricing', 'autoOnlineMode', 'weeklySchedule', 'dateAvailability', 'introVideoUrl',
+    'expertise', 'styles', 'languages', 'pricing', 'autoOnlineMode', 'weeklySchedule', 'dateAvailability', 'audioMessageUrl', 'introVideoUrl',
     'psychicExtension', 'tools', 'wordsOfWisdom', 'endorsements'
   ];
   const allowedUser = ['name', 'phone', 'country', 'city', 'profilePhoto', 'language', 'timezone'];

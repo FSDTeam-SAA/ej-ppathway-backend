@@ -5,6 +5,7 @@ import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
 import { verifyAccessToken } from '../utils/jwt.js';
 import AdvisorApplication from '../models/advisorApplication.model.js';
+import AdvisorProfile from '../models/advisorProfile.model.js';
 import User from '../models/user.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
@@ -31,6 +32,25 @@ const resolveApplicationFromToken = async (token) => {
   return app;
 };
 
+const resolveOnboardingApplicationFromToken = async (token) => {
+  if (!token) throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing onboarding token');
+  let payload;
+  try {
+    payload = verifyAccessToken(token);
+  } catch {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'This onboarding link is invalid or has expired');
+  }
+  if (payload?.type !== 'advisor-onboarding' || !payload?.applicationId) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid onboarding token');
+  }
+  const app = await AdvisorApplication.findById(payload.applicationId).populate(
+    'user',
+    'name email phone country state city dateOfBirth timezone'
+  );
+  if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+  return app;
+};
+
 export const getContractDetails = catchAsync(async (req, res) => {
   const token = req.query.token || req.body?.token;
   const app = await resolveApplicationFromToken(token);
@@ -42,6 +62,98 @@ export const getContractDetails = catchAsync(async (req, res) => {
       signedAt: app.contract?.signedAt || null
     }
   });
+});
+
+export const getAdvisorOnboardingDetails = catchAsync(async (req, res) => {
+  const token = req.query.token || req.body?.token;
+  const app = await resolveOnboardingApplicationFromToken(token);
+  return sendResponse(res, {
+    data: {
+      applicationId: app._id,
+      user: app.user,
+      professionalTitle: app.professionalTitle,
+      bio: app.bio,
+      detailedDescription: app.detailedDescription,
+      yearsOfExperience: app.yearsOfExperience,
+      expertise: app.expertise,
+      styles: app.styles,
+      languages: app.languages,
+      pricing: app.pricing,
+      status: app.status
+    }
+  });
+});
+
+export const completeAdvisorOnboarding = catchAsync(async (req, res) => {
+  const token = req.body?.token || req.query.token;
+  const app = await resolveOnboardingApplicationFromToken(token);
+  const body = req.body || {};
+  const user = await User.findById(app.user?._id || app.user).select('+password');
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+
+  if (body.name) user.name = String(body.name).trim();
+  if (body.phone) user.phone = String(body.phone).trim();
+  if (body.country) user.country = String(body.country).trim().toUpperCase();
+  if (body.state) user.state = String(body.state).trim();
+  if (body.city) user.city = String(body.city).trim();
+  if (body.timezone) user.timezone = String(body.timezone).trim();
+  if (body.password) {
+    if (String(body.password).length < 6) throw new ApiError(StatusCodes.BAD_REQUEST, 'Password must be at least 6 characters');
+    user.password = String(body.password);
+    user.mustChangePassword = false;
+  }
+  user.role = 'advisor';
+  user.status = 'pending_verification';
+  user.isVerified = true;
+  await user.save();
+
+  const pricing = {
+    chatPerMin: Number(body.chatPerMin ?? app.pricing?.chatPerMin ?? 0),
+    callPerMin: Number(body.callPerMin ?? app.pricing?.callPerMin ?? 0),
+    videoPerMin: Number(body.videoPerMin ?? app.pricing?.videoPerMin ?? 0)
+  };
+
+  app.professionalTitle = body.professionalTitle || app.professionalTitle;
+  app.bio = body.bio || app.bio;
+  app.detailedDescription = body.detailedDescription || app.detailedDescription;
+  app.yearsOfExperience = body.yearsOfExperience || app.yearsOfExperience;
+  app.languages = Array.isArray(body.languages) ? body.languages : app.languages;
+  app.expertise = Array.isArray(body.expertise) ? body.expertise : app.expertise;
+  app.styles = Array.isArray(body.styles) ? body.styles : app.styles;
+  app.pricing = pricing;
+  app.status = 'awaiting_approval';
+  await app.save();
+
+  const profile = await AdvisorProfile.findOneAndUpdate(
+    { user: user._id },
+    {
+      $set: {
+        professionalTitle: app.professionalTitle,
+        bio: app.bio,
+        detailedDescription: app.detailedDescription,
+        yearsOfExperience: app.yearsOfExperience,
+        languages: app.languages,
+        expertise: app.expertise,
+        styles: app.styles,
+        pricing,
+        profileReviewStatus: 'pending_review',
+        profileSubmittedAt: new Date(),
+        profileRejectionReason: ''
+      },
+      $setOnInsert: { user: user._id }
+    },
+    { upsert: true, new: true }
+  );
+
+  await createNotification({
+    recipient: user._id,
+    type: 'admin_announcement',
+    title: 'Advisor onboarding submitted',
+    body: 'Your advisor onboarding form was submitted for admin review.',
+    data: { applicationId: app._id, profileId: profile._id }
+  });
+
+  return sendResponse(res, { message: 'Onboarding completed', data: { application: app, profile } });
 });
 
 const dataUrlToBuffer = (dataUrl) => {
