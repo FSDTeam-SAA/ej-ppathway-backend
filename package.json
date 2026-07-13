@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
+    "test": "node --test",
     "seed:admin": "node scripts/seedAdmin.js",
     "seed:currencies": "node scripts/seedCurrencyCatalog.js",
     "backfill:currency": "node scripts/backfillUserCurrency.js"

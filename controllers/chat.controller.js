@@ -1,4 +1,5 @@
 import { StatusCodes } from 'http-status-codes';
+import mongoose from 'mongoose';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
@@ -9,6 +10,30 @@ import User from '../models/user.model.js';
 import Session from '../models/session.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
+import { buildChatTranscriptPdf } from '../services/chatTranscriptPdf.service.js';
+
+const MAX_TRANSCRIPT_MESSAGES = 10_000;
+const PARTICIPANT_TRANSCRIPT_STATUSES = ['completed', 'flagged', 'disputed'];
+const ADMIN_TRANSCRIPT_STATUSES = [
+  ...PARTICIPANT_TRANSCRIPT_STATUSES,
+  'cancelled',
+  'expired',
+  'no_show'
+];
+
+const canManageTranscript = (user) => {
+  if (user.role === 'admin') return true;
+  if (user.role !== 'sub_admin') return false;
+  const permissions = user.permissions || [];
+  return permissions.includes('*') || permissions.includes('recordings.transcripts');
+};
+
+const transcriptFilename = (session) => {
+  const reference = String(session.sessionCode || session._id)
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .slice(0, 80);
+  return `session-chat-transcript-${reference || 'session'}.pdf`;
+};
 
 // ===== Get or create session chat =====
 export const ensureSessionChat = catchAsync(async (req, res) => {
@@ -108,6 +133,73 @@ export const listMessages = catchAsync(async (req, res) => {
     .populate('sender', 'name profilePhoto role').lean();
 
   return sendResponse(res, { data: items.reverse(), meta: buildMeta({ page, limit, total }) });
+});
+
+// ===== Download a session chat as a PDF transcript =====
+export const downloadChatTranscript = catchAsync(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid chat ID');
+  }
+
+  const chat = await Chat.findById(req.params.id);
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Chat not found');
+  if (chat.kind !== 'session' || !chat.session) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only session chats can be exported');
+  }
+
+  const session = await Session.findById(chat.session)
+    .populate('user', 'name')
+    .populate('advisor', 'name');
+  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+
+  const userId = session.user?._id || session.user;
+  const advisorId = session.advisor?._id || session.advisor;
+  const isUser = String(userId) === String(req.user._id);
+  const isAdvisor = String(advisorId) === String(req.user._id);
+  const isAdmin = canManageTranscript(req.user);
+  if (!isUser && !isAdvisor && !isAdmin) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'You cannot access this transcript');
+  }
+  if (isUser && !session.transcriptPriceUnlocked) {
+    throw new ApiError(StatusCodes.PAYMENT_REQUIRED, 'Unlock this transcript before downloading it');
+  }
+  const readyStatuses = isAdmin
+    ? ADMIN_TRANSCRIPT_STATUSES
+    : PARTICIPANT_TRANSCRIPT_STATUSES;
+  if (!readyStatuses.includes(session.status)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'The transcript is available after the session ends');
+  }
+
+  const total = await Message.countDocuments({ chat: chat._id });
+  if (total > MAX_TRANSCRIPT_MESSAGES) {
+    throw new ApiError(
+      StatusCodes.REQUEST_TOO_LONG,
+      `This transcript exceeds the ${MAX_TRANSCRIPT_MESSAGES}-message export limit`
+    );
+  }
+  const messages = await Message.find({ chat: chat._id })
+    .select('sender text attachments createdAt deliveredAt')
+    .populate('sender', 'name')
+    .sort({ createdAt: 1 })
+    .lean();
+
+  let pdf;
+  try {
+    pdf = await buildChatTranscriptPdf({ session, messages });
+  } catch (error) {
+    console.error('Chat transcript PDF generation failed', {
+      chatId: String(chat._id),
+      sessionId: String(session._id),
+      message: error?.message
+    });
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Could not generate the chat transcript');
+  }
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${transcriptFilename(session)}"`);
+  res.setHeader('Content-Length', pdf.length);
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.end(pdf);
 });
 
 export const sendMessage = catchAsync(async (req, res) => {

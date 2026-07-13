@@ -34,6 +34,13 @@ const sessionSchema = new Schema(
     // LiveKit
     livekitRoom: { type: String, index: true },
     egressId: { type: String },
+    recordingStatus: {
+      type: String,
+      enum: ['pending', 'starting', 'recording', 'completed', 'failed'],
+      default: 'pending',
+      index: true
+    },
+    recordingError: { type: String, default: '' },
 
     // Time tracking
     waitingStartedAt: { type: Date },
@@ -58,6 +65,7 @@ const sessionSchema = new Schema(
     // Recording / transcript unlock
     recordingUrl: { type: String },
     transcriptUrl: { type: String },
+    // Retained for audit/backward compatibility. Call/video recording is mandatory.
     recordingConsented: { type: Boolean, default: false },
     recordingPriceUnlocked: { type: Boolean, default: false },
     transcriptPriceUnlocked: { type: Boolean, default: false },

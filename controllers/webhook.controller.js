@@ -57,7 +57,17 @@ export const livekitWebhook = async (req, res) => {
           const url = await resolveRecordingUrl(info);
           if (url) {
             session.recordingUrl = url;
+            session.recordingStatus = 'completed';
+            session.recordingError = '';
             await session.save();
+          } else {
+            session.recordingStatus = 'failed';
+            session.recordingError = 'Recording completed but its storage URL could not be resolved';
+            await session.save();
+            console.error('LiveKit recording URL resolution failed', {
+              sessionId: String(session._id),
+              egressId: info.egressId
+            });
           }
         }
       }

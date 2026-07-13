@@ -41,6 +41,7 @@ import {
   listSessions,
   listRecordings,
   getSessionTranscript,
+  downloadSessionTranscriptPdf,
   getSession,
   adminCancelSession,
   adminFlagSession,
@@ -196,6 +197,7 @@ router.delete('/advisors/:id', deleteAdvisor);
 router.get('/sessions', listSessions);
 router.get('/sessions/recordings', listRecordings); // must precede '/sessions/:id'
 router.get('/sessions/:id/transcript', getSessionTranscript);
+router.get('/sessions/:id/transcript/download', downloadSessionTranscriptPdf);
 router.get('/sessions/:id', getSession);
 router.patch('/sessions/:id/cancel', adminCancelSession);
 router.patch('/sessions/:id/flag', adminFlagSession);

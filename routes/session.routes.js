@@ -7,6 +7,7 @@ import {
   myAdvisorSessions,
   advisorBookingsCalendar,
   getSession,
+  downloadSessionRecording,
   consentRecording,
   getLiveKitToken,
   advisorStartSession,
@@ -39,6 +40,7 @@ router.get('/ongoing', getOngoing);
 // One session
 router.get('/:id', getSession);
 router.get('/:id/summary', sessionSummary);
+router.get('/:id/recording/download', downloadSessionRecording);
 
 // Lifecycle
 router.post('/:id/consent', consentRecording);

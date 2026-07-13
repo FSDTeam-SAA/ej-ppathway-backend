@@ -1,5 +1,6 @@
 import { StatusCodes } from 'http-status-codes';
 import mongoose from 'mongoose';
+import { Readable } from 'node:stream';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
@@ -21,6 +22,58 @@ const UNSTARTED_TIMEOUT_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'
 const BOOKING_BLOCKING_STATUSES = ['pending', 'consent', 'waiting', 'scheduled', 'live', 'flagged', 'disputed'];
 const SLOT_STEP_MINUTES = 15;
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const SESSION_ASSET_STATUSES = ['completed', 'flagged', 'disputed'];
+
+const safeDownloadName = (value, fallback) => {
+  const cleaned = String(value || '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100);
+  return cleaned || fallback;
+};
+
+const configuredRecordingHosts = () => {
+  const hosts = new Set(['res.cloudinary.com']);
+  for (const raw of [process.env.RECORDING_PUBLIC_BASE_URL, process.env.EGRESS_S3_ENDPOINT]) {
+    if (!raw) continue;
+    try {
+      hosts.add(new URL(raw).hostname.toLowerCase());
+    } catch {
+      // Invalid storage configuration is reported as an unavailable download later.
+    }
+  }
+  return hosts;
+};
+
+const trustedRecordingUrl = (raw) => {
+  try {
+    const url = new URL(raw);
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+    const host = url.hostname.toLowerCase();
+    const trusted = configuredRecordingHosts().has(host) || host.endsWith('.amazonaws.com');
+    return trusted ? url : null;
+  } catch {
+    return null;
+  }
+};
+
+const canManageRecording = (user) => {
+  if (user.role === 'admin') return true;
+  if (user.role !== 'sub_admin') return false;
+  const permissions = user.permissions || [];
+  return permissions.includes('*') || permissions.includes('recordings.download');
+};
+
+const sessionForUserResponse = (session) => {
+  const value = typeof session?.toObject === 'function' ? session.toObject() : { ...session };
+  value.recordingAvailable = !!value.recordingUrl &&
+    !['starting', 'recording', 'failed'].includes(value.recordingStatus);
+  delete value.egressId;
+  delete value.recordingError;
+  if (!value.recordingPriceUnlocked) delete value.recordingUrl;
+  if (!value.transcriptPriceUnlocked) delete value.transcriptUrl;
+  return value;
+};
 
 const createAndBroadcastNotification = async (req, payload, sessionEvent) => {
   const notification = await createNotification(payload);
@@ -75,6 +128,7 @@ const reconcileTimedOutSession = async (session) => {
     const end = liveEndTime(session);
     if (end && end <= now) {
       session.endedAt = session.endedAt || end;
+      if (session.egressId) await stopEgress(session.egressId);
       await settleSession(session);
       await session.save();
       if (session.livekitRoom) await deleteRoom(session.livekitRoom);
@@ -641,7 +695,7 @@ export const myUserSessions = catchAsync(async (req, res) => {
     .sort({ scheduledFor: -1, createdAt: -1 })
     .skip(skip).limit(limit);
   const reconciled = await reconcileTimedOutSessions(docs);
-  const items = reconciled.map((s) => s.toObject());
+  const items = reconciled.map(sessionForUserResponse);
 
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
@@ -721,8 +775,97 @@ export const getSession = catchAsync(async (req, res) => {
     .populate('user', 'name profilePhoto')
     .populate('advisor', 'name profilePhoto');
   if (!sessionDoc) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+  const isUser = String(sessionDoc.user?._id || sessionDoc.user) === String(req.user._id);
+  const isAdvisor = String(sessionDoc.advisor?._id || sessionDoc.advisor) === String(req.user._id);
+  if (!isUser && !isAdvisor && !['admin', 'sub_admin'].includes(req.user.role)) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Forbidden');
+  }
   const session = await reconcileTimedOutSession(sessionDoc);
-  return sendResponse(res, { data: session.toObject() });
+  return sendResponse(res, {
+    data: isUser ? sessionForUserResponse(session) : session.toObject()
+  });
+});
+
+// ============= Download completed call/video recording =============
+export const downloadSessionRecording = catchAsync(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid session ID');
+  }
+
+  const session = await Session.findById(req.params.id);
+  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+  if (!['call', 'video'].includes(session.type)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Text sessions do not have media recordings');
+  }
+
+  const isUser = String(session.user) === String(req.user._id);
+  const isAdvisor = String(session.advisor) === String(req.user._id);
+  const isAdmin = canManageRecording(req.user);
+  if (!isUser && !isAdvisor && !isAdmin) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'You cannot access this recording');
+  }
+  if (isUser && !session.recordingPriceUnlocked) {
+    throw new ApiError(StatusCodes.PAYMENT_REQUIRED, 'Unlock this recording before downloading it');
+  }
+  if (session.status === 'live' || session.recordingStatus === 'starting' || session.recordingStatus === 'recording') {
+    throw new ApiError(StatusCodes.CONFLICT, 'The recording is still being processed');
+  }
+  if (!session.recordingUrl || session.recordingStatus === 'failed') {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Recording is not available');
+  }
+
+  const url = trustedRecordingUrl(session.recordingUrl);
+  if (!url) {
+    console.error('Blocked untrusted or unusable recording URL', {
+      sessionId: String(session._id),
+      recordingUrl: session.recordingUrl
+    });
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Recording storage is not available');
+  }
+
+  let upstream;
+  const controller = new AbortController();
+  const connectTimeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    upstream = await fetch(url, { signal: controller.signal, redirect: 'error' });
+  } catch (error) {
+    console.error('Recording download fetch failed', {
+      sessionId: String(session._id),
+      message: error?.message
+    });
+    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Could not retrieve the recording');
+  } finally {
+    clearTimeout(connectTimeout);
+  }
+  if (!upstream.ok || !upstream.body) {
+    console.error('Recording storage returned an error', {
+      sessionId: String(session._id),
+      status: upstream.status
+    });
+    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Could not retrieve the recording');
+  }
+
+  const filename = safeDownloadName(
+    `session-recording-${session.sessionCode || session._id}.mp4`,
+    'session-recording.mp4'
+  );
+  res.setHeader('Content-Type', upstream.headers.get('content-type') || 'video/mp4');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  const length = upstream.headers.get('content-length');
+  if (length) res.setHeader('Content-Length', length);
+  res.setHeader('Cache-Control', 'private, no-store');
+
+  const stream = Readable.fromWeb(upstream.body);
+  req.on('aborted', () => stream.destroy());
+  stream.on('error', (error) => {
+    console.error('Recording download stream failed', {
+      sessionId: String(session._id),
+      message: error?.message
+    });
+    if (!res.headersSent) res.status(StatusCodes.BAD_GATEWAY).end();
+    else res.destroy(error);
+  });
+  stream.pipe(res);
 });
 
 // ============= Recording consent (user) =============
@@ -814,17 +957,55 @@ export const advisorStartSession = catchAsync(async (req, res) => {
 
   session.status = 'live';
   session.startedAt = new Date();
-
-  // Optionally start recording if consented + video/call
-  if (session.recordingConsented && (session.type === 'call' || session.type === 'video')) {
-    const fileName = `${session._id}-${Date.now()}.mp4`;
-    const egress = await startRoomRecording(session.livekitRoom || `session_${session._id}`, fileName);
-    if (egress?.egressId) session.egressId = egress.egressId;
-    // Best-effort URL now (S3 only); confirmed/overwritten by the LiveKit egress webhook on completion.
-    if (egress?.recordingUrl) session.recordingUrl = egress.recordingUrl;
-  }
-
   await session.save();
+
+  // Call and video sessions are always recorded once they are live. The atomic
+  // claim prevents overlapping advisor-start requests from creating two egress jobs.
+  if (session.type === 'call' || session.type === 'video') {
+    const claimed = await Session.findOneAndUpdate(
+      {
+        _id: session._id,
+        status: 'live',
+        type: { $in: ['call', 'video'] },
+        $or: [{ egressId: { $exists: false } }, { egressId: null }, { egressId: '' }],
+        recordingStatus: { $nin: ['starting', 'recording', 'completed'] }
+      },
+      { $set: { recordingStatus: 'starting', recordingError: '' } },
+      { new: true }
+    );
+
+    if (claimed) {
+      const roomName = claimed.livekitRoom || `session_${claimed._id}`;
+      const fileName = `${claimed._id}-${Date.now()}.mp4`;
+      const egress = await startRoomRecording(roomName, fileName);
+      if (egress?.egressId) {
+        const update = {
+          egressId: egress.egressId,
+          recordingStatus: 'recording',
+          recordingError: ''
+        };
+        // Best-effort S3 URL; the completion webhook remains authoritative.
+        if (egress.recordingUrl) update.recordingUrl = egress.recordingUrl;
+        await Session.updateOne(
+          { _id: claimed._id, recordingStatus: 'starting' },
+          { $set: update }
+        );
+      } else {
+        const message = 'LiveKit did not return an egress ID';
+        console.error('Automatic session recording failed', {
+          sessionId: String(claimed._id),
+          type: claimed.type,
+          roomName,
+          message
+        });
+        await Session.updateOne(
+          { _id: claimed._id, recordingStatus: 'starting' },
+          { $set: { recordingStatus: 'failed', recordingError: message } }
+        );
+      }
+    }
+    session = await Session.findById(session._id);
+  }
 
   await createAndBroadcastNotification(req, {
     recipient: session.user,
@@ -1142,6 +1323,31 @@ export const unlockSessionAsset = catchAsync(async (req, res) => {
   const session = await Session.findById(req.params.id);
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   if (String(session.user) !== String(req.user._id)) throw new ApiError(StatusCodes.FORBIDDEN, 'Forbidden');
+  if (!SESSION_ASSET_STATUSES.includes(session.status)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Session assets can be unlocked after the session ends');
+  }
+
+  if (asset === 'recording') {
+    if (!['call', 'video'].includes(session.type)) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Text sessions do not have media recordings');
+    }
+    if (session.recordingPriceUnlocked) {
+      return sendResponse(res, { message: 'recording already unlocked', data: session });
+    }
+    if (
+      !session.recordingUrl ||
+      ['starting', 'recording', 'failed'].includes(session.recordingStatus)
+    ) {
+      throw new ApiError(StatusCodes.CONFLICT, 'Recording is not available yet');
+    }
+  } else if (asset === 'transcript') {
+    if (session.type !== 'chat') {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Only text sessions have chat transcripts');
+    }
+    if (session.transcriptPriceUnlocked) {
+      return sendResponse(res, { message: 'transcript already unlocked', data: session });
+    }
+  }
 
   let amount = 0;
   const usage = await getCreditUsage();
@@ -1177,7 +1383,9 @@ export const getOngoing = catchAsync(async (req, res) => {
   if (session?.status !== 'live') {
     return sendResponse(res, { data: null });
   }
-  return sendResponse(res, { data: session.toObject() });
+  return sendResponse(res, {
+    data: isAdvisor ? session.toObject() : sessionForUserResponse(session)
+  });
 });
 
 // ============= Session complete summary (for "Session Completed" modal) =============
