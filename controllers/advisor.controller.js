@@ -13,12 +13,16 @@ import Transaction from '../models/transaction.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { computeTier } from '../services/tier.service.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
+import { createNotification, broadcastSocket } from '../services/notification.service.js';
+import { sendSessionAvailabilityChangedEmail } from '../services/email.service.js';
 
 const ensureAdvisor = (user) => {
   if (user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
 };
 
 const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const RESCHEDULABLE_SESSION_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'];
 
 const normalizeWeeklySchedule = (weeklySchedule) => {
   if (!weeklySchedule || typeof weeklySchedule !== 'object') return weeklySchedule;
@@ -69,6 +73,241 @@ const normalizeDateAvailability = (dateAvailability) => {
 };
 
 const stringifyComparable = (value) => JSON.stringify(value);
+
+const toMinutes = (hhmm) => {
+  if (!hhmm || typeof hhmm !== 'string') return null;
+  const [hour, minute] = hhmm.split(':').map((part) => Number.parseInt(part, 10));
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return hour * 60 + minute;
+};
+
+const scheduleSlots = (day) => {
+  if (!day || day.enabled === false) return [];
+  const rawSlots = Array.isArray(day.slots) && day.slots.length
+    ? day.slots
+    : [{ from: day.from, to: day.to }];
+  return rawSlots
+    .map((slot) => ({
+      from: String(slot?.from || '').trim(),
+      to: String(slot?.to || '').trim(),
+      fromMinutes: toMinutes(slot?.from),
+      toMinutes: toMinutes(slot?.to)
+    }))
+    .filter((slot) => slot.from && slot.to && slot.fromMinutes !== null && slot.toMinutes !== null);
+};
+
+const dateAvailabilityEntry = (dateAvailability, dateKey) => {
+  if (!dateAvailability || !dateKey) return null;
+  if (dateAvailability instanceof Map) return dateAvailability.get(dateKey) || null;
+  return dateAvailability[dateKey] || null;
+};
+
+const dateOverrideActive = (entry) =>
+  !!entry && (entry.unavailable === true || (Array.isArray(entry.slots) && entry.slots.length > 0));
+
+const dateAvailabilitySlots = (day) => {
+  if (!day || day.unavailable === true) return [];
+  return (Array.isArray(day.slots) ? day.slots : [])
+    .map((slot) => ({
+      from: String(slot?.from || '').trim(),
+      to: String(slot?.to || '').trim(),
+      fromMinutes: toMinutes(slot?.from),
+      toMinutes: toMinutes(slot?.to)
+    }))
+    .filter((slot) => slot.from && slot.to && slot.fromMinutes !== null && slot.toMinutes !== null);
+};
+
+const zonedParts = (date, timezone = 'UTC') => {
+  let formatter;
+  try {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    });
+  } catch {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    });
+  }
+  const parts = formatter.formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    weekday: (get('weekday') || '').toLowerCase(),
+    hour: Number.parseInt(get('hour') || '0', 10),
+    minute: Number.parseInt(get('minute') || '0', 10)
+  };
+};
+
+const localDateKey = (parts) => `${parts.year}-${parts.month}-${parts.day}`;
+
+const slotKey = (slot) => `${slot.from}-${slot.to}`;
+
+const removedSlots = (beforeSlots, afterSlots) => {
+  const after = new Set(afterSlots.map(slotKey));
+  return beforeSlots.filter((slot) => !after.has(slotKey(slot)));
+};
+
+const dateWindowsForProfile = (profile, dateKey, weekday) => {
+  const rule = dateAvailabilityEntry(profile?.dateAvailability, dateKey);
+  if (dateOverrideActive(rule)) return rule.unavailable === true ? [] : dateAvailabilitySlots(rule);
+  return scheduleSlots(profile?.weeklySchedule?.[weekday]);
+};
+
+const matchingAvailabilitySlot = (profile, date, timezone) => {
+  const parts = zonedParts(date, timezone);
+  const key = localDateKey(parts);
+  const minuteOfDay = parts.hour * 60 + parts.minute;
+  const windows = dateWindowsForProfile(profile, key, parts.weekday);
+  return windows.find((slot) => {
+    if (slot.toMinutes <= slot.fromMinutes) return minuteOfDay >= slot.fromMinutes || minuteOfDay < slot.toMinutes;
+    return minuteOfDay >= slot.fromMinutes && minuteOfDay < slot.toMinutes;
+  }) || null;
+};
+
+const sessionStillFitsAvailability = (profile, session, timezone) => {
+  if (!session?.scheduledFor) return true;
+  const start = new Date(session.scheduledFor);
+  const duration = Math.max(1, Number(session.durationMinutes) || 15);
+  const endProbe = new Date(start.getTime() + duration * 60 * 1000 - 60 * 1000);
+  const startSlot = matchingAvailabilitySlot(profile, start, timezone);
+  const endSlot = matchingAvailabilitySlot(profile, endProbe, timezone);
+  return !!startSlot && !!endSlot && startSlot.from === endSlot.from && startSlot.to === endSlot.to;
+};
+
+const dateAvailabilityKeys = (value = {}) => {
+  if (!value) return [];
+  if (value instanceof Map) return Array.from(value.keys());
+  return Object.keys(value);
+};
+
+const changedDateKeys = (before = {}, after = {}) => {
+  const keys = new Set([...dateAvailabilityKeys(before), ...dateAvailabilityKeys(after)]);
+  return [...keys].filter((key) =>
+    stringifyComparable(dateAvailabilityEntry(before, key) || null) !==
+    stringifyComparable(dateAvailabilityEntry(after, key) || null)
+  );
+};
+
+const assertStartedAvailabilityNotRemoved = ({ existingProfile, nextProfile, timezone }) => {
+  const now = new Date();
+  const nowParts = zonedParts(now, timezone);
+  const todayKey = localDateKey(nowParts);
+  const nowMinutes = nowParts.hour * 60 + nowParts.minute;
+
+  if (stringifyComparable(existingProfile?.weeklySchedule || {}) !== stringifyComparable(nextProfile?.weeklySchedule || {})) {
+    const todayDay = nowParts.weekday;
+    const before = scheduleSlots(existingProfile?.weeklySchedule?.[todayDay]);
+    const after = scheduleSlots(nextProfile?.weeklySchedule?.[todayDay]);
+    const removedStarted = removedSlots(before, after).find((slot) => slot.fromMinutes <= nowMinutes);
+    if (removedStarted) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'This slot has already started and can no longer be changed.');
+    }
+  }
+
+  for (const dateKey of changedDateKeys(existingProfile?.dateAvailability || {}, nextProfile?.dateAvailability || {})) {
+    if (dateKey < todayKey) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Past availability can no longer be changed.');
+    }
+    const [year, month, day] = dateKey.split('-').map((part) => Number.parseInt(part, 10));
+    const weekday = WEEKDAY_KEYS[new Date(Date.UTC(year, month - 1, day, 12)).getUTCDay()];
+    const before = dateWindowsForProfile(existingProfile, dateKey, weekday);
+    const after = dateWindowsForProfile(nextProfile, dateKey, weekday);
+    const removed = removedSlots(before, after);
+    if (dateKey === todayKey && removed.some((slot) => slot.fromMinutes <= nowMinutes)) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'This slot has already started and can no longer be changed.');
+    }
+  }
+};
+
+const formatDateTime = (date, timezone = 'UTC') => {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    }).format(date);
+  } catch {
+    return date.toISOString();
+  }
+};
+
+const notifySessionsNeedingReschedule = async ({ req, advisor, nextProfile, timezone }) => {
+  const sessions = await Session.find({
+    advisor: advisor._id,
+    status: { $in: RESCHEDULABLE_SESSION_STATUSES },
+    scheduledFor: { $gte: new Date() },
+    rescheduleReason: { $ne: 'advisor_changed_availability' }
+  }).populate('user', 'name email notifPrefs');
+
+  const affected = sessions.filter((session) => !sessionStillFitsAvailability(nextProfile, session, timezone));
+  if (!affected.length) return 0;
+
+  const io = req.app.get('io');
+  const rescheduledAt = new Date();
+  await Promise.all(affected.map(async (session) => {
+    session.rescheduledFrom = session.rescheduledFrom || session.scheduledFor;
+    session.rescheduleReason = 'advisor_changed_availability';
+    session.rescheduledAt = rescheduledAt;
+    await session.save();
+
+    const notification = await createNotification({
+      recipient: session.user?._id || session.user,
+      type: 'session_rescheduled',
+      title: 'Session needs a new time',
+      body: `${advisor.name || 'Your advisor'} changed availability. Please choose a new time for your session.`,
+      data: {
+        sessionId: session._id,
+        oldTime: session.scheduledFor,
+        reason: 'advisor_changed_availability'
+      }
+    });
+    if (notification) {
+      const payload = {
+        _id: String(notification._id),
+        type: notification.type,
+        title: notification.title,
+        body: notification.body,
+        data: notification.data || {}
+      };
+      broadcastSocket(io, session.user?._id || session.user, 'notification:new', payload);
+      broadcastSocket(io, session.user?._id || session.user, 'session:rescheduled', {
+        sessionId: String(session._id),
+        type: notification.type
+      });
+    }
+
+    if (session.user?.email && session.user?.notifPrefs?.email !== false) {
+      await sendSessionAvailabilityChangedEmail(session.user.email, {
+        name: session.user.name,
+        advisorName: advisor.name,
+        oldTime: formatDateTime(new Date(session.scheduledFor), timezone),
+        rescheduleUrl: process.env.WEBSITE_URL ? `${process.env.WEBSITE_URL}/sessions/${session._id}` : ''
+      }).catch((error) => console.error('availability change email error', error?.message));
+    }
+  }));
+  return affected.length;
+};
 
 const normalizePricing = (pricing = {}) => ({
   chatPerMin: Number(pricing.chatPerMin || 0),
@@ -202,6 +441,29 @@ export const updateMyProfile = catchAsync(async (req, res) => {
 
   const existingProfile = await AdvisorProfile.findOne({ user: req.user._id }).lean();
   const requiresAdminReview = pricingChanged(existingProfile, profileUpdate);
+  const availabilityChanged =
+    typeof profileUpdate.weeklySchedule !== 'undefined' ||
+    typeof profileUpdate.dateAvailability !== 'undefined';
+
+  const timezone = userUpdate.timezone || req.user.timezone || 'UTC';
+  const nextProfileForAvailability = {
+    ...(existingProfile || {}),
+    ...profileUpdate,
+    weeklySchedule: typeof profileUpdate.weeklySchedule !== 'undefined'
+      ? profileUpdate.weeklySchedule
+      : existingProfile?.weeklySchedule,
+    dateAvailability: typeof profileUpdate.dateAvailability !== 'undefined'
+      ? profileUpdate.dateAvailability
+      : existingProfile?.dateAvailability
+  };
+
+  if (availabilityChanged && existingProfile) {
+    assertStartedAvailabilityNotRemoved({
+      existingProfile,
+      nextProfile: nextProfileForAvailability,
+      timezone
+    });
+  }
 
   const profile = await AdvisorProfile.findOneAndUpdate(
     { user: req.user._id },
@@ -226,11 +488,22 @@ export const updateMyProfile = catchAsync(async (req, res) => {
     await markProfilePendingReview(req.user._id);
   }
 
+  const affectedSessions = availabilityChanged
+    ? await notifySessionsNeedingReschedule({
+        req,
+        advisor: user || req.user,
+        nextProfile: profile,
+        timezone: user?.timezone || timezone
+      })
+    : 0;
+
   return sendResponse(res, {
-    message: requiresAdminReview
-      ? 'Pricing changes submitted for admin review'
-      : 'Profile updated',
-    data: { user, profile, requiresAdminReview }
+    message: affectedSessions
+      ? `Profile updated. ${affectedSessions} booked session${affectedSessions === 1 ? '' : 's'} need a new time, and clients were notified.`
+      : requiresAdminReview
+        ? 'Pricing changes submitted for admin review'
+        : 'Profile updated',
+    data: { user, profile, requiresAdminReview, affectedSessions }
   });
 });
 

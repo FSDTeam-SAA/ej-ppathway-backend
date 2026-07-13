@@ -112,6 +112,17 @@ export const sendAdvisorWelcomeEmail = async (to, { name, email, password, login
   return sendEmail({ to, subject, html: wrap(subject, body) });
 };
 
+export const sendSessionAvailabilityChangedEmail = async (to, { name, advisorName, oldTime, rescheduleUrl }) => {
+  const subject = 'Your session needs a new time';
+  const body = `
+    <p>Hi ${name || ''},</p>
+    <p>${advisorName || 'Your advisor'} changed their availability, so your session${oldTime ? ` originally scheduled for <b>${oldTime}</b>` : ''} needs to be rescheduled.</p>
+    <p>Please choose a new available time from the advisor schedule.</p>
+    ${rescheduleUrl ? `<p><a href="${rescheduleUrl}" style="background:#0E7490;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Choose New Time</a></p>` : ''}
+  `;
+  return sendEmail({ to, subject, html: wrap(subject, body) });
+};
+
 export default {
   sendEmail,
   sendOtpEmail,
@@ -121,5 +132,6 @@ export default {
   sendAdvisorStatusUpdateEmail,
   sendAdvisorOnboardingEmail,
   sendAdvisorProfileDecisionEmail,
-  sendAdvisorWelcomeEmail
+  sendAdvisorWelcomeEmail,
+  sendSessionAvailabilityChangedEmail
 };
