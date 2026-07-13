@@ -1,4 +1,5 @@
 import { StatusCodes } from 'http-status-codes';
+import mongoose from 'mongoose';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
@@ -11,6 +12,33 @@ import { refundToUserWallet } from '../services/session.service.js';
 import Transaction from '../models/transaction.model.js';
 import User from '../models/user.model.js';
 import AdvisorProfile from '../models/advisorProfile.model.js';
+import { buildChatTranscriptPdf } from '../services/chatTranscriptPdf.service.js';
+
+const MAX_TRANSCRIPT_MESSAGES = 10_000;
+const TRANSCRIPT_READY_STATUSES = ['completed', 'cancelled', 'expired', 'no_show', 'flagged', 'disputed'];
+
+const requireTranscriptPermission = (user) => {
+  if (user.role === 'admin') return;
+  const permissions = user.permissions || [];
+  if (!permissions.includes('*') && !permissions.includes('recordings.transcripts')) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Insufficient transcript permissions');
+  }
+};
+
+const requireRecordingsViewPermission = (user) => {
+  if (user.role === 'admin') return;
+  const permissions = user.permissions || [];
+  if (!permissions.includes('*') && !permissions.includes('recordings.view')) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Insufficient recording permissions');
+  }
+};
+
+const transcriptFilename = (session) => {
+  const reference = String(session.sessionCode || session._id)
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .slice(0, 80);
+  return `session-chat-transcript-${reference || 'session'}.pdf`;
+};
 
 const userIdsForQuery = async (q, roles = []) => {
   if (!q) return [];
@@ -95,6 +123,7 @@ const CHAT_DONE_STATUSES = ['completed', 'disputed', 'flagged', 'cancelled'];
 const MEDIA_DONE_STATUSES = ['completed', 'disputed', 'flagged', 'cancelled'];
 
 export const listRecordings = catchAsync(async (req, res) => {
+  requireRecordingsViewPermission(req.user);
   const { skip, limit, page } = parsePagination(req.query);
   const type = req.query.type;
 
@@ -180,6 +209,7 @@ export const listRecordings = catchAsync(async (req, res) => {
 
 // Full chat conversation for a session — viewed / downloaded from the dashboard.
 export const getSessionTranscript = catchAsync(async (req, res) => {
+  requireTranscriptPermission(req.user);
   const session = await Session.findById(req.params.id)
     .populate('user', 'name profilePhoto email')
     .populate('advisor', 'name profilePhoto email')
@@ -195,7 +225,58 @@ export const getSessionTranscript = catchAsync(async (req, res) => {
       .lean();
   }
 
-  return sendResponse(res, { data: { session, messages } });
+  return sendResponse(res, { data: { session, chatId: chat?._id || null, messages } });
+});
+
+export const downloadSessionTranscriptPdf = catchAsync(async (req, res) => {
+  requireTranscriptPermission(req.user);
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid session ID');
+  }
+  const session = await Session.findById(req.params.id)
+    .populate('user', 'name')
+    .populate('advisor', 'name');
+  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+  if (session.type !== 'chat') {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only text sessions have chat transcripts');
+  }
+  if (!TRANSCRIPT_READY_STATUSES.includes(session.status)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'The transcript is available after the session ends');
+  }
+
+  const chat = await Chat.findOne({ session: session._id, kind: 'session' }).lean();
+  let messages = [];
+  if (chat) {
+    const total = await Message.countDocuments({ chat: chat._id });
+    if (total > MAX_TRANSCRIPT_MESSAGES) {
+      throw new ApiError(
+        StatusCodes.REQUEST_TOO_LONG,
+        `This transcript exceeds the ${MAX_TRANSCRIPT_MESSAGES}-message export limit`
+      );
+    }
+    messages = await Message.find({ chat: chat._id })
+      .select('sender text attachments createdAt deliveredAt')
+      .populate('sender', 'name')
+      .sort({ createdAt: 1 })
+      .lean();
+  }
+
+  let pdf;
+  try {
+    pdf = await buildChatTranscriptPdf({ session, messages });
+  } catch (error) {
+    console.error('Admin chat transcript PDF generation failed', {
+      sessionId: String(session._id),
+      message: error?.message
+    });
+    throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Could not generate the chat transcript');
+  }
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${transcriptFilename(session)}"`);
+  res.setHeader('Content-Length', pdf.length);
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.end(pdf);
 });
 
 export const getSession = catchAsync(async (req, res) => {

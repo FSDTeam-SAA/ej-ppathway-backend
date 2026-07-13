@@ -8,6 +8,7 @@ import {
   myChats,
   getChat,
   listMessages,
+  downloadChatTranscript,
   sendMessage,
   markChatRead,
   adminListChats,
@@ -27,6 +28,7 @@ router.post('/admin/with/:userId', auth('admin', 'sub_admin'), ensureAdminChatWi
 router.delete('/admin/:id', auth('admin', 'sub_admin'), adminDeleteChat);
 router.get('/:id', getChat);
 router.get('/:id/messages', listMessages);
+router.get('/:id/transcript', downloadChatTranscript);
 router.post('/:id/messages', anyUpload.array('attachments', 5), sendMessage);
 router.post('/:id/read', markChatRead);
 

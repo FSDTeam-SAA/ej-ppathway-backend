@@ -151,7 +151,10 @@ export const removeParticipant = async (roomName, identity) => {
  * Returns { egressId, filepath, storage, recordingUrl } or null on failure.
  */
 export const startRoomRecording = async (roomName, nameOnly) => {
-  if (!egressClient) return null;
+  if (!egressClient) {
+    console.error('startRoomRecording error: LiveKit egress is not configured', { roomName });
+    return null;
+  }
   try {
     const useS3 = hasS3();
     // S3: key within the bucket. Local: absolute path inside the shared egress volume.
@@ -185,7 +188,7 @@ export const startRoomRecording = async (roomName, nameOnly) => {
       recordingUrl: useS3 ? getRecordingPublicUrl(filepath) : ''
     };
   } catch (e) {
-    console.error('startRoomRecording error', e?.message);
+    console.error('startRoomRecording error', { roomName, message: e?.message });
     return null;
   }
 };
@@ -195,7 +198,7 @@ export const stopEgress = async (egressId) => {
   try {
     return await egressClient.stopEgress(egressId);
   } catch (e) {
-    console.error('stopEgress error', e?.message || e);
+    console.error('stopEgress error', { egressId, message: e?.message });
     return null;
   }
 };
