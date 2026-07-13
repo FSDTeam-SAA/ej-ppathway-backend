@@ -79,6 +79,7 @@ const advisorProfileSchema = new Schema(
       default: []
     },
 
+    audioMessageUrl: { type: String, default: '' },
     introVideoUrl: { type: String, default: '' },
 
     pricing: {

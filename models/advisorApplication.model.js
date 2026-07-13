@@ -37,6 +37,7 @@ const advisorApplicationSchema = new Schema(
     expertise: { type: [String], default: [] },
     styles: { type: [String], default: [] },
     languages: { type: [String], default: ['English'] },
+    audioMessageUrl: { type: String, default: '' },
     introVideoUrl: { type: String, default: '' },
 
     // Pre-recorded Q&A

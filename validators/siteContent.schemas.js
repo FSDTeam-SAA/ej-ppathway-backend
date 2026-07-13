@@ -616,13 +616,147 @@ const advisorDetailSections = z
   })
   .strict();
 
+const loginSections = z
+  .object({
+    form: z
+      .object({
+        title: z.string().optional(),
+        subtitle: z.string().optional(),
+        emailPlaceholder: z.string().optional(),
+        passwordPlaceholder: z.string().optional(),
+        rememberLabel: z.string().optional(),
+        forgotPasswordLabel: z.string().optional(),
+        submitLabel: z.string().optional(),
+        submittingLabel: z.string().optional(),
+        signupPrompt: z.string().optional(),
+        signupLinkLabel: z.string().optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict();
+
+const signupSections = z
+  .object({
+    form: z
+      .object({
+        title: z.string().optional(),
+        subtitle: z.string().optional(),
+        nameLabel: z.string().optional(),
+        namePlaceholder: z.string().optional(),
+        emailLabel: z.string().optional(),
+        emailPlaceholder: z.string().optional(),
+        phoneLabel: z.string().optional(),
+        phonePlaceholder: z.string().optional(),
+        dobLabel: z.string().optional(),
+        countryLabel: z.string().optional(),
+        countryPlaceholder: z.string().optional(),
+        cityLabel: z.string().optional(),
+        cityPlaceholder: z.string().optional(),
+        stateLabel: z.string().optional(),
+        statePlaceholder: z.string().optional(),
+        passwordLabel: z.string().optional(),
+        passwordPlaceholder: z.string().optional(),
+        termsLabel: z.string().optional(),
+        termsLinkLabel: z.string().optional(),
+        submitLabel: z.string().optional(),
+        submittingLabel: z.string().optional(),
+        loginPrompt: z.string().optional(),
+        loginLinkLabel: z.string().optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict();
+
+const advisorApplicationSections = z
+  .object({
+    hero: z
+      .object({
+        title: z.string().optional(),
+        subtitle: z.string().optional()
+      })
+      .strict()
+      .optional(),
+    helper: z
+      .object({
+        lockedAccountText: z.string().optional(),
+        statusPrefix: z.string().optional(),
+        reviewedLockText: z.string().optional(),
+        approvedMessage: z.string().optional(),
+        rejectedMessage: z.string().optional()
+      })
+      .strict()
+      .optional(),
+    sections: z
+      .object({
+        personalTitle: z.string().optional(),
+        addressTitle: z.string().optional(),
+        experienceTitle: z.string().optional(),
+        introVideoTitle: z.string().optional()
+      })
+      .strict()
+      .optional(),
+    fields: z
+      .object({
+        fullNameLabel: z.string().optional(),
+        emailLabel: z.string().optional(),
+        phoneLabel: z.string().optional(),
+        dobLabel: z.string().optional(),
+        addressLabel: z.string().optional(),
+        addressPlaceholder: z.string().optional(),
+        countryLabel: z.string().optional(),
+        countryPlaceholder: z.string().optional(),
+        stateLabel: z.string().optional(),
+        statePlaceholder: z.string().optional(),
+        cityLabel: z.string().optional(),
+        cityPlaceholder: z.string().optional(),
+        experienceLabel: z.string().optional(),
+        experiencePlaceholder: z.string().optional(),
+        availabilityLabel: z.string().optional(),
+        baptizedLabel: z.string().optional()
+      })
+      .strict()
+      .optional(),
+    introVideo: z
+      .object({
+        requirementTitle: z.string().optional(),
+        description: z.string().optional(),
+        technicalTitle: z.string().optional(),
+        questions: z.array(z.string()).optional(),
+        technicalRequirements: z.array(z.string()).optional(),
+        finalNote: z.string().optional(),
+        uploadLabel: z.string().optional(),
+        uploadPlaceholder: z.string().optional(),
+        uploadHint: z.string().optional()
+      })
+      .strict()
+      .optional(),
+    consent: z
+      .object({
+        ethicalAgreementPrefix: z.string().optional(),
+        ethicalStandardsLabel: z.string().optional(),
+        ethicalAgreementSuffix: z.string().optional(),
+        privacyNote: z.string().optional(),
+        submitLabel: z.string().optional(),
+        submittingLabel: z.string().optional(),
+        lockedLabel: z.string().optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict();
+
 export const sectionSchemaForSlug = {
   global: globalSections,
   home: homeSections,
   'how-it-works': howItWorksSections,
   advisors: advisorsListSections,
   'advisor-detail': advisorDetailSections,
+  login: loginSections,
+  signup: signupSections,
   'join-as-advisor': joinAsAdvisorSections,
+  'advisor-application': advisorApplicationSections,
   'ethical-standards': ethicalStandardsSections,
   reviews: reviewsSections,
   blogs: blogsSections,

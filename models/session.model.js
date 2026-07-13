@@ -87,6 +87,12 @@ const sessionSchema = new Schema(
     cancelledAt: { type: Date },
     refundIssued: { type: Number, default: 0 },
 
+    // Compliance review
+    flagReason: { type: String, default: '' },
+    flaggedAt: { type: Date },
+    flaggedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    internalNotes: { type: String, default: '' },
+
     // Reschedule
     rescheduledFrom: { type: Date },
     rescheduleReason: { type: String },

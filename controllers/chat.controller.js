@@ -340,3 +340,21 @@ export const adminListChats = catchAsync(async (req, res) => {
     .sort({ lastMessageAt: -1 }).skip(skip).limit(limit).lean();
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
+
+export const adminDeleteChat = catchAsync(async (req, res) => {
+  const chat = await Chat.findOne({ _id: req.params.id, kind: 'admin' });
+  if (!chat) throw new ApiError(StatusCodes.NOT_FOUND, 'Support chat not found');
+  await Message.deleteMany({ chat: chat._id });
+  await chat.deleteOne();
+  return sendResponse(res, { message: 'Support chat deleted' });
+});
+
+export const adminBulkDeleteChats = catchAsync(async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  if (!ids.length) throw new ApiError(StatusCodes.BAD_REQUEST, 'ids are required');
+  const chats = await Chat.find({ _id: { $in: ids }, kind: 'admin' }).select('_id');
+  const chatIds = chats.map((c) => c._id);
+  await Message.deleteMany({ chat: { $in: chatIds } });
+  await Chat.deleteMany({ _id: { $in: chatIds } });
+  return sendResponse(res, { message: 'Support chats deleted', data: { deleted: chatIds.length } });
+});

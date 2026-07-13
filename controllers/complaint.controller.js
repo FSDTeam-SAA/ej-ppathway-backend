@@ -11,6 +11,39 @@ import Complaint, {
 } from '../models/complaint.model.js';
 import { createNotification } from '../services/notification.service.js';
 import User from '../models/user.model.js';
+import Dispute from '../models/dispute.model.js';
+import Session from '../models/session.model.js';
+
+const dateFilterFromQuery = (query) => {
+  const range = {};
+  const now = new Date();
+  if (query.period === 'today') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    range.$gte = start;
+  } else if (query.period === 'week') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - start.getDay());
+    range.$gte = start;
+  } else if (query.period === 'month') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    range.$gte = start;
+  } else if (query.from || query.to) {
+    if (query.from) {
+      const from = new Date(query.from);
+      if (!Number.isNaN(from.getTime())) range.$gte = from;
+    }
+    if (query.to) {
+      const to = new Date(query.to);
+      if (!Number.isNaN(to.getTime())) {
+        to.setHours(23, 59, 59, 999);
+        range.$lte = to;
+      }
+    }
+  }
+  return Object.keys(range).length ? range : null;
+};
 
 const uploadDocs = async (files) => {
   if (!files || !files.length) return [];
@@ -86,29 +119,66 @@ export const myComplaints = catchAsync(async (req, res) => {
 export const adminListComplaints = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = {};
+  const createdAt = dateFilterFromQuery(req.query);
+  if (createdAt) filter.createdAt = createdAt;
   if (req.query.status) {
     if (!COMPLAINT_STATUSES.includes(req.query.status)) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid status');
     filter.status = req.query.status;
   }
   if (req.query.kind) filter.kind = req.query.kind;
+  if (req.query.q) {
+    const q = String(req.query.q).trim();
+    const users = await User.find({
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } }
+      ]
+    }).select('_id').lean();
+    filter.$or = [
+      { issueType: { $regex: q, $options: 'i' } },
+      { description: { $regex: q, $options: 'i' } },
+      { user: { $in: users.map((u) => u._id) } },
+      { advisor: { $in: users.map((u) => u._id) } }
+    ];
+  }
 
   const total = await Complaint.countDocuments(filter);
   const items = await Complaint.find(filter)
     .populate('user', 'name email profilePhoto')
     .populate('advisor', 'name email profilePhoto')
-    .populate('session', 'sessionCode type chargedAmount')
+    .populate('resolvedBy', 'name email')
+    .populate('session', 'sessionCode type chargedAmount actualDurationSec durationMinutes scheduledFor startedAt endedAt recordingUrl transcriptUrl status')
     .sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
 
-  // counts
-  const [total_, solved, pending] = await Promise.all([
-    Complaint.countDocuments({}),
-    Complaint.countDocuments({ status: 'complete' }),
-    Complaint.countDocuments({ status: { $in: ['pending', 'reviewing'] } })
+  const statsFilter = createdAt ? { createdAt } : {};
+  const [total_, open, solved, rejected, totalDisputes, openDisputes, resolvedDisputes, flaggedUsers, flaggedAdvisors] = await Promise.all([
+    Complaint.countDocuments(statsFilter),
+    Complaint.countDocuments({ ...statsFilter, status: { $in: ['pending', 'reviewing'] } }),
+    Complaint.countDocuments({ ...statsFilter, status: 'complete' }),
+    Complaint.countDocuments({ ...statsFilter, status: 'reject' }),
+    Dispute.countDocuments(statsFilter),
+    Dispute.countDocuments({ ...statsFilter, status: { $in: ['open', 'investigating'] } }),
+    Dispute.countDocuments({ ...statsFilter, status: 'resolved' }),
+    Session.distinct('user', { status: 'flagged', ...(createdAt ? { createdAt } : {}) }).then((ids) => ids.length),
+    Session.distinct('advisor', { status: 'flagged', ...(createdAt ? { createdAt } : {}) }).then((ids) => ids.length)
   ]);
 
   return sendResponse(res, {
     data: items,
-    meta: { ...buildMeta({ page, limit, total }), totals: { all: total_, solved, pending } }
+    meta: {
+      ...buildMeta({ page, limit, total }),
+      totals: {
+        all: total_,
+        open,
+        solved,
+        rejected,
+        totalDisputes,
+        openDisputes,
+        resolvedDisputes,
+        flaggedUsers,
+        flaggedAdvisors
+      }
+    }
   });
 });
 

@@ -5,6 +5,7 @@ import { imageUpload, documentUpload } from '../middlewares/upload.js';
 import { dashboardOverview } from '../controllers/admin.dashboard.controller.js';
 
 import {
+  createUser,
   listUsers,
   getUserDetails,
   giveFreeCredits,
@@ -45,6 +46,8 @@ import {
   getSession,
   adminCancelSession,
   adminFlagSession,
+  adminRemoveFlagSession,
+  adminUpdateSessionNotes,
   adminResolveDisputed,
   adminDeleteSession
 } from '../controllers/admin.sessions.controller.js';
@@ -131,7 +134,8 @@ import {
   adminListDisputes,
   adminMarkInvestigating,
   adminResolveDispute,
-  adminRejectDispute
+  adminRejectDispute,
+  adminDeleteDispute
 } from '../controllers/dispute.controller.js';
 
 import {
@@ -162,6 +166,7 @@ router.get('/dashboard/overview', dashboardOverview);
 
 // Users
 router.get('/users', listUsers);
+router.post('/users', createUser);
 router.get('/users/:id', getUserDetails);
 router.post('/users/:id/credits', giveFreeCredits);
 router.patch('/users/:id/suspend', suspendUser);
@@ -201,6 +206,8 @@ router.get('/sessions/:id/transcript/download', downloadSessionTranscriptPdf);
 router.get('/sessions/:id', getSession);
 router.patch('/sessions/:id/cancel', adminCancelSession);
 router.patch('/sessions/:id/flag', adminFlagSession);
+router.patch('/sessions/:id/unflag', adminRemoveFlagSession);
+router.patch('/sessions/:id/notes', adminUpdateSessionNotes);
 router.patch('/sessions/:id/resolve', adminResolveDisputed);
 router.delete('/sessions/:id', adminDeleteSession);
 
@@ -283,6 +290,7 @@ router.get('/disputes', adminListDisputes);
 router.patch('/disputes/:id/investigating', adminMarkInvestigating);
 router.patch('/disputes/:id/resolve', adminResolveDispute);
 router.patch('/disputes/:id/reject', adminRejectDispute);
+router.delete('/disputes/:id', adminDeleteDispute);
 
 // Reviews — curation & showcase
 router.get('/reviews/curation', adminListReviewsForCuration);

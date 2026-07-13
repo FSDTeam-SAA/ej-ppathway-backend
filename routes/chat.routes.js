@@ -11,7 +11,9 @@ import {
   downloadChatTranscript,
   sendMessage,
   markChatRead,
-  adminListChats
+  adminListChats,
+  adminDeleteChat,
+  adminBulkDeleteChats
 } from '../controllers/chat.controller.js';
 
 const router = Router();
@@ -19,9 +21,11 @@ router.use(auth());
 
 router.get('/mine', myChats);
 router.get('/admin', auth('admin', 'sub_admin'), adminListChats);
+router.delete('/admin/bulk', auth('admin', 'sub_admin'), adminBulkDeleteChats);
 router.post('/session/:sessionId', ensureSessionChat);
 router.post('/admin', ensureAdminChat);
 router.post('/admin/with/:userId', auth('admin', 'sub_admin'), ensureAdminChatWith);
+router.delete('/admin/:id', auth('admin', 'sub_admin'), adminDeleteChat);
 router.get('/:id', getChat);
 router.get('/:id/messages', listMessages);
 router.get('/:id/transcript', downloadChatTranscript);

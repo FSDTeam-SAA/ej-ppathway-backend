@@ -11,6 +11,7 @@ import { deleteRoom, stopEgress } from '../config/livekit.js';
 import { refundToUserWallet } from '../services/session.service.js';
 import Transaction from '../models/transaction.model.js';
 import User from '../models/user.model.js';
+import AdvisorProfile from '../models/advisorProfile.model.js';
 import { buildChatTranscriptPdf } from '../services/chatTranscriptPdf.service.js';
 
 const MAX_TRANSCRIPT_MESSAGES = 10_000;
@@ -61,6 +62,23 @@ export const listSessions = catchAsync(async (req, res) => {
   else if (req.query.tab === 'disputed') filter.status = 'disputed';
   else if (req.query.tab === 'flagged') filter.status = 'flagged';
 
+  if (['chat', 'call', 'video'].includes(req.query.type)) {
+    filter.type = req.query.type;
+  }
+
+  if (['today', 'week', 'month'].includes(req.query.period)) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    if (req.query.period === 'week') start.setDate(start.getDate() - start.getDay());
+    if (req.query.period === 'month') start.setDate(1);
+    filter.createdAt = { $gte: start };
+  }
+
+  if (['silver', 'gold', 'platinum'].includes(req.query.tier)) {
+    const profiles = await AdvisorProfile.find({ tier: req.query.tier }).select('user').lean();
+    filter.advisor = { $in: profiles.map((p) => p.user) };
+  }
+
   if (req.query.q) {
     const q = String(req.query.q).trim();
     const ids = await userIdsForQuery(q, ['user', 'advisor']);
@@ -76,6 +94,15 @@ export const listSessions = catchAsync(async (req, res) => {
     .populate('user', 'name profilePhoto')
     .populate('advisor', 'name profilePhoto')
     .sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+  const advisorIds = [...new Set(items.map((s) => String(s.advisor?._id || s.advisor)).filter(Boolean))];
+  const profiles = advisorIds.length
+    ? await AdvisorProfile.find({ user: { $in: advisorIds } }).select('user tier').lean()
+    : [];
+  const tierMap = new Map(profiles.map((p) => [String(p.user), p.tier]));
+  const data = items.map((s) => ({
+    ...s,
+    advisorTier: tierMap.get(String(s.advisor?._id || s.advisor)) || ''
+  }));
 
   // overview counts
   const overview = await Session.aggregate([
@@ -83,7 +110,7 @@ export const listSessions = catchAsync(async (req, res) => {
   ]);
 
   return sendResponse(res, {
-    data: items,
+    data,
     meta: { ...buildMeta({ page, limit, total }), overview }
   });
 });
@@ -93,6 +120,7 @@ export const listSessions = catchAsync(async (req, res) => {
 // communications: video recordings, voice recordings AND text chat transcripts.
 // type = video | voice | chat | (all)
 const CHAT_DONE_STATUSES = ['completed', 'disputed', 'flagged', 'cancelled'];
+const MEDIA_DONE_STATUSES = ['completed', 'disputed', 'flagged', 'cancelled'];
 
 export const listRecordings = catchAsync(async (req, res) => {
   requireRecordingsViewPermission(req.user);
@@ -104,14 +132,22 @@ export const listRecordings = catchAsync(async (req, res) => {
 
   let filter;
   if (type === 'video') {
-    filter = { type: 'video', ...hasRecording };
+    filter = { type: 'video', status: { $in: MEDIA_DONE_STATUSES } };
   } else if (type === 'voice' || type === 'call') {
-    filter = { type: 'call', ...hasRecording };
+    filter = { type: 'call', status: { $in: MEDIA_DONE_STATUSES } };
   } else if (type === 'chat') {
     filter = chatMatch;
   } else {
-    // all: anything with a recording, plus every text-chat session
-    filter = { $or: [hasRecording, chatMatch] };
+    // all: every finished media session, plus every text-chat session. Some
+    // media rows may still be processing when the webhook has not attached the
+    // final recordingUrl yet; keep them visible instead of hiding the session.
+    filter = {
+      $or: [
+        { type: { $in: ['call', 'video'] }, status: { $in: MEDIA_DONE_STATUSES } },
+        chatMatch,
+        hasRecording
+      ]
+    };
   }
 
   if (req.query.q) {
@@ -283,9 +319,43 @@ export const adminCancelSession = catchAsync(async (req, res) => {
 });
 
 export const adminFlagSession = catchAsync(async (req, res) => {
-  const session = await Session.findByIdAndUpdate(req.params.id, { status: 'flagged' }, { new: true });
+  const session = await Session.findByIdAndUpdate(
+    req.params.id,
+    {
+      status: 'flagged',
+      flagReason: req.body?.reason || '',
+      flaggedAt: new Date(),
+      flaggedBy: req.user?._id
+    },
+    { new: true }
+  );
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   return sendResponse(res, { data: session });
+});
+
+export const adminRemoveFlagSession = catchAsync(async (req, res) => {
+  const session = await Session.findByIdAndUpdate(
+    req.params.id,
+    {
+      status: 'completed',
+      flagReason: '',
+      flaggedAt: null,
+      flaggedBy: null
+    },
+    { new: true }
+  );
+  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+  return sendResponse(res, { message: 'Flag removed', data: session });
+});
+
+export const adminUpdateSessionNotes = catchAsync(async (req, res) => {
+  const session = await Session.findByIdAndUpdate(
+    req.params.id,
+    { internalNotes: req.body?.internalNotes || '' },
+    { new: true }
+  );
+  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
+  return sendResponse(res, { message: 'Internal notes saved', data: session });
 });
 
 export const adminResolveDisputed = catchAsync(async (req, res) => {
