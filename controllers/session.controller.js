@@ -391,9 +391,20 @@ const sessionRange = (session) => {
 
 const rangesOverlap = (startA, endA, startB, endB) => startA < endB && endA > startB;
 
-const findBlockingBookings = async ({ advisorId, start, end, excludeSessionId }) => {
-  const windowStart = new Date(start.getTime() - 24 * 60 * 60 * 1000);
-  const windowEnd = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+const availabilitySettings = (profile) => ({
+  minNoticeMinutes: Math.max(0, Number(profile?.availabilitySettings?.minNoticeMinutes) || 0),
+  bookingWindowDays: Math.max(1, Number(profile?.availabilitySettings?.bookingWindowDays) || 30),
+  bufferMinutes: Math.max(0, Number(profile?.availabilitySettings?.bufferMinutes) || 0),
+  defaultDurationMinutes: Math.max(1, Number(profile?.availabilitySettings?.defaultDurationMinutes) || 15),
+  sameDayBooking: profile?.availabilitySettings?.sameDayBooking !== false
+});
+
+const findBlockingBookings = async ({ advisorId, start, end, excludeSessionId, bufferMinutes = 0 }) => {
+  const bufferMs = Math.max(0, Number(bufferMinutes) || 0) * 60 * 1000;
+  const blockedStart = new Date(start.getTime() - bufferMs);
+  const blockedEnd = new Date(end.getTime() + bufferMs);
+  const windowStart = new Date(blockedStart.getTime() - 24 * 60 * 60 * 1000);
+  const windowEnd = new Date(blockedEnd.getTime() + 24 * 60 * 60 * 1000);
   const filter = {
     advisor: advisorId,
     status: { $in: BOOKING_BLOCKING_STATUSES },
@@ -405,7 +416,7 @@ const findBlockingBookings = async ({ advisorId, start, end, excludeSessionId })
     .sort({ scheduledFor: 1 });
   return sessions.filter((session) => {
     const range = sessionRange(session);
-    return range && rangesOverlap(start, end, range.start, range.end);
+    return range && rangesOverlap(blockedStart, blockedEnd, range.start, range.end);
   });
 };
 
@@ -415,18 +426,35 @@ const assertAdvisorSlotAvailable = async ({ advisorId, profile, start, durationM
   }
   const duration = Math.max(1, Number(durationMinutes) || 15);
   const end = new Date(start.getTime() + duration * 60 * 1000);
-  if (start < new Date(Date.now() - 60 * 1000)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Please choose a future time slot');
+  const settings = availabilitySettings(profile);
+  const now = new Date();
+  const minStart = new Date(now.getTime() + settings.minNoticeMinutes * 60 * 1000);
+  const maxStart = new Date(now.getTime() + settings.bookingWindowDays * 24 * 60 * 60 * 1000);
+  if (start < minStart) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'This time is inside the advisor minimum notice window');
+  }
+  if (start > maxStart) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'This time is outside the advisor booking window');
   }
   const timezone = profile?.user?.timezone || profile?.timezone || 'UTC';
+  if (!settings.sameDayBooking && localDateKey(zonedParts(start, timezone)) === localDateKey(zonedParts(now, timezone))) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Same-day booking is not available for this advisor');
+  }
   const startSlot = matchingAvailabilitySlot(profile, start, timezone);
   const endSlot = matchingAvailabilitySlot(profile, new Date(end.getTime() - 60 * 1000), timezone);
   if (!startSlot || !endSlot || (startSlot.weekday || startSlot.date) !== (endSlot.weekday || endSlot.date) || startSlot.from !== endSlot.from || startSlot.to !== endSlot.to) {
     throw new ApiError(StatusCodes.CONFLICT, 'Advisor is not available at this time');
   }
-  const conflicts = await findBlockingBookings({ advisorId, start, end, excludeSessionId });
+  const conflicts = await findBlockingBookings({ advisorId, start, end, excludeSessionId, bufferMinutes: settings.bufferMinutes });
   if (conflicts.length) {
     throw new ApiError(StatusCodes.CONFLICT, 'This time is already booked. Please choose another available slot.');
+  }
+};
+
+const assertAdvisorSessionTypeEnabled = (profile, type) => {
+  const sessionTypes = profile?.sessionTypes || {};
+  if (sessionTypes[type] === false) {
+    throw new ApiError(StatusCodes.CONFLICT, `Advisor is not available for ${type} sessions`);
   }
 };
 
@@ -466,7 +494,8 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
   const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone');
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
 
-  const duration = Math.max(1, Number(durationMinutes) || 15);
+  const settings = availabilitySettings(profile);
+  const duration = Math.max(1, Number(durationMinutes) || settings.defaultDurationMinutes);
   const viewer = {
     timezone: viewerTimezone || advisor.timezone || 'UTC',
     offsetMinutes: viewerOffsetMinutes
@@ -480,6 +509,8 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
   const searchStart = new Date(Date.UTC(year, month - 1, day - 1, 0, 0, 0));
   const searchEnd = new Date(Date.UTC(year, month - 1, day + 2, 0, 0, 0));
   const now = new Date();
+  const minStart = new Date(now.getTime() + settings.minNoticeMinutes * 60 * 1000);
+  const maxStart = new Date(now.getTime() + settings.bookingWindowDays * 24 * 60 * 60 * 1000);
 
   const bookedDocs = await Session.find({
     advisor: advisorId,
@@ -512,14 +543,20 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
   for (let ms = searchStart.getTime(); ms < searchEnd.getTime(); ms += SLOT_STEP_MINUTES * 60 * 1000) {
     const start = new Date(ms);
     const end = new Date(ms + duration * 60 * 1000);
-    if (start <= now) continue;
+    if (start < minStart || start > maxStart) continue;
+    if (!settings.sameDayBooking && localDateKey(zonedParts(start, timezone)) === localDateKey(zonedParts(now, timezone))) continue;
     if (localDateKey(viewerDateParts(start, viewer)) !== dateKey) continue;
     const startSlot = matchingAvailabilitySlot(profile, start, timezone);
     const endSlot = matchingAvailabilitySlot(profile, new Date(end.getTime() - 60 * 1000), timezone);
     if (!startSlot || !endSlot || (startSlot.weekday || startSlot.date) !== (endSlot.weekday || endSlot.date) || startSlot.from !== endSlot.from || startSlot.to !== endSlot.to) continue;
     const overlaps = bookedDocs.some((session) => {
       const range = sessionRange(session);
-      return range && rangesOverlap(start, end, range.start, range.end);
+      return range && rangesOverlap(
+        new Date(start.getTime() - settings.bufferMinutes * 60 * 1000),
+        new Date(end.getTime() + settings.bufferMinutes * 60 * 1000),
+        range.start,
+        range.end
+      );
     });
     if (!overlaps) {
       availableSlots.push({
@@ -556,6 +593,11 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
     date: dateKey,
     durationMinutes: duration,
     stepMinutes: SLOT_STEP_MINUTES,
+    sessionTypes: {
+      chat: profile.sessionTypes?.chat !== false,
+      call: profile.sessionTypes?.call !== false,
+      video: profile.sessionTypes?.video !== false
+    },
     scheduleWindow: scheduleForDay && scheduleForDay.enabled !== false
       ? {
           from: scheduleWindows[0]?.from || scheduleForDay.from,
@@ -593,6 +635,7 @@ export const createBooking = catchAsync(async (req, res) => {
 
   const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone');
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
+  assertAdvisorSessionTypeEnabled(profile, type);
 
   const duration = Math.max(1, Number(durationMinutes) || 15);
   const scheduledStart = instantStart ? new Date() : scheduledFor ? new Date(scheduledFor) : new Date();

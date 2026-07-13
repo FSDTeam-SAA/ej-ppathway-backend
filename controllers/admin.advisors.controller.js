@@ -702,7 +702,7 @@ export const updateAdvisor = catchAsync(async (req, res) => {
     name, phoneNumber, country, state, city, timezone,
     professionalTitle, bio, detailedDescription, yearsOfExperience,
     expertise, styles, languages, tier, pricing,
-    isOnline, autoOnlineMode, weeklySchedule, dateAvailability
+    isOnline, autoOnlineMode, sessionTypes, weeklySchedule, dateAvailability
   } = req.body;
 
   const userPatch = {};
@@ -728,6 +728,13 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   if (languages !== undefined) profPatch.languages = toArray(languages);
   if (isOnline !== undefined) profPatch.isOnline = !!isOnline;
   if (autoOnlineMode !== undefined) profPatch.autoOnlineMode = !!autoOnlineMode;
+  if (sessionTypes && typeof sessionTypes === 'object') {
+    profPatch.sessionTypes = {
+      chat: sessionTypes.chat !== false,
+      call: sessionTypes.call !== false,
+      video: sessionTypes.video !== false
+    };
+  }
   if (weeklySchedule && typeof weeklySchedule === 'object') profPatch.weeklySchedule = weeklySchedule;
   if (dateAvailability && typeof dateAvailability === 'object') profPatch.dateAvailability = dateAvailability;
   if (tier !== undefined) {

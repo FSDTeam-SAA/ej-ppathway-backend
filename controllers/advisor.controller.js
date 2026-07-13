@@ -72,6 +72,33 @@ const normalizeDateAvailability = (dateAvailability) => {
   return normalized;
 };
 
+const clampNumber = (value, fallback, min, max) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+};
+
+const normalizeAvailabilitySettings = (settings = {}) => ({
+  minNoticeMinutes: clampNumber(settings.minNoticeMinutes, 0, 0, 10080),
+  bookingWindowDays: clampNumber(settings.bookingWindowDays, 30, 1, 365),
+  bufferMinutes: clampNumber(settings.bufferMinutes, 0, 0, 240),
+  defaultDurationMinutes: clampNumber(settings.defaultDurationMinutes, 15, 1, 240),
+  sameDayBooking: settings.sameDayBooking !== false
+});
+
+const normalizeAvailabilityTemplates = (templates = []) => {
+  if (!Array.isArray(templates)) return [];
+  return templates
+    .slice(0, 20)
+    .map((template, index) => ({
+      id: String(template?.id || `template-${Date.now()}-${index}`).trim(),
+      name: String(template?.name || 'Availability template').trim().slice(0, 80),
+      weeklySchedule: normalizeWeeklySchedule(template?.weeklySchedule || {}),
+      createdAt: template?.createdAt ? new Date(template.createdAt) : new Date()
+    }))
+    .filter((template) => template.id && template.name);
+};
+
 const stringifyComparable = (value) => JSON.stringify(value);
 
 const toMinutes = (hhmm) => {
@@ -315,6 +342,12 @@ const normalizePricing = (pricing = {}) => ({
   videoPerMin: Number(pricing.videoPerMin || 0)
 });
 
+const normalizeSessionTypes = (sessionTypes = {}) => ({
+  chat: sessionTypes.chat !== false,
+  call: sessionTypes.call !== false,
+  video: sessionTypes.video !== false
+});
+
 const pricingChanged = (existingProfile, profileUpdate) => {
   if (typeof profileUpdate.pricing === 'undefined') return false;
   if (!existingProfile) return true;
@@ -414,7 +447,7 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const allowedProfile = [
     'professionalTitle', 'bio', 'detailedDescription', 'yearsOfExperience',
-    'expertise', 'styles', 'languages', 'pricing', 'autoOnlineMode', 'weeklySchedule', 'dateAvailability', 'audioMessageUrl', 'introVideoUrl',
+    'expertise', 'styles', 'languages', 'pricing', 'sessionTypes', 'autoOnlineMode', 'availabilitySettings', 'availabilityTemplates', 'weeklySchedule', 'dateAvailability', 'audioMessageUrl', 'introVideoUrl',
     'psychicExtension', 'tools', 'wordsOfWisdom', 'endorsements'
   ];
   const allowedUser = ['name', 'phone', 'country', 'city', 'profilePhoto', 'language', 'timezone'];
@@ -428,6 +461,15 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   }
   if (typeof profileUpdate.dateAvailability !== 'undefined') {
     profileUpdate.dateAvailability = normalizeDateAvailability(profileUpdate.dateAvailability);
+  }
+  if (typeof profileUpdate.sessionTypes !== 'undefined') {
+    profileUpdate.sessionTypes = normalizeSessionTypes(profileUpdate.sessionTypes);
+  }
+  if (typeof profileUpdate.availabilitySettings !== 'undefined') {
+    profileUpdate.availabilitySettings = normalizeAvailabilitySettings(profileUpdate.availabilitySettings);
+  }
+  if (typeof profileUpdate.availabilityTemplates !== 'undefined') {
+    profileUpdate.availabilityTemplates = normalizeAvailabilityTemplates(profileUpdate.availabilityTemplates);
   }
 
   // Keep the displayed currency in sync with the selected country (the country's

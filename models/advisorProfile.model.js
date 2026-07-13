@@ -87,9 +87,35 @@ const advisorProfileSchema = new Schema(
       callPerMin: { type: Number, default: 0 },
       videoPerMin: { type: Number, default: 0 }
     },
+    sessionTypes: {
+      chat: { type: Boolean, default: true },
+      call: { type: Boolean, default: true },
+      video: { type: Boolean, default: true }
+    },
 
     // Availability
     autoOnlineMode: { type: Boolean, default: false },
+    availabilitySettings: {
+      minNoticeMinutes: { type: Number, default: 0, min: 0 },
+      bookingWindowDays: { type: Number, default: 30, min: 1 },
+      bufferMinutes: { type: Number, default: 0, min: 0 },
+      defaultDurationMinutes: { type: Number, default: 15, min: 1 },
+      sameDayBooking: { type: Boolean, default: true }
+    },
+    availabilityTemplates: {
+      type: [
+        new Schema(
+          {
+            id: { type: String, required: true, trim: true },
+            name: { type: String, required: true, trim: true },
+            weeklySchedule: { type: Schema.Types.Mixed, default: () => ({}) },
+            createdAt: { type: Date, default: Date.now }
+          },
+          { _id: false }
+        )
+      ],
+      default: []
+    },
     weeklySchedule: {
       monday: { type: dayScheduleSchema, default: () => ({}) },
       tuesday: { type: dayScheduleSchema, default: () => ({}) },
