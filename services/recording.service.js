@@ -1,39 +1,15 @@
 import fs from 'fs';
 import path from 'path';
-import cloudinary from '../config/cloudinary.js';
 import {
   hasS3,
   EGRESS_OUTPUT_DIR,
   getRecordingPublicUrl
 } from '../config/livekit.js';
-
-export const cloudinaryConfigured = () =>
-  !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
-
-/**
- * Upload a local video file to Cloudinary (chunked, handles large files).
- * Returns { url, publicId } or null on failure.
- */
-const uploadLocalFileToCloudinary = (localPath) =>
-  new Promise((resolve) => {
-    cloudinary.uploader.upload_large(
-      localPath,
-      {
-        resource_type: 'video',
-        folder: 'session_recordings',
-        use_filename: true,
-        unique_filename: true,
-        overwrite: false
-      },
-      (error, result) => {
-        if (error || !result?.secure_url) {
-          console.error('Cloudinary recording upload failed:', error?.message || 'no result');
-          return resolve(null);
-        }
-        resolve({ url: result.secure_url, publicId: result.public_id });
-      }
-    );
-  });
+import {
+  objectStorageConfigured,
+  parseObjectStorageUrl,
+  uploadFileToObjectStorage
+} from './upload.service.js';
 
 /**
  * Best-effort resolution of the local file path the egress wrote, given the
@@ -60,9 +36,9 @@ const resolveLocalPath = (reported) => {
 /**
  * Given a finished egress, return the public recording URL to persist.
  *
- * - S3 mode: LiveKit already uploaded; use the reported location (or our derived URL).
- * - Local mode: forward the file to Cloudinary if configured; otherwise serve it
- *   from the configured public base URL.
+ * - S3/R2 egress mode: LiveKit already uploaded; use the reported location
+ *   or the derived public URL.
+ * - Local egress mode: upload the local mp4 to R2, then remove the temp file.
  */
 export const resolveRecordingUrl = async (egressInfo) => {
   const results =
@@ -73,32 +49,48 @@ export const resolveRecordingUrl = async (egressInfo) => {
   const location = first.location || '';
   const filename = first.filename || '';
 
-  // S3 / cloud-native egress upload: the location is already a usable URL/key.
   if (hasS3()) {
-    if (location) return location;
     if (filename) return getRecordingPublicUrl(filename);
+    if (parseObjectStorageUrl(location)) return location;
+    if (location && !location.startsWith('http')) return getRecordingPublicUrl(location);
+    if (location) {
+      try {
+        const url = new URL(location);
+        const parts = url.pathname.replace(/^\/+/, '').split('/');
+        const key = parts.slice(1).join('/') || parts.join('/');
+        if (key) return getRecordingPublicUrl(key);
+      } catch {
+        // keep the original below
+      }
+      return location;
+    }
     return '';
   }
 
-  // Local egress file -> forward to Cloudinary when available.
   const localPath = resolveLocalPath(filename || location);
-  if (localPath && cloudinaryConfigured()) {
-    const uploaded = await uploadLocalFileToCloudinary(localPath);
-    if (uploaded?.url) {
-      // Clean up the temp file once it is safely in Cloudinary.
+  if (localPath && objectStorageConfigured()) {
+    const uploaded = await uploadFileToObjectStorage(
+      localPath,
+      'recordings',
+      'video',
+      {
+        filename: path.basename(localPath),
+        contentType: 'video/mp4'
+      }
+    );
+    if (uploaded?.secure_url) {
       try {
         fs.unlinkSync(localPath);
       } catch {
         // ignore cleanup failure
       }
-      return uploaded.url;
+      return uploaded.secure_url;
     }
   }
 
-  // Fallback: serve the local file from a configured public base URL.
   if (filename) return getRecordingPublicUrl(filename);
   if (location) return location;
   return '';
 };
 
-export default { cloudinaryConfigured, resolveRecordingUrl };
+export default { resolveRecordingUrl };

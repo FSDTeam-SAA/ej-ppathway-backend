@@ -45,7 +45,10 @@ export const updateProfile = catchAsync(async (req, res) => {
   }
 
   if (req.file) {
-    const result = await uploadBufferToCloudinary(req.file.buffer, 'profile-photos', 'image');
+    const result = await uploadBufferToCloudinary(req.file.buffer, 'profile-photos', 'image', {
+      contentType: req.file.mimetype,
+      filename: req.file.originalname
+    });
     update.profilePhoto = result.secure_url;
   }
 

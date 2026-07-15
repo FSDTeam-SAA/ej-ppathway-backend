@@ -59,9 +59,70 @@ const recordNotification = async (app, action, subject, mail) => {
 const DEFAULT_ADVISOR_DASHBOARD_URL = 'https://ej-ppathway-advisor-dashboard.vercel.app';
 const DEFAULT_PUBLIC_SITE_URL = 'https://www.propheticpathway.com';
 
+const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
+
+const appendPath = (base, path) => {
+  const cleanBase = trimTrailingSlash(base);
+  if (!path) return cleanBase;
+  return `${cleanBase}${path.startsWith('/') ? path : `/${path}`}`;
+};
+
+const appendQuery = (url, query, hash = '') => `${url}${url.includes('?') ? '&' : '?'}${query}${hash}`;
+
+const publicSiteBase = () => trimTrailingSlash(
+  process.env.PUBLIC_SITE_URL ||
+  process.env.WEBSITE_URL ||
+  process.env.CLIENT_URL ||
+  DEFAULT_PUBLIC_SITE_URL
+);
+
 const buildAdvisorLoginUrl = () => {
-  const base = (process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '');
+  if (process.env.ADVISOR_LOGIN_URL) return trimTrailingSlash(process.env.ADVISOR_LOGIN_URL);
+  const base = trimTrailingSlash(process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL);
   return base.endsWith('/login') ? base : `${base}/login`;
+};
+
+const buildAdvisorProfileUrl = () => {
+  if (process.env.ADVISOR_PROFILE_URL) return trimTrailingSlash(process.env.ADVISOR_PROFILE_URL);
+  return appendPath(process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL, '/profile');
+};
+
+const buildInterviewUrl = (applicationId) => {
+  const base = process.env.INTERVIEW_URL || process.env.CLIENT_URL || publicSiteBase();
+  return appendPath(base, `/advisor/interview/${applicationId}`);
+};
+
+const buildContractSigningUrl = (token) => {
+  const base = process.env.CONTRACT_SIGN_URL || appendPath(publicSiteBase(), '/contract/sign');
+  return appendQuery(trimTrailingSlash(base), `token=${encodeURIComponent(token)}`);
+};
+
+const buildOnboardingUrl = (token) => {
+  const configured = process.env.ONBOARDING_URL || process.env.Onboarding_url || '';
+  const fallbackPath = '/join-as-advisor/apply';
+  let base = configured || appendPath(publicSiteBase(), fallbackPath);
+
+  try {
+    const parsed = new URL(base, publicSiteBase());
+    const isOnboardingRoute =
+      parsed.pathname === '/advisor-onboarding' ||
+      parsed.pathname === fallbackPath;
+
+    // Some local/prod envs point generic frontend URLs at /login. The email
+    // must keep the configured origin, but always open the onboarding route.
+    if (!isOnboardingRoute) {
+      parsed.pathname = fallbackPath;
+      parsed.search = '';
+      parsed.hash = '';
+    }
+    base = parsed.toString().replace(/\/$/, '');
+  } catch {
+    base = appendPath(publicSiteBase(), fallbackPath);
+  }
+
+  const queryName = base.includes('/advisor-onboarding') ? 'token' : 'onboarding';
+  const hash = base.includes('/join-as-advisor/apply') ? '#pending-review' : '';
+  return appendQuery(trimTrailingSlash(base), `${queryName}=${encodeURIComponent(token)}`, hash);
 };
 
 // ====== Approvals ======
@@ -143,7 +204,7 @@ export const scheduleLiveInterview = catchAsync(async (req, res) => {
   const mail = await safeEmail('interview scheduled', () => sendInterviewScheduledEmail(app.user.email, {
     name: app.user.name,
     datetime: new Date(datetime).toUTCString(),
-    joinUrl: `${process.env.CLIENT_URL || ''}/advisor/interview/${app._id}`
+    joinUrl: buildInterviewUrl(app._id)
   }));
   await recordNotification(app, 'schedule_interview', 'Live Interview Scheduled', mail);
 
@@ -182,7 +243,10 @@ export const sendContract = catchAsync(async (req, res) => {
   // Admin can either upload a contract PDF (preferred) or paste an external URL.
   let contractUrl = req.body.contractUrl;
   if (req.file) {
-    const uploaded = await uploadBufferToCloudinary(req.file.buffer, 'advisor-contracts', 'auto');
+    const uploaded = await uploadBufferToCloudinary(req.file.buffer, 'advisor-contracts', 'auto', {
+      contentType: req.file.mimetype,
+      filename: req.file.originalname
+    });
     contractUrl = uploaded.secure_url;
   }
   if (!contractUrl) {
@@ -203,14 +267,7 @@ export const sendContract = catchAsync(async (req, res) => {
     contractId: String(app._id),
     type: 'contract-sign'
   });
-  // The login-less signing page lives on the public website. Using the advisor
-  // dashboard base here can open a blank page when that app has no /contract/sign route.
-  const publicBase = (
-    process.env.PUBLIC_SITE_URL ||
-    process.env.CLIENT_URL ||
-    DEFAULT_PUBLIC_SITE_URL
-  ).replace(/\/+$/, '');
-  const signingUrl = `${publicBase}/contract/sign?token=${encodeURIComponent(token)}`;
+  const signingUrl = buildContractSigningUrl(token);
 
   const mail = await safeEmail('advisor contract', () =>
     sendAdvisorContractEmail(app.user.email, { name: app.user.name, contractUrl: signingUrl })
@@ -397,8 +454,7 @@ export const sendOnboarding = catchAsync(async (req, res) => {
     applicationId: String(app._id),
     type: 'advisor-onboarding'
   });
-  const publicBase = (process.env.PUBLIC_SITE_URL || process.env.CLIENT_URL || DEFAULT_PUBLIC_SITE_URL).replace(/\/+$/, '');
-  const onboardingUrl = `${publicBase}/advisor-onboarding?token=${encodeURIComponent(token)}`;
+  const onboardingUrl = buildOnboardingUrl(token);
 
   const mail = await safeEmail('advisor onboarding', () =>
     sendAdvisorOnboardingEmail(app.user.email, { name: app.user.name, onboardingUrl })
@@ -480,7 +536,7 @@ export const rejectAdvisorProfile = catchAsync(async (req, res) => {
       name: app.user.name,
       approved: false,
       reason,
-      loginUrl: `${(process.env.ADVISOR_DASHBOARD_URL || DEFAULT_ADVISOR_DASHBOARD_URL).replace(/\/+$/, '')}/profile`
+      loginUrl: buildAdvisorProfileUrl()
     })
   );
   await recordNotification(app, 'profile_reject', 'Advisor Profile Update Required', mail);

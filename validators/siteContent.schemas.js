@@ -19,7 +19,7 @@ const link = z
   .strict()
   .optional();
 
-const image = z.string().optional(); // Cloudinary URL string
+const image = z.string().optional(); // Uploaded media URL string
 const richText = z.string().optional();
 
 const heroBase = z

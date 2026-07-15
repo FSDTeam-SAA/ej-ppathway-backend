@@ -12,7 +12,7 @@ ws_url: ws://127.0.0.1:7880
 
 # Where local recordings are written when the egress request has no S3 target.
 # This maps to /recordings in the container (shared volume), which the backend
-# also mounts so it can forward files to Cloudinary.
+# also mounts so it can forward files to R2/S3-compatible storage.
 log_level: info
 
 # Limit concurrent recordings to protect the VPS (each uses a headless Chrome).

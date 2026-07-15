@@ -6,6 +6,7 @@ import { dashboardOverview } from '../controllers/admin.dashboard.controller.js'
 
 import {
   createUser,
+  updateUser,
   listUsers,
   getUserDetails,
   giveFreeCredits,
@@ -168,6 +169,7 @@ router.get('/dashboard/overview', dashboardOverview);
 router.get('/users', listUsers);
 router.post('/users', createUser);
 router.get('/users/:id', getUserDetails);
+router.patch('/users/:id', updateUser);
 router.post('/users/:id/credits', giveFreeCredits);
 router.patch('/users/:id/suspend', suspendUser);
 router.patch('/users/:id/unsuspend', unsuspendUser);

@@ -50,7 +50,10 @@ const uploadDocs = async (files) => {
   if (!files || !files.length) return [];
   const urls = [];
   for (const f of files) {
-    const r = await uploadBufferToCloudinary(f.buffer, 'dispute-docs', 'auto');
+    const r = await uploadBufferToCloudinary(f.buffer, 'dispute-docs', 'auto', {
+      contentType: f.mimetype,
+      filename: f.originalname
+    });
     urls.push(r.secure_url);
   }
   return urls;

@@ -53,7 +53,7 @@ export const livekitWebhook = async (req, res) => {
       if (info && (event.event === 'egress_ended' || isComplete)) {
         const session = await findSessionForEgress(info);
         if (session) {
-          // S3 -> use reported location; local -> upload to Cloudinary (or serve locally).
+          // S3/R2 -> use reported location; local -> upload to R2 (or serve locally).
           const url = await resolveRecordingUrl(info);
           if (url) {
             session.recordingUrl = url;

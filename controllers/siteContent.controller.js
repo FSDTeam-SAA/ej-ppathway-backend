@@ -73,7 +73,7 @@ export const upsertSiteContent = catchAsync(async (req, res) => {
 
 /**
  * Generic media upload helper used by admin forms.
- * Accepts a single file field named `file`; returns Cloudinary secure_url.
+ * Accepts a single file field named `file`; returns the R2 object URL.
  * Folder defaults to `site-content/<pageSlug>/<sectionKey>`.
  */
 export const uploadSiteContentMedia = catchAsync(async (req, res) => {
@@ -89,7 +89,10 @@ export const uploadSiteContentMedia = catchAsync(async (req, res) => {
   const isVideo = req.file.mimetype.startsWith('video/');
   const resourceType = isVideo ? 'video' : 'image';
 
-  const result = await uploadBufferToCloudinary(req.file.buffer, folder, resourceType);
+  const result = await uploadBufferToCloudinary(req.file.buffer, folder, resourceType, {
+    contentType: req.file.mimetype,
+    filename: req.file.originalname
+  });
 
   return sendResponse(res, {
     statusCode: StatusCodes.CREATED,

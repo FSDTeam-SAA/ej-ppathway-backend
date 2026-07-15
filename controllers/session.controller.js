@@ -16,6 +16,7 @@ import { generateLiveKitToken, createRoom, deleteRoom, startRoomRecording, stopE
 import { settleSession, chargeUserWallet, refundToUserWallet } from '../services/session.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { calculateSessionCredits, getCreditUsage } from '../services/credit.service.js';
+import { fetchObjectStorage, parseObjectStorageUrl } from '../services/upload.service.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const UNSTARTED_TIMEOUT_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'];
@@ -33,8 +34,16 @@ const safeDownloadName = (value, fallback) => {
 };
 
 const configuredRecordingHosts = () => {
-  const hosts = new Set(['res.cloudinary.com']);
-  for (const raw of [process.env.RECORDING_PUBLIC_BASE_URL, process.env.EGRESS_S3_ENDPOINT]) {
+  const hosts = new Set();
+  for (const raw of [
+    process.env.RECORDING_PUBLIC_BASE_URL,
+    process.env.R2_PUBLIC_BASE_URL,
+    process.env.STORAGE_PUBLIC_BASE_URL,
+    process.env.EGRESS_S3_PUBLIC_BASE_URL,
+    process.env.R2_ENDPOINT,
+    process.env.STORAGE_S3_ENDPOINT,
+    process.env.EGRESS_S3_ENDPOINT
+  ]) {
     if (!raw) continue;
     try {
       hosts.add(new URL(raw).hostname.toLowerCase());
@@ -46,11 +55,16 @@ const configuredRecordingHosts = () => {
 };
 
 const trustedRecordingUrl = (raw) => {
+  if (parseObjectStorageUrl(raw)) return raw;
   try {
     const url = new URL(raw);
     if (!['https:', 'http:'].includes(url.protocol)) return null;
     const host = url.hostname.toLowerCase();
-    const trusted = configuredRecordingHosts().has(host) || host.endsWith('.amazonaws.com');
+    const trusted =
+      configuredRecordingHosts().has(host) ||
+      host.endsWith('.amazonaws.com') ||
+      host.endsWith('.r2.cloudflarestorage.com') ||
+      host.endsWith('.r2.dev');
     return trusted ? url : null;
   } catch {
     return null;
@@ -857,8 +871,8 @@ export const downloadSessionRecording = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Recording is not available');
   }
 
-  const url = trustedRecordingUrl(session.recordingUrl);
-  if (!url) {
+  const trustedRecording = trustedRecordingUrl(session.recordingUrl);
+  if (!trustedRecording) {
     console.error('Blocked untrusted or unusable recording URL', {
       sessionId: String(session._id),
       recordingUrl: session.recordingUrl
@@ -870,7 +884,9 @@ export const downloadSessionRecording = catchAsync(async (req, res) => {
   const controller = new AbortController();
   const connectTimeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    upstream = await fetch(url, { signal: controller.signal, redirect: 'error' });
+    upstream = parseObjectStorageUrl(trustedRecording)
+      ? await fetchObjectStorage(trustedRecording)
+      : await fetch(trustedRecording, { signal: controller.signal, redirect: 'error' });
   } catch (error) {
     console.error('Recording download fetch failed', {
       sessionId: String(session._id),

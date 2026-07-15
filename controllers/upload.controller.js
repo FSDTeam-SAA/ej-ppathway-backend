@@ -1,22 +1,7 @@
-import { Readable } from 'stream';
 import { StatusCodes } from 'http-status-codes';
-import cloudinary from '../config/cloudinary.js';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
-
-const streamUpload = (buffer, folder = 'express-uploads') => {
-  return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: 'image' },
-      (error, result) => {
-        if (error) return reject(error);
-        resolve(result);
-      }
-    );
-
-    Readable.from(buffer).pipe(uploadStream);
-  });
-};
+import { deleteObjectStorage, uploadBufferToObjectStorage } from '../services/upload.service.js';
 
 export const uploadImage = catchAsync(async (req, res) => {
   if (!req.file) {
@@ -24,7 +9,10 @@ export const uploadImage = catchAsync(async (req, res) => {
   }
 
   const folder = req.body.folder || 'express-uploads';
-  const result = await streamUpload(req.file.buffer, folder);
+  const result = await uploadBufferToObjectStorage(req.file.buffer, folder, 'image', {
+    contentType: req.file.mimetype,
+    filename: req.file.originalname
+  });
 
   res.status(StatusCodes.CREATED).json({
     success: true,
@@ -32,10 +20,11 @@ export const uploadImage = catchAsync(async (req, res) => {
     data: {
       public_id: result.public_id,
       secure_url: result.secure_url,
-      width: result.width,
-      height: result.height,
-      format: result.format,
-      bytes: result.bytes
+      url: result.url,
+      key: result.key,
+      bytes: result.bytes,
+      contentType: result.contentType,
+      provider: result.provider
     }
   });
 });
@@ -47,13 +36,7 @@ export const deleteImage = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'publicId is required');
   }
 
-  const result = await cloudinary.uploader.destroy(publicId, {
-    resource_type: 'image'
-  });
-
-  if (result.result !== 'ok' && result.result !== 'not found') {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Failed to delete image from Cloudinary');
-  }
+  const result = await deleteObjectStorage(publicId);
 
   res.status(StatusCodes.OK).json({
     success: true,

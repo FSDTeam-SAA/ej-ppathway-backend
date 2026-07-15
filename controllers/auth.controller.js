@@ -269,16 +269,26 @@ export const advisorApply = catchAsync(async (req, res) => {
 
   const photoFile = req.files?.profilePhoto?.[0];
   if (photoFile) {
-    const uploaded = await uploadBufferToCloudinary(photoFile.buffer, 'advisor-applications/profile-photos', 'image');
+    const uploaded = await uploadBufferToCloudinary(photoFile.buffer, 'advisor-applications/profile-photos', 'image', {
+      contentType: photoFile.mimetype,
+      filename: photoFile.originalname
+    });
     profilePhoto = uploaded.secure_url;
   }
 
   const introFile = req.files?.introVideo?.[0];
   if (introFile) {
-    const uploaded = await uploadBufferToCloudinary(introFile.buffer, 'advisor-applications/intro-videos', 'video');
     if (introFile.mimetype?.startsWith('audio/')) {
+      const uploaded = await uploadBufferToCloudinary(introFile.buffer, 'advisor-applications/intro-audio', 'auto', {
+        contentType: introFile.mimetype,
+        filename: introFile.originalname
+      });
       audioMessageUrl = uploaded.secure_url;
     } else {
+      const uploaded = await uploadBufferToCloudinary(introFile.buffer, 'advisor-applications/intro-videos', 'video', {
+        contentType: introFile.mimetype,
+        filename: introFile.originalname
+      });
       introVideoUrl = uploaded.secure_url;
     }
   }

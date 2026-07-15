@@ -7,8 +7,8 @@ Runs everything in Docker, isolated from anything else on the box:
 - **egress** — records each call/video into the shared `recordings` volume
 - **redis** — LiveKit ↔ Egress coordination
 
-MongoDB stays on Atlas (remote). Recordings go to **Cloudinary** by default
-(backend uploads them), or to **S3** if you set `EGRESS_S3_*`.
+MongoDB stays on Atlas (remote). Uploads and call/video recordings go to
+**Cloudflare R2** / S3-compatible object storage.
 
 `nginx` (already on the VPS) terminates TLS for two free **DuckDNS** subdomains:
 
@@ -57,7 +57,7 @@ openssl rand -hex 16   # -> API_KEY
 openssl rand -hex 32   # -> API_SECRET
 ```
 
-Edit **`.env`** (already has Cloudinary + Mongo filled):
+Edit **`.env`**:
 ```
 PORT=5001
 CLIENT_URL=https://ejpathwayapi.duckdns.org
@@ -65,8 +65,15 @@ SERVER_URL=https://ejpathwayapi.duckdns.org
 LIVEKIT_URL=wss://ejpathwaylk.duckdns.org
 LIVEKIT_API_KEY=<API_KEY>
 LIVEKIT_API_SECRET=<API_SECRET>
+R2_ACCESS_KEY_ID=<R2_ACCESS_KEY_ID>
+R2_SECRET_ACCESS_KEY=<R2_SECRET_ACCESS_KEY>
+R2_BUCKET=<R2_BUCKET>
+R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+R2_REGION=auto
+R2_FORCE_PATH_STYLE=true
+R2_PUBLIC_BASE_URL=https://<public-r2-domain>
 EGRESS_OUTPUT_DIR=/recordings
-# leave EGRESS_S3_* empty to use Cloudinary
+# EGRESS_S3_* can stay empty; egress reuses R2_* above.
 ```
 
 Edit **`deploy/livekit.yaml`** — set `keys:` to `<API_KEY>: <API_SECRET>` and

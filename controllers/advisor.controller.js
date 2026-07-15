@@ -24,6 +24,17 @@ const DAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'satur
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const RESCHEDULABLE_SESSION_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'];
 
+const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
+const appendPath = (base, path) => {
+  const cleanBase = trimTrailingSlash(base);
+  if (!cleanBase) return '';
+  return `${cleanBase}${path.startsWith('/') ? path : `/${path}`}`;
+};
+const buildSessionRescheduleUrl = (sessionId) => {
+  const base = process.env.SESSION_RESCHEDULE_URL || process.env.WEBSITE_URL || process.env.PUBLIC_SITE_URL || process.env.CLIENT_URL;
+  return appendPath(base, `/sessions/${sessionId}`);
+};
+
 const normalizeWeeklySchedule = (weeklySchedule) => {
   if (!weeklySchedule || typeof weeklySchedule !== 'object') return weeklySchedule;
   const normalized = {};
@@ -329,7 +340,7 @@ const notifySessionsNeedingReschedule = async ({ req, advisor, nextProfile, time
         name: session.user.name,
         advisorName: advisor.name,
         oldTime: formatDateTime(new Date(session.scheduledFor), timezone),
-        rescheduleUrl: process.env.WEBSITE_URL ? `${process.env.WEBSITE_URL}/sessions/${session._id}` : ''
+        rescheduleUrl: buildSessionRescheduleUrl(session._id)
       }).catch((error) => console.error('availability change email error', error?.message));
     }
   }));
@@ -396,7 +407,7 @@ export const updateMyApplication = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const allowed = [
     'professionalTitle', 'bio', 'detailedDescription', 'yearsOfExperience',
-    'expertise', 'styles', 'languages', 'preRecordedAnswers', 'pricing'
+    'expertise', 'styles', 'languages', 'preRecordedAnswers'
   ];
   const update = {};
   for (const k of allowed) if (typeof req.body[k] !== 'undefined') update[k] = req.body[k];
@@ -415,7 +426,10 @@ export const uploadIntroVideo = catchAsync(async (req, res) => {
   const isAudio = req.file.mimetype?.startsWith('audio/');
   const field = isAudio ? 'audioMessageUrl' : 'introVideoUrl';
   const folder = isAudio ? 'advisor-audio-messages' : 'advisor-intro-videos';
-  const result = await uploadBufferToCloudinary(req.file.buffer, folder, 'video');
+  const result = await uploadBufferToCloudinary(req.file.buffer, folder, isAudio ? 'auto' : 'video', {
+    contentType: req.file.mimetype,
+    filename: req.file.originalname
+  });
   await AdvisorApplication.findOneAndUpdate(
     { user: req.user._id },
     { [field]: result.secure_url },
@@ -447,7 +461,7 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const allowedProfile = [
     'professionalTitle', 'bio', 'detailedDescription', 'yearsOfExperience',
-    'expertise', 'styles', 'languages', 'pricing', 'sessionTypes', 'autoOnlineMode', 'availabilitySettings', 'availabilityTemplates', 'weeklySchedule', 'dateAvailability', 'audioMessageUrl', 'introVideoUrl',
+    'expertise', 'styles', 'languages', 'sessionTypes', 'autoOnlineMode', 'availabilitySettings', 'availabilityTemplates', 'weeklySchedule', 'dateAvailability', 'audioMessageUrl', 'introVideoUrl',
     'psychicExtension', 'tools', 'wordsOfWisdom', 'endorsements'
   ];
   const allowedUser = ['name', 'phone', 'country', 'city', 'profilePhoto', 'language', 'timezone'];
@@ -551,7 +565,10 @@ export const updateMyProfile = catchAsync(async (req, res) => {
 
 export const uploadProfilePhoto = catchAsync(async (req, res) => {
   if (!req.file) throw new ApiError(StatusCodes.BAD_REQUEST, 'image file required');
-  const result = await uploadBufferToCloudinary(req.file.buffer, 'profile-photos', 'image');
+  const result = await uploadBufferToCloudinary(req.file.buffer, 'profile-photos', 'image', {
+    contentType: req.file.mimetype,
+    filename: req.file.originalname
+  });
   const user = await User.findByIdAndUpdate(req.user._id, { profilePhoto: result.secure_url }, { new: true });
   return sendResponse(res, { data: { user, url: result.secure_url } });
 });

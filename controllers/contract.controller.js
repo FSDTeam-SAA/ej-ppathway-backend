@@ -71,6 +71,7 @@ export const getAdvisorOnboardingDetails = catchAsync(async (req, res) => {
     data: {
       applicationId: app._id,
       user: app.user,
+      applicantDetails: app.applicantDetails,
       professionalTitle: app.professionalTitle,
       bio: app.bio,
       detailedDescription: app.detailedDescription,
@@ -78,7 +79,6 @@ export const getAdvisorOnboardingDetails = catchAsync(async (req, res) => {
       expertise: app.expertise,
       styles: app.styles,
       languages: app.languages,
-      pricing: app.pricing,
       status: app.status
     }
   });
@@ -107,12 +107,6 @@ export const completeAdvisorOnboarding = catchAsync(async (req, res) => {
   user.isVerified = true;
   await user.save();
 
-  const pricing = {
-    chatPerMin: Number(body.chatPerMin ?? app.pricing?.chatPerMin ?? 0),
-    callPerMin: Number(body.callPerMin ?? app.pricing?.callPerMin ?? 0),
-    videoPerMin: Number(body.videoPerMin ?? app.pricing?.videoPerMin ?? 0)
-  };
-
   app.professionalTitle = body.professionalTitle || app.professionalTitle;
   app.bio = body.bio || app.bio;
   app.detailedDescription = body.detailedDescription || app.detailedDescription;
@@ -120,8 +114,7 @@ export const completeAdvisorOnboarding = catchAsync(async (req, res) => {
   app.languages = Array.isArray(body.languages) ? body.languages : app.languages;
   app.expertise = Array.isArray(body.expertise) ? body.expertise : app.expertise;
   app.styles = Array.isArray(body.styles) ? body.styles : app.styles;
-  app.pricing = pricing;
-  app.status = 'awaiting_approval';
+  app.status = 'pending_review';
   await app.save();
 
   const profile = await AdvisorProfile.findOneAndUpdate(
@@ -135,7 +128,6 @@ export const completeAdvisorOnboarding = catchAsync(async (req, res) => {
         languages: app.languages,
         expertise: app.expertise,
         styles: app.styles,
-        pricing,
         profileReviewStatus: 'pending_review',
         profileSubmittedAt: new Date(),
         profileRejectionReason: ''
@@ -407,7 +399,10 @@ export const signContract = catchAsync(async (req, res) => {
   // Store the captured signature image (best-effort).
   let signatureImageUrl = '';
   try {
-    const r = await uploadBufferToCloudinary(signatureBuffer, 'contract-signatures', 'image');
+    const r = await uploadBufferToCloudinary(signatureBuffer, 'contract-signatures', 'image', {
+      contentType: 'image/png',
+      filename: `signature-${app._id}.png`
+    });
     signatureImageUrl = r.secure_url;
   } catch (e) {
     console.error('[contract] signature upload failed:', e?.message || e);
@@ -431,7 +426,10 @@ export const signContract = catchAsync(async (req, res) => {
   const signedBuf = await buildSignedPdf(app.contract?.url, { signerName: name, signedAt, ip, signatureBuffer, advisor });
   if (signedBuf) {
     try {
-      const r = await uploadBufferToCloudinary(signedBuf, 'advisor-contracts-signed', 'auto');
+      const r = await uploadBufferToCloudinary(signedBuf, 'advisor-contracts-signed', 'auto', {
+        contentType: 'application/pdf',
+        filename: `signed-contract-${app._id}.pdf`
+      });
       signedPdfUrl = r.secure_url;
     } catch (e) {
       console.error('[contract] signed pdf upload failed:', e?.message || e);

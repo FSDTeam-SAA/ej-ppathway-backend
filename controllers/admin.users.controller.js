@@ -13,9 +13,10 @@ import { createNotification } from '../services/notification.service.js';
 import { logAdminActivity } from '../services/activity.service.js';
 
 export const createUser = catchAsync(async (req, res) => {
-  const { name, email, phone, password, country, city, state } = req.body || {};
-  if (!name || !email || !password) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'name, email, and password are required');
+  const { name, email, phone, phoneNumber, password, country, city, state, dateOfBirth } = req.body || {};
+  const normalizedPhone = String(phone || phoneNumber || '').trim();
+  if (!name || !email || !normalizedPhone || !country || !password) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'name, email, phone, country, and password are required');
   }
   if (String(password).length < 6) throw new ApiError(StatusCodes.BAD_REQUEST, 'Password too short');
 
@@ -26,12 +27,13 @@ export const createUser = catchAsync(async (req, res) => {
   const user = await User.create({
     name: String(name).trim(),
     email: normalizedEmail,
-    phone: phone || '',
+    phone: normalizedPhone,
     password,
     role: 'user',
-    country: country || '',
-    city: city || '',
-    state: state || '',
+    country: String(country || '').trim().toUpperCase(),
+    city: String(city || '').trim(),
+    state: String(state || '').trim(),
+    dateOfBirth: String(dateOfBirth || '').trim(),
     isVerified: true,
     status: 'active'
   });
@@ -48,6 +50,67 @@ export const createUser = catchAsync(async (req, res) => {
   return sendResponse(res, {
     statusCode: StatusCodes.CREATED,
     message: 'User created',
+    data: user
+  });
+});
+
+export const updateUser = catchAsync(async (req, res) => {
+  const allowedStatuses = ['active', 'suspended', 'deactivated', 'pending_verification'];
+  const {
+    name,
+    email,
+    phone,
+    country,
+    state,
+    city,
+    currency,
+    timezone,
+    dateOfBirth,
+    status
+  } = req.body || {};
+
+  const user = await User.findById(req.params.id);
+  if (!user || user.role !== 'user') throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+
+  if (name !== undefined) {
+    const value = String(name).trim();
+    if (!value) throw new ApiError(StatusCodes.BAD_REQUEST, 'Name is required');
+    user.name = value;
+  }
+
+  if (email !== undefined) {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!normalizedEmail) throw new ApiError(StatusCodes.BAD_REQUEST, 'Email is required');
+    const existing = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } });
+    if (existing) throw new ApiError(StatusCodes.CONFLICT, 'Email already registered');
+    user.email = normalizedEmail;
+  }
+
+  if (status !== undefined) {
+    if (!allowedStatuses.includes(status)) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid status');
+    user.status = status;
+  }
+
+  if (phone !== undefined) user.phone = String(phone || '').trim();
+  if (country !== undefined) user.country = String(country || '').trim().toUpperCase();
+  if (state !== undefined) user.state = String(state || '').trim();
+  if (city !== undefined) user.city = String(city || '').trim();
+  if (currency !== undefined) user.currency = String(currency || '').trim().toUpperCase();
+  if (timezone !== undefined) user.timezone = String(timezone || 'UTC').trim();
+  if (dateOfBirth !== undefined) user.dateOfBirth = String(dateOfBirth || '').trim();
+
+  await user.save();
+
+  await logAdminActivity({
+    adminId: req.user?._id,
+    action: 'user.update',
+    description: `Updated user ${user.name}`,
+    targetType: 'user',
+    targetUser: user._id
+  });
+
+  return sendResponse(res, {
+    message: 'User updated',
     data: user
   });
 });

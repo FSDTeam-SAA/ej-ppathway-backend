@@ -213,7 +213,10 @@ export const sendMessage = catchAsync(async (req, res) => {
   let attachments = [];
   if (req.files?.length) {
     for (const f of req.files) {
-      const r = await uploadBufferToCloudinary(f.buffer, 'chat-attachments', 'auto');
+      const r = await uploadBufferToCloudinary(f.buffer, 'chat-attachments', 'auto', {
+        contentType: f.mimetype,
+        filename: f.originalname
+      });
       attachments.push(r.secure_url);
     }
   }

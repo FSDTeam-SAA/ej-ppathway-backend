@@ -33,12 +33,12 @@ export const isLiveKitConfigured = () => !!LIVEKIT_URL;
  * When unset, egress falls back to writing to the egress container's local filesystem.
  */
 const EGRESS_S3 = {
-  accessKey: process.env.EGRESS_S3_ACCESS_KEY,
-  secret: process.env.EGRESS_S3_SECRET,
-  bucket: process.env.EGRESS_S3_BUCKET,
-  region: process.env.EGRESS_S3_REGION || 'us-east-1',
-  endpoint: process.env.EGRESS_S3_ENDPOINT, // e.g. https://minio.yourvps.com  (omit for AWS)
-  forcePathStyle: String(process.env.EGRESS_S3_FORCE_PATH_STYLE || 'true') === 'true'
+  accessKey: process.env.EGRESS_S3_ACCESS_KEY || process.env.R2_ACCESS_KEY_ID || process.env.STORAGE_S3_ACCESS_KEY,
+  secret: process.env.EGRESS_S3_SECRET || process.env.R2_SECRET_ACCESS_KEY || process.env.STORAGE_S3_SECRET,
+  bucket: process.env.EGRESS_S3_BUCKET || process.env.R2_PRIVATE_BUCKET || process.env.R2_BUCKET || process.env.STORAGE_S3_BUCKET,
+  region: process.env.EGRESS_S3_REGION || process.env.R2_REGION || process.env.STORAGE_S3_REGION || 'auto',
+  endpoint: process.env.EGRESS_S3_ENDPOINT || process.env.R2_ENDPOINT || process.env.STORAGE_S3_ENDPOINT,
+  forcePathStyle: String(process.env.EGRESS_S3_FORCE_PATH_STYLE || process.env.R2_FORCE_PATH_STYLE || process.env.STORAGE_S3_FORCE_PATH_STYLE || 'true') === 'true'
 };
 
 export const hasS3 = () => !!(EGRESS_S3.accessKey && EGRESS_S3.secret && EGRESS_S3.bucket);
@@ -46,7 +46,8 @@ export const hasS3 = () => !!(EGRESS_S3.accessKey && EGRESS_S3.secret && EGRESS_
 /**
  * Directory (inside the egress container) where recordings are written when NOT using S3.
  * This path is mounted to a shared volume so the backend can read the file and forward it
- * to Cloudinary. Both containers must mount the same host directory at this path.
+ * to R2/S3-compatible object storage. Both containers must mount the same host
+ * directory at this path.
  */
 export const EGRESS_OUTPUT_DIR = (process.env.EGRESS_OUTPUT_DIR || '/recordings').replace(/\/+$/, '');
 
@@ -55,7 +56,13 @@ export const EGRESS_OUTPUT_DIR = (process.env.EGRESS_OUTPUT_DIR || '/recordings'
  * Used to build a best-effort recordingUrl immediately at start time. The authoritative
  * URL is later confirmed by the LiveKit egress webhook (see webhook.controller.js).
  */
-const RECORDING_PUBLIC_BASE = (process.env.RECORDING_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+const RECORDING_PUBLIC_BASE = (
+  process.env.RECORDING_PUBLIC_BASE_URL ||
+  process.env.R2_PUBLIC_BASE_URL ||
+  process.env.STORAGE_PUBLIC_BASE_URL ||
+  process.env.EGRESS_S3_PUBLIC_BASE_URL ||
+  ''
+).replace(/\/+$/, '');
 
 /**
  * Build a public URL for a recording given its storage filepath.
@@ -64,6 +71,7 @@ export const getRecordingPublicUrl = (filepath) => {
   if (!filepath) return '';
   const clean = String(filepath).replace(/^\/+/, '');
   if (RECORDING_PUBLIC_BASE) return `${RECORDING_PUBLIC_BASE}/${clean}`;
+  if (EGRESS_S3.bucket) return `r2://${EGRESS_S3.bucket}/${clean}`;
   // Fall back to a path-style S3/MinIO URL when an endpoint is configured.
   if (EGRESS_S3.endpoint && EGRESS_S3.bucket) {
     const base = EGRESS_S3.endpoint.replace(/\/+$/, '');
@@ -144,7 +152,7 @@ export const removeParticipant = async (roomName, identity) => {
  *   - EGRESS_S3_* present  -> egress uploads straight to S3-compatible storage
  *                             (AWS S3, MinIO, Cloudflare R2, Wasabi, …)
  *   - otherwise            -> egress writes to a local file on a shared volume,
- *                             which the webhook handler forwards to Cloudinary
+ *                             which the webhook handler forwards to R2/S3 storage
  *                             (or serves directly if neither is configured).
  *
  * `nameOnly` is just the file name (e.g. "<sessionId>-<ts>.mp4").
@@ -184,7 +192,7 @@ export const startRoomRecording = async (roomName, nameOnly) => {
       egressId: info?.egressId,
       filepath,
       storage: useS3 ? 's3' : 'local',
-      // Only S3 has a stable public URL up front; local→Cloudinary resolves on the webhook.
+      // Only S3 has a stable public URL up front; local R2 upload resolves on the webhook.
       recordingUrl: useS3 ? getRecordingPublicUrl(filepath) : ''
     };
   } catch (e) {

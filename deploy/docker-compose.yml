@@ -56,7 +56,7 @@ services:
     ports:
       - "5055:5001"             # host 5055 (free) -> container 5001; nginx proxies to 5055
     volumes:
-      - recordings:/recordings  # same volume egress writes to (for Cloudinary upload)
+      - recordings:/recordings  # same volume egress writes to (for R2 upload fallback)
 
 volumes:
   recordings:

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
 import { imageUpload, videoUpload, documentUpload } from '../middlewares/upload.js';
 import { uploadImage, deleteImage } from '../controllers/upload.controller.js';
-import { uploadBufferToCloudinary } from '../services/upload.service.js';
+import { uploadBufferToObjectStorage } from '../services/upload.service.js';
 import { StatusCodes } from 'http-status-codes';
 import sendResponse from '../utils/sendResponse.js';
 import catchAsync from '../utils/catchAsync.js';
@@ -19,7 +19,10 @@ router.post(
   videoUpload.single('video'),
   catchAsync(async (req, res) => {
     if (!req.file) return sendResponse(res, { statusCode: StatusCodes.BAD_REQUEST, success: false, message: 'video required' });
-    const r = await uploadBufferToCloudinary(req.file.buffer, req.body.folder || 'videos', 'video');
+    const r = await uploadBufferToObjectStorage(req.file.buffer, req.body.folder || 'videos', 'video', {
+      contentType: req.file.mimetype,
+      filename: req.file.originalname
+    });
     return sendResponse(res, { statusCode: StatusCodes.CREATED, data: r });
   })
 );
@@ -29,7 +32,10 @@ router.post(
   documentUpload.single('document'),
   catchAsync(async (req, res) => {
     if (!req.file) return sendResponse(res, { statusCode: StatusCodes.BAD_REQUEST, success: false, message: 'document required' });
-    const r = await uploadBufferToCloudinary(req.file.buffer, req.body.folder || 'documents', 'auto');
+    const r = await uploadBufferToObjectStorage(req.file.buffer, req.body.folder || 'documents', 'auto', {
+      contentType: req.file.mimetype,
+      filename: req.file.originalname
+    });
     return sendResponse(res, { statusCode: StatusCodes.CREATED, data: r });
   })
 );

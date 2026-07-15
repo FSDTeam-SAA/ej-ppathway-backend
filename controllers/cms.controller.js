@@ -27,11 +27,19 @@ export const getBlog = catchAsync(async (req, res) => {
 export const createBlog = catchAsync(async (req, res) => {
   const data = { ...req.body };
   if (req.files?.profile) {
-    const r = await uploadBufferToCloudinary(req.files.profile[0].buffer, 'blog-author', 'image');
+    const file = req.files.profile[0];
+    const r = await uploadBufferToCloudinary(file.buffer, 'blog-author', 'image', {
+      contentType: file.mimetype,
+      filename: file.originalname
+    });
     data.profilePicture = r.secure_url;
   }
   if (req.files?.thumbnail) {
-    const r = await uploadBufferToCloudinary(req.files.thumbnail[0].buffer, 'blog-thumbnails', 'image');
+    const file = req.files.thumbnail[0];
+    const r = await uploadBufferToCloudinary(file.buffer, 'blog-thumbnails', 'image', {
+      contentType: file.mimetype,
+      filename: file.originalname
+    });
     data.thumbnail = r.secure_url;
   }
   const blog = await Blog.create(data);
@@ -41,11 +49,19 @@ export const createBlog = catchAsync(async (req, res) => {
 export const updateBlog = catchAsync(async (req, res) => {
   const data = { ...req.body };
   if (req.files?.profile) {
-    const r = await uploadBufferToCloudinary(req.files.profile[0].buffer, 'blog-author', 'image');
+    const file = req.files.profile[0];
+    const r = await uploadBufferToCloudinary(file.buffer, 'blog-author', 'image', {
+      contentType: file.mimetype,
+      filename: file.originalname
+    });
     data.profilePicture = r.secure_url;
   }
   if (req.files?.thumbnail) {
-    const r = await uploadBufferToCloudinary(req.files.thumbnail[0].buffer, 'blog-thumbnails', 'image');
+    const file = req.files.thumbnail[0];
+    const r = await uploadBufferToCloudinary(file.buffer, 'blog-thumbnails', 'image', {
+      contentType: file.mimetype,
+      filename: file.originalname
+    });
     data.thumbnail = r.secure_url;
   }
   const blog = await Blog.findByIdAndUpdate(req.params.id, data, { new: true });

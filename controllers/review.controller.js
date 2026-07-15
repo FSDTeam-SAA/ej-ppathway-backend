@@ -96,7 +96,10 @@ export const adminCreateShowcaseReview = catchAsync(async (req, res) => {
   const { rating, name, location, comment } = req.body;
   let photo = '';
   if (req.file) {
-    const r = await uploadBufferToCloudinary(req.file.buffer, 'showcase-reviews', 'image');
+    const r = await uploadBufferToCloudinary(req.file.buffer, 'showcase-reviews', 'image', {
+      contentType: req.file.mimetype,
+      filename: req.file.originalname
+    });
     photo = r.secure_url;
   }
   const review = await Review.create({
@@ -160,7 +163,10 @@ export const adminUpdateShowcaseReview = catchAsync(async (req, res) => {
     if (typeof req.body[k] !== 'undefined') update[k === 'rating' ? 'rating' : k] = req.body[k];
   }
   if (req.file) {
-    const r = await uploadBufferToCloudinary(req.file.buffer, 'showcase-reviews', 'image');
+    const r = await uploadBufferToCloudinary(req.file.buffer, 'showcase-reviews', 'image', {
+      contentType: req.file.mimetype,
+      filename: req.file.originalname
+    });
     update.showcasePhoto = r.secure_url;
   }
   const review = await Review.findOneAndUpdate(
