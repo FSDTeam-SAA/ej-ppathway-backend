@@ -14,6 +14,7 @@ import Transaction from '../models/transaction.model.js';
 import Review from '../models/review.model.js';
 import { generateLiveKitToken, createRoom, deleteRoom, startRoomRecording, stopEgress } from '../config/livekit.js';
 import { settleSession, chargeUserWallet, refundToUserWallet } from '../services/session.service.js';
+import { resolveRecordingUrl } from '../services/recording.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { calculateSessionCredits, getCreditUsage } from '../services/credit.service.js';
 import { fetchObjectStorage, parseObjectStorageUrl } from '../services/upload.service.js';
@@ -864,7 +865,11 @@ export const downloadSessionRecording = catchAsync(async (req, res) => {
   if (isUser && !session.recordingPriceUnlocked) {
     throw new ApiError(StatusCodes.PAYMENT_REQUIRED, 'Unlock this recording before downloading it');
   }
-  if (session.status === 'live' || session.recordingStatus === 'starting' || session.recordingStatus === 'recording') {
+  const isStillProcessing =
+    session.status === 'live' ||
+    session.recordingStatus === 'starting' ||
+    (session.recordingStatus === 'recording' && !session.recordingUrl);
+  if (isStillProcessing) {
     throw new ApiError(StatusCodes.CONFLICT, 'The recording is still being processed');
   }
   if (!session.recordingUrl || session.recordingStatus === 'failed') {
@@ -909,7 +914,7 @@ export const downloadSessionRecording = catchAsync(async (req, res) => {
     'session-recording.mp4'
   );
   res.setHeader('Content-Type', upstream.headers.get('content-type') || 'video/mp4');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
   const length = upstream.headers.get('content-length');
   if (length) res.setHeader('Content-Length', length);
   res.setHeader('Cache-Control', 'private, no-store');
@@ -1089,7 +1094,19 @@ export const endSession = catchAsync(async (req, res) => {
   if (session.status !== 'live') throw new ApiError(StatusCodes.BAD_REQUEST, 'Session is not live');
 
   session.endedAt = new Date();
-  if (session.egressId) await stopEgress(session.egressId);
+  if (session.egressId) {
+    const egressInfo = await stopEgress(session.egressId);
+    if (egressInfo) {
+      const recordingUrl = await resolveRecordingUrl(egressInfo);
+      if (recordingUrl) {
+        session.recordingUrl = recordingUrl;
+        session.recordingStatus = 'completed';
+        session.recordingError = '';
+      }
+    } else if (session.recordingUrl && session.recordingStatus === 'recording') {
+      session.recordingStatus = 'completed';
+    }
+  }
 
   await settleSession(session);
   await session.save();

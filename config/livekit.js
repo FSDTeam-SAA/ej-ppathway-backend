@@ -4,6 +4,8 @@ import {
   RoomServiceClient,
   EgressClient,
   EncodedFileType,
+  EncodedFileOutput,
+  S3Upload,
   WebhookReceiver
 } from 'livekit-server-sdk';
 
@@ -56,13 +58,19 @@ export const EGRESS_OUTPUT_DIR = (process.env.EGRESS_OUTPUT_DIR || '/recordings'
  * Used to build a best-effort recordingUrl immediately at start time. The authoritative
  * URL is later confirmed by the LiveKit egress webhook (see webhook.controller.js).
  */
-const RECORDING_PUBLIC_BASE = (
+const explicitRecordingPublicBase = (
   process.env.RECORDING_PUBLIC_BASE_URL ||
-  process.env.R2_PUBLIC_BASE_URL ||
-  process.env.STORAGE_PUBLIC_BASE_URL ||
   process.env.EGRESS_S3_PUBLIC_BASE_URL ||
+  process.env.STORAGE_PUBLIC_BASE_URL ||
   ''
 ).replace(/\/+$/, '');
+
+const r2PublicBucket = process.env.R2_PUBLIC_BUCKET || process.env.R2_BUCKET;
+const r2PublicBase = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+
+const recordingPublicBase =
+  explicitRecordingPublicBase ||
+  (r2PublicBase && EGRESS_S3.bucket && EGRESS_S3.bucket === r2PublicBucket ? r2PublicBase : '');
 
 /**
  * Build a public URL for a recording given its storage filepath.
@@ -70,7 +78,7 @@ const RECORDING_PUBLIC_BASE = (
 export const getRecordingPublicUrl = (filepath) => {
   if (!filepath) return '';
   const clean = String(filepath).replace(/^\/+/, '');
-  if (RECORDING_PUBLIC_BASE) return `${RECORDING_PUBLIC_BASE}/${clean}`;
+  if (recordingPublicBase) return `${recordingPublicBase}/${clean}`;
   if (EGRESS_S3.bucket) return `r2://${EGRESS_S3.bucket}/${clean}`;
   // Fall back to a path-style S3/MinIO URL when an endpoint is configured.
   if (EGRESS_S3.endpoint && EGRESS_S3.bucket) {
@@ -170,23 +178,26 @@ export const startRoomRecording = async (roomName, nameOnly) => {
       ? `recordings/${nameOnly}`
       : path.posix.join(EGRESS_OUTPUT_DIR, nameOnly);
 
-    const fileOutput = {
+    const fileOutputConfig = {
       fileType: EncodedFileType.MP4,
       filepath
     };
 
     if (useS3) {
-      // protobuf-es flattens the oneof: set the `s3` field directly.
-      fileOutput.s3 = {
-        accessKey: EGRESS_S3.accessKey,
-        secret: EGRESS_S3.secret,
-        bucket: EGRESS_S3.bucket,
-        region: EGRESS_S3.region,
-        ...(EGRESS_S3.endpoint ? { endpoint: EGRESS_S3.endpoint } : {}),
-        forcePathStyle: EGRESS_S3.forcePathStyle
+      fileOutputConfig.output = {
+        case: 's3',
+        value: new S3Upload({
+          accessKey: EGRESS_S3.accessKey,
+          secret: EGRESS_S3.secret,
+          bucket: EGRESS_S3.bucket,
+          region: EGRESS_S3.region,
+          ...(EGRESS_S3.endpoint ? { endpoint: EGRESS_S3.endpoint } : {}),
+          forcePathStyle: EGRESS_S3.forcePathStyle
+        })
       };
     }
 
+    const fileOutput = new EncodedFileOutput(fileOutputConfig);
     const info = await egressClient.startRoomCompositeEgress(roomName, { file: fileOutput });
     return {
       egressId: info?.egressId,

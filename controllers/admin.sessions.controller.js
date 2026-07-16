@@ -166,7 +166,7 @@ export const listRecordings = catchAsync(async (req, res) => {
   const total = await Session.countDocuments(filter);
   const items = await Session.find(filter)
     .select(
-      'sessionCode type status user advisor recordingUrl transcriptUrl actualDurationSec startedAt endedAt createdAt'
+      'sessionCode type status user advisor recordingUrl recordingStatus recordingError transcriptUrl actualDurationSec startedAt endedAt createdAt'
     )
     .populate('user', 'name profilePhoto email')
     .populate('advisor', 'name profilePhoto email')
