@@ -1392,7 +1392,7 @@ export const tipAdvisor = catchAsync(async (req, res) => {
     recipient: session.advisor,
     type: 'tip_received',
     title: 'You received a tip',
-    body: `$${amt} tip from your client`,
+    body: `${amt} credit${amt === 1 ? '' : 's'} tip from your client`,
     data: { sessionId: session._id, amount: amt }
   }, 'session:updated');
 
