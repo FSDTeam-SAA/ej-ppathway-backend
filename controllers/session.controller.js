@@ -685,6 +685,12 @@ export const createBooking = catchAsync(async (req, res) => {
 
   let session;
   try {
+    const recordingUnlockCharge =
+      type === 'video'
+        ? usage.videoRecording ?? usage.sessionRecording
+        : type === 'call'
+          ? usage.audioRecording ?? usage.sessionRecording
+          : usage.sessionRecording;
     session = await Session.create({
     _id: sessionId,
     user: req.user._id,
@@ -697,7 +703,7 @@ export const createBooking = catchAsync(async (req, res) => {
     ratePerMin,
     estimatedCost,
     holdAmount: estimatedCost,
-    unlockChargeRecording: usage.sessionRecording,
+    unlockChargeRecording: recordingUnlockCharge,
     unlockChargeTranscript: usage.chatTranscript
   });
   } catch (error) {
@@ -1427,7 +1433,12 @@ export const unlockSessionAsset = catchAsync(async (req, res) => {
 
   let amount = 0;
   const usage = await getCreditUsage();
-  if (asset === 'recording') amount = session.unlockChargeRecording || usage.sessionRecording;
+  if (asset === 'recording') {
+    const defaultRecordingCharge = session.type === 'video'
+      ? usage.videoRecording ?? usage.sessionRecording
+      : usage.audioRecording ?? usage.sessionRecording;
+    amount = session.unlockChargeRecording || defaultRecordingCharge;
+  }
   else if (asset === 'transcript') amount = session.unlockChargeTranscript || usage.chatTranscript;
   else throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid asset');
 

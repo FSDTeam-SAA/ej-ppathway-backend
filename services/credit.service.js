@@ -47,9 +47,12 @@ export const listCreditPacks = async ({ includeInactive = false } = {}) => {
 
 export const getCreditUsage = async () => {
   const settings = await getPlatformSettings();
+  const legacyRecording = Number(settings.creditUsage?.sessionRecording ?? DEFAULT_CREDIT_USAGE.sessionRecording);
   return {
     chatTranscript: Number(settings.creditUsage?.chatTranscript ?? DEFAULT_CREDIT_USAGE.chatTranscript),
-    sessionRecording: Number(settings.creditUsage?.sessionRecording ?? DEFAULT_CREDIT_USAGE.sessionRecording)
+    videoRecording: Number(settings.creditUsage?.videoRecording ?? legacyRecording),
+    audioRecording: Number(settings.creditUsage?.audioRecording ?? legacyRecording),
+    sessionRecording: legacyRecording
   };
 };
 

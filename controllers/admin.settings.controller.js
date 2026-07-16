@@ -266,19 +266,42 @@ export const updateCreditSettings = catchAsync(async (req, res) => {
   if (typeof req.body.creditUsageBlocks !== 'undefined') {
     settings.creditUsageBlocks = normalizeUsageBlocks(req.body.creditUsageBlocks);
     const recording = settings.creditUsageBlocks.find((block) => block.id === 'session_recording');
+    const videoRecording = settings.creditUsageBlocks.find((block) => block.id === 'video_recording');
+    const audioRecording = settings.creditUsageBlocks.find((block) => block.id === 'audio_recording');
     const transcript = settings.creditUsageBlocks.find((block) => block.id === 'chat_transcript');
     if (recording) settings.creditUsage.sessionRecording = Number(recording.credits || 0);
+    if (videoRecording) settings.creditUsage.videoRecording = Number(videoRecording.credits || 0);
+    if (audioRecording) settings.creditUsage.audioRecording = Number(audioRecording.credits || 0);
+    if (!recording && (videoRecording || audioRecording)) {
+      settings.creditUsage.sessionRecording = Math.max(
+        Number(videoRecording?.credits || 0),
+        Number(audioRecording?.credits || 0)
+      );
+    }
     if (transcript) settings.creditUsage.chatTranscript = Number(transcript.credits || 0);
   }
 
   if (req.body.creditUsage && typeof req.body.creditUsage === 'object') {
     const transcript = Number(req.body.creditUsage.chatTranscript);
-    const recording = Number(req.body.creditUsage.sessionRecording);
-    if (!Number.isFinite(transcript) || transcript < 0 || !Number.isFinite(recording) || recording < 0) {
+    const legacyRecording = Number(req.body.creditUsage.sessionRecording);
+    const videoRecording = Number(req.body.creditUsage.videoRecording ?? legacyRecording);
+    const audioRecording = Number(req.body.creditUsage.audioRecording ?? legacyRecording);
+    if (
+      !Number.isFinite(transcript) ||
+      transcript < 0 ||
+      !Number.isFinite(videoRecording) ||
+      videoRecording < 0 ||
+      !Number.isFinite(audioRecording) ||
+      audioRecording < 0
+    ) {
       throw new ApiError(StatusCodes.BAD_REQUEST, 'Credit usage values must be non-negative numbers');
     }
     settings.creditUsage.chatTranscript = transcript;
-    settings.creditUsage.sessionRecording = recording;
+    settings.creditUsage.videoRecording = videoRecording;
+    settings.creditUsage.audioRecording = audioRecording;
+    settings.creditUsage.sessionRecording = Number.isFinite(legacyRecording) && legacyRecording >= 0
+      ? legacyRecording
+      : Math.max(videoRecording, audioRecording);
   }
 
   await settings.save();

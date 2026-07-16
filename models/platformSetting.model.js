@@ -25,6 +25,8 @@ const DEFAULT_CREDIT_PACKS = [
 
 const DEFAULT_CREDIT_USAGE = {
   chatTranscript: 5,
+  videoRecording: 5,
+  audioRecording: 5,
   sessionRecording: 5
 };
 
@@ -36,8 +38,9 @@ const DEFAULT_CREDIT_USAGE_BLOCKS = [
   { id: 'video_5', activity: '5-Minute Video Call', sessionType: 'video', durationMinutes: 5, credits: 10, isActive: true, sortOrder: 5 },
   { id: 'video_10', activity: '10-Minute Video Call', sessionType: 'video', durationMinutes: 10, credits: 15, isActive: true, sortOrder: 6 },
   { id: 'video_15', activity: '15-Minute Video Call', sessionType: 'video', durationMinutes: 15, credits: 20, isActive: true, sortOrder: 7 },
-  { id: 'session_recording', activity: 'Session Recording', sessionType: 'add_on', durationMinutes: 0, credits: 5, isActive: true, sortOrder: 8 },
-  { id: 'chat_transcript', activity: 'Chat Transcript', sessionType: 'add_on', durationMinutes: 0, credits: 5, isActive: true, sortOrder: 9 }
+  { id: 'video_recording', activity: 'Video Recording Unlock', sessionType: 'add_on', durationMinutes: 0, credits: 5, isActive: true, sortOrder: 8 },
+  { id: 'audio_recording', activity: 'Audio Recording Unlock', sessionType: 'add_on', durationMinutes: 0, credits: 5, isActive: true, sortOrder: 9 },
+  { id: 'chat_transcript', activity: 'Chat PDF Transcript Unlock', sessionType: 'add_on', durationMinutes: 0, credits: 5, isActive: true, sortOrder: 10 }
 ];
 
 const DEFAULT_CREDIT_EXPIRATION_DAYS = 60;
@@ -142,6 +145,8 @@ const platformSettingSchema = new Schema(
     creditPacks: { type: [creditPackSchema], default: () => DEFAULT_CREDIT_PACKS },
     creditUsage: {
       chatTranscript: { type: Number, default: DEFAULT_CREDIT_USAGE.chatTranscript, min: 0 },
+      videoRecording: { type: Number, default: DEFAULT_CREDIT_USAGE.videoRecording, min: 0 },
+      audioRecording: { type: Number, default: DEFAULT_CREDIT_USAGE.audioRecording, min: 0 },
       sessionRecording: { type: Number, default: DEFAULT_CREDIT_USAGE.sessionRecording, min: 0 }
     },
     creditUsageBlocks: { type: [new Schema({
@@ -181,8 +186,17 @@ export const getPlatformSettings = async () => {
   if (!Array.isArray(s.creditPacks) || s.creditPacks.length === 0) s.creditPacks = DEFAULT_CREDIT_PACKS;
   if (!s.creditUsage) s.creditUsage = DEFAULT_CREDIT_USAGE;
   if (typeof s.creditUsage.chatTranscript !== 'number') s.creditUsage.chatTranscript = DEFAULT_CREDIT_USAGE.chatTranscript;
+  if (typeof s.creditUsage.videoRecording !== 'number') s.creditUsage.videoRecording = s.creditUsage.sessionRecording ?? DEFAULT_CREDIT_USAGE.videoRecording;
+  if (typeof s.creditUsage.audioRecording !== 'number') s.creditUsage.audioRecording = s.creditUsage.sessionRecording ?? DEFAULT_CREDIT_USAGE.audioRecording;
   if (typeof s.creditUsage.sessionRecording !== 'number') s.creditUsage.sessionRecording = DEFAULT_CREDIT_USAGE.sessionRecording;
-  if (!Array.isArray(s.creditUsageBlocks) || s.creditUsageBlocks.length === 0) s.creditUsageBlocks = DEFAULT_CREDIT_USAGE_BLOCKS;
+  if (!Array.isArray(s.creditUsageBlocks) || s.creditUsageBlocks.length === 0) {
+    s.creditUsageBlocks = DEFAULT_CREDIT_USAGE_BLOCKS;
+  } else {
+    const existingBlockIds = new Set(s.creditUsageBlocks.map((block) => block.id));
+    for (const block of DEFAULT_CREDIT_USAGE_BLOCKS) {
+      if (!existingBlockIds.has(block.id)) s.creditUsageBlocks.push(block);
+    }
+  }
   if (!s.payout) s.payout = {};
   if (typeof s.payout.payoutCreditUsdRate !== 'number') s.payout.payoutCreditUsdRate = s.creditUsdRate ?? DEFAULT_CREDIT_USD_RATE;
   if (!s.payout.payoutCurrency) s.payout.payoutCurrency = 'USD';
