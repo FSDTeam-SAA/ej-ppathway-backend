@@ -24,7 +24,14 @@ export const SAFETY_TYPES = [
   'spam_or_suspicious_activity'
 ];
 
-export const COMPLAINT_STATUSES = ['pending', 'reviewing', 'complete', 'reject'];
+export const COMPLAINT_STATUSES = [
+  'pending',
+  'reviewing',
+  'pending_information',
+  'complete',
+  'reject',
+  'escalated'
+];
 export const COMPLAINT_KIND = ['complain', 'safety_report'];
 
 const complaintSchema = new Schema(

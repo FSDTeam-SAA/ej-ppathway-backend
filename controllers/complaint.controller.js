@@ -156,7 +156,7 @@ export const adminListComplaints = catchAsync(async (req, res) => {
   const statsFilter = createdAt ? { createdAt } : {};
   const [total_, open, solved, rejected, totalDisputes, openDisputes, resolvedDisputes, flaggedUsers, flaggedAdvisors] = await Promise.all([
     Complaint.countDocuments(statsFilter),
-    Complaint.countDocuments({ ...statsFilter, status: { $in: ['pending', 'reviewing'] } }),
+    Complaint.countDocuments({ ...statsFilter, status: { $in: ['pending', 'reviewing', 'pending_information', 'escalated'] } }),
     Complaint.countDocuments({ ...statsFilter, status: 'complete' }),
     Complaint.countDocuments({ ...statsFilter, status: 'reject' }),
     Dispute.countDocuments(statsFilter),
@@ -196,7 +196,12 @@ export const adminUpdateComplaintStatus = catchAsync(async (req, res) => {
   if (!COMPLAINT_STATUSES.includes(status)) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid status');
   const c = await Complaint.findByIdAndUpdate(
     req.params.id,
-    { status, resolutionNote: note || '', resolvedBy: req.user._id, resolvedAt: new Date() },
+    {
+      status,
+      resolutionNote: note || '',
+      resolvedBy: req.user._id,
+      ...(status === 'complete' || status === 'reject' ? { resolvedAt: new Date() } : {})
+    },
     { new: true }
   );
   if (!c) throw new ApiError(StatusCodes.NOT_FOUND, 'Complaint not found');

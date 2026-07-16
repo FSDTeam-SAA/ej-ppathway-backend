@@ -297,7 +297,11 @@ export const adminRejectDispute = catchAsync(async (req, res) => {
 });
 
 export const adminMarkInvestigating = catchAsync(async (req, res) => {
-  const dispute = await Dispute.findByIdAndUpdate(req.params.id, { status: 'investigating' }, { new: true });
+  const dispute = await Dispute.findByIdAndUpdate(
+    req.params.id,
+    { status: 'investigating', resolvedBy: req.user._id },
+    { new: true }
+  );
   if (!dispute) throw new ApiError(StatusCodes.NOT_FOUND, 'Dispute not found');
   return sendResponse(res, { data: dispute });
 });

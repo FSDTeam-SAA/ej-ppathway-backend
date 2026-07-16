@@ -16,7 +16,8 @@ export const RESOLUTION_OPTIONS = [
   'full_refund',
   'partial_refund',
   'free_reschedule',
-  'assign_another_advisor'
+  'assign_another_advisor',
+  'no_action'
 ];
 
 export const DISPUTE_STATUSES = [
