@@ -1,7 +1,8 @@
 import {
   hyperwalletFetch,
   hyperwalletErrorMessage,
-  getHyperwalletProgramToken
+  getHyperwalletProgramToken,
+  getHyperwalletUserProgramToken
 } from '../config/hyperwallet.js';
 
 /**
@@ -26,6 +27,24 @@ const firstLast = (name = '') => {
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 };
 
+const clean = (value) => String(value || '').trim();
+
+const validDateOfBirth = (value) => {
+  const raw = clean(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '';
+  const date = new Date(`${raw}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return '';
+  const adultCutoff = new Date();
+  adultCutoff.setFullYear(adultCutoff.getFullYear() - 18);
+  return date <= adultCutoff ? raw : '';
+};
+
+const payoutProfileError = (problems) =>
+  Object.assign(
+    new Error(`Hyperwallet payout profile is incomplete. ${problems.join(' ')}`),
+    { statusCode: 400 }
+  );
+
 /**
  * Create a Hyperwallet user (payee) for an advisor.
  * @param {object} advisor  Mongoose User doc / lean object
@@ -34,23 +53,41 @@ const firstLast = (name = '') => {
  */
 export const createHyperwalletUser = async (advisor, extra = {}) => {
   const { firstName, lastName } = firstLast(advisor?.name);
-  const country = (extra.country || advisor?.country || process.env.DEFAULT_COUNTRY || 'US')
-    .toString()
+  const country = clean(extra.country || advisor?.country || process.env.DEFAULT_COUNTRY || 'US')
     .toUpperCase()
     .slice(0, 2);
+  const stateProvince = clean(extra.stateProvince || extra.state || advisor?.state).toUpperCase();
+  const dateOfBirth = validDateOfBirth(extra.dateOfBirth || advisor?.dateOfBirth);
+  const addressLine1 = clean(extra.addressLine1);
+  const city = clean(extra.city || advisor?.city);
+  const postalCode = clean(extra.postalCode);
+
+  const problems = [];
+  if (!dateOfBirth) problems.push('Provide dateOfBirth as YYYY-MM-DD for an adult payee.');
+  if (!addressLine1) problems.push('Provide addressLine1.');
+  if (!city) problems.push('Provide city.');
+  if (!country || country.length !== 2) problems.push('Provide a 2-letter country code.');
+  if (!postalCode) problems.push('Provide postalCode.');
+  if (!stateProvince) {
+    problems.push('Provide stateProvince.');
+  } else if (country === 'US' && !/^[A-Z]{2}$/.test(stateProvince)) {
+    problems.push('For US payees, stateProvince must be a 2-letter state code.');
+  }
+  if (problems.length) throw payoutProfileError(problems);
 
   const body = {
-    programToken: getHyperwalletProgramToken(),
+    programToken: getHyperwalletUserProgramToken(),
     clientUserId: String(advisor?._id || extra.clientUserId),
     profileType: 'INDIVIDUAL',
     firstName,
     lastName,
+    dateOfBirth,
     email: advisor?.email,
-    addressLine1: extra.addressLine1 || advisor?.city || 'N/A',
-    city: extra.city || advisor?.city || 'N/A',
-    stateProvince: extra.stateProvince || advisor?.state || 'N/A',
+    addressLine1,
+    city,
+    stateProvince,
     country,
-    postalCode: extra.postalCode || '00000'
+    postalCode
   };
 
   const { ok, data } = await hyperwalletFetch('/users', { method: 'POST', body });
@@ -127,6 +164,18 @@ export const listTransferMethods = async (userToken) => {
   return data?.data || [];
 };
 
+/** Create the short-lived, single-use JWT consumed by Hyperwallet WidgetKit. */
+export const createHyperwalletAuthenticationToken = async (userToken) => {
+  const { ok, data } = await hyperwalletFetch(
+    `/users/${encodeURIComponent(String(userToken))}/authentication-token`,
+    { method: 'POST' }
+  );
+  if (!ok || !data.value) {
+    throw new Error(hyperwalletErrorMessage(data, 'Failed to start secure payout-method setup'));
+  }
+  return data.value;
+};
+
 /** Permanently deactivate a bank-account transfer method. */
 export const deactivateBankAccount = async (userToken, trmToken) => {
   const { ok, data } = await hyperwalletFetch(
@@ -156,7 +205,7 @@ export const deactivatePaypalAccount = async (userToken, trmToken) => {
  * @param {string} [args.currency=USD]
  * @param {string} args.clientPaymentId   unique idempotency id (our transaction id)
  * @param {string} [args.notes]
- * @param {string} [args.purpose=OTHER]
+ * @param {string} [args.purpose=G0002] Hyperwallet purpose code (G0002 = Commission)
  * @returns {Promise<object>} raw payment (contains `token` pmt-… and `status`)
  */
 export const createPayment = async ({
@@ -165,7 +214,7 @@ export const createPayment = async ({
   currency = 'USD',
   clientPaymentId,
   notes,
-  purpose = 'OTHER'
+  purpose = 'G0002'
 }) => {
   const body = {
     programToken: getHyperwalletProgramToken(),

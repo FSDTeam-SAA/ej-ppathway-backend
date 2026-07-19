@@ -6,8 +6,7 @@ import { isHyperwalletConfigured } from '../config/hyperwallet.js';
 import {
   createHyperwalletUser,
   findHyperwalletUserByClientId,
-  createBankAccount,
-  createPaypalAccount,
+  listTransferMethods,
   deactivateBankAccount,
   deactivatePaypalAccount,
   createPayment,
@@ -44,7 +43,16 @@ export const creditsToUsd = (credits, cfg) => round2((Number(credits) || 0) * Nu
 /* Advisor payout account (Hyperwallet user + transfer method)                */
 /* -------------------------------------------------------------------------- */
 
-const last4 = (val) => String(val || '').replace(/\s+/g, '').slice(-4);
+const methodLabel = (method) => {
+  const type = String(method?.type || '').toUpperCase();
+  if (type === 'PAYPAL_ACCOUNT') return `PayPal ${method.email || ''}`.trim();
+  const masked = method?.bankAccountId || method?.cardNumber || '';
+  const institution = method?.bankName || (type === 'WIRE_ACCOUNT' ? 'Wire account' : 'Bank');
+  return `${institution}${masked ? ` ${masked}` : ''}`.trim();
+};
+
+const localMethodType = (method) =>
+  String(method?.type || '').toUpperCase() === 'PAYPAL_ACCOUNT' ? 'paypal' : 'bank_account';
 
 /** Create (or re-link) the Hyperwallet user (payee) for an advisor. Idempotent. */
 export const ensureHyperwalletUser = async (advisor, extra = {}) => {
@@ -66,42 +74,35 @@ export const ensureHyperwalletUser = async (advisor, extra = {}) => {
   return advisor;
 };
 
-/** Attach a bank account and persist it as the advisor's active payout method. */
-export const attachBankAccount = async (advisor, { branchId, bankAccountId, bankAccountPurpose, country, currency, extra }) => {
-  await ensureHyperwalletUser(advisor, extra || {});
-  const trm = await createBankAccount(advisor.hyperwallet.userToken, {
-    branchId,
-    bankAccountId,
-    bankAccountPurpose,
-    country: country || advisor.country,
-    currency
-  });
-  advisor.hyperwallet.transferMethodToken = trm.token;
-  advisor.hyperwallet.transferMethodType = 'bank_account';
-  advisor.hyperwallet.methodLabel = `Bank ****${last4(bankAccountId)}`;
-  advisor.hyperwallet.currency = (currency || trm.transferMethodCurrency || 'USD').toUpperCase();
-  advisor.hyperwallet.verified = true;
-  advisor.hyperwallet.updatedAt = new Date();
-  await advisor.save();
-  return trm;
-};
+/** Persist the transfer method created inside Hyperwallet's secure Drop-in UI. */
+export const syncPayoutMethodFromHyperwallet = async (advisor) => {
+  if (!advisor.hyperwallet?.userToken) {
+    throw Object.assign(new Error('Create the Hyperwallet payout account first'), { statusCode: 400 });
+  }
 
-/** Attach a PayPal account and persist it as the advisor's active payout method. */
-export const attachPaypalAccount = async (advisor, { email, country, currency, extra }) => {
-  await ensureHyperwalletUser(advisor, extra || {});
-  const trm = await createPaypalAccount(advisor.hyperwallet.userToken, {
-    email,
-    country: country || advisor.country,
-    currency
-  });
-  advisor.hyperwallet.transferMethodToken = trm.token;
-  advisor.hyperwallet.transferMethodType = 'paypal';
-  advisor.hyperwallet.methodLabel = `PayPal ${email}`;
-  advisor.hyperwallet.currency = (currency || trm.transferMethodCurrency || 'USD').toUpperCase();
-  advisor.hyperwallet.verified = true;
+  const methods = await listTransferMethods(advisor.hyperwallet.userToken);
+  const usable = methods
+    .filter(
+      (method) => !['DE_ACTIVATED', 'FAILED'].includes(String(method.status || '').toUpperCase())
+    )
+    .sort((a, b) => new Date(b.createdOn || 0).getTime() - new Date(a.createdOn || 0).getTime());
+  const method =
+    usable.find((item) => String(item.status || '').toUpperCase() === 'ACTIVATED') ||
+    usable.find((item) => item.isDefaultTransferMethod === true) ||
+    usable[0];
+
+  if (!method?.token) {
+    throw Object.assign(new Error('No active payout method was found in Hyperwallet'), { statusCode: 400 });
+  }
+
+  advisor.hyperwallet.transferMethodToken = method.token;
+  advisor.hyperwallet.transferMethodType = localMethodType(method);
+  advisor.hyperwallet.methodLabel = methodLabel(method);
+  advisor.hyperwallet.currency = (method.transferMethodCurrency || 'USD').toUpperCase();
+  advisor.hyperwallet.verified = String(method.status || '').toUpperCase() === 'ACTIVATED';
   advisor.hyperwallet.updatedAt = new Date();
   await advisor.save();
-  return trm;
+  return method;
 };
 
 /** Remove the advisor's active transfer method (deactivate on Hyperwallet + clear locally). */

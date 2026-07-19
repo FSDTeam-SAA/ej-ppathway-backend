@@ -13,14 +13,15 @@ import { detectCountry } from '../utils/geo.js';
 import { convertUsd, toProviderMinorUnits } from '../services/pricing.service.js';
 import { createPaypalOrder, capturePaypalOrder } from '../services/paypal.service.js';
 import { isPaypalConfigured } from '../config/paypal.js';
+import { getHyperwalletWidgetScriptUrl } from '../config/hyperwallet.js';
+import { createHyperwalletAuthenticationToken } from '../services/hyperwallet.service.js';
 import { creditUsageSummary, findCreditPack } from '../services/credit.service.js';
 import {
   getPayoutConfig,
   creditsToUsd,
   ensureHyperwalletUser,
-  attachBankAccount,
-  attachPaypalAccount,
   removePayoutMethod,
+  syncPayoutMethodFromHyperwallet,
   createPayoutRequest
 } from '../services/payout.service.js';
 
@@ -433,13 +434,21 @@ export const requestWithdrawal = catchAsync(async (req, res) => {
 // ===== Advisor self-service payout account (Hyperwallet) =====
 export const getMyPayoutAccount = catchAsync(async (req, res) => {
   if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
-  const advisor = await User.findById(req.user._id).select('name email country state hyperwallet');
+  const advisor = await User.findById(req.user._id).select(
+    'name email dateOfBirth country state city hyperwallet'
+  );
   const cfg = await getPayoutConfig();
   const wallet = await Wallet.findOne({ user: req.user._id }).select('earningsBalance pendingPayouts').lean();
   const available = Math.round(wallet?.earningsBalance || 0);
   return sendResponse(res, {
     data: {
       account: publicPayoutAccount(advisor),
+      advisor: {
+        dateOfBirth: advisor.dateOfBirth,
+        country: advisor.country,
+        state: advisor.state,
+        city: advisor.city
+      },
       config: { payoutCreditUsdRate: cfg.payoutCreditUsdRate, payoutCurrency: cfg.payoutCurrency, minPayoutCredits: cfg.minPayoutCredits },
       balance: { availableCredits: available, availableUsd: creditsToUsd(available, cfg) }
     }
@@ -453,24 +462,27 @@ export const setupMyPayoutAccount = catchAsync(async (req, res) => {
   return sendResponse(res, { message: 'Payout account ready', data: publicPayoutAccount(advisor) });
 });
 
-export const addMyBankAccount = catchAsync(async (req, res) => {
+export const createMyPayoutDropInToken = catchAsync(async (req, res) => {
   if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
-  const { branchId, bankAccountId, bankAccountPurpose, currency } = req.body;
-  if (!branchId || !bankAccountId) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'branchId (routing number) and bankAccountId are required');
-  }
   const advisor = await User.findById(req.user._id);
-  await attachBankAccount(advisor, { branchId, bankAccountId, bankAccountPurpose, currency, extra: req.body });
-  return sendResponse(res, { message: 'Bank account added', data: publicPayoutAccount(advisor) });
+  if (!advisor?.hyperwallet?.userToken) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Create your Hyperwallet payout account first');
+  }
+  const authenticationToken = await createHyperwalletAuthenticationToken(advisor.hyperwallet.userToken);
+  return sendResponse(res, {
+    data: {
+      userToken: advisor.hyperwallet.userToken,
+      authenticationToken,
+      widgetScriptUrl: getHyperwalletWidgetScriptUrl()
+    }
+  });
 });
 
-export const addMyPaypalAccount = catchAsync(async (req, res) => {
+export const syncMyPayoutDropInMethod = catchAsync(async (req, res) => {
   if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
-  const { email, currency } = req.body;
-  if (!email) throw new ApiError(StatusCodes.BAD_REQUEST, 'PayPal email is required');
   const advisor = await User.findById(req.user._id);
-  await attachPaypalAccount(advisor, { email, currency, extra: req.body });
-  return sendResponse(res, { message: 'PayPal account added', data: publicPayoutAccount(advisor) });
+  await syncPayoutMethodFromHyperwallet(advisor);
+  return sendResponse(res, { message: 'Payout method connected', data: publicPayoutAccount(advisor) });
 });
 
 export const removeMyPayoutMethod = catchAsync(async (req, res) => {

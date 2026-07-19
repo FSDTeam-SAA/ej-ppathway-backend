@@ -11,7 +11,8 @@
  *
  *   HYPERWALLET_USERNAME        REST API username (from the program portal)
  *   HYPERWALLET_PASSWORD        REST API password
- *   HYPERWALLET_PROGRAM_TOKEN   prg-xxxxxxxx (program the users/payments belong to)
+ *   HYPERWALLET_PROGRAM_TOKEN   prg-xxxxxxxx (funding/source program for payments)
+ *   HYPERWALLET_USER_PROGRAM_TOKEN prg-xxxxxxxx (IS/sub-program that owns payees)
  *   HYPERWALLET_MODE            sandbox | production   (default: sandbox)
  *
  * All REST resources live under the /rest/v4 prefix.
@@ -28,11 +29,20 @@ export const isHyperwalletConfigured = () =>
   Boolean(
     process.env.HYPERWALLET_USERNAME &&
       process.env.HYPERWALLET_PASSWORD &&
-      process.env.HYPERWALLET_PROGRAM_TOKEN
+      process.env.HYPERWALLET_PROGRAM_TOKEN &&
+      process.env.HYPERWALLET_USER_PROGRAM_TOKEN
   );
 
 export const getHyperwalletProgramToken = () =>
   (process.env.HYPERWALLET_PROGRAM_TOKEN || '').trim();
+
+export const getHyperwalletUserProgramToken = () =>
+  (process.env.HYPERWALLET_USER_PROGRAM_TOKEN || '').trim();
+
+export const getHyperwalletWidgetScriptUrl = () =>
+  (process.env.HYPERWALLET_MODE || 'sandbox').toLowerCase() === 'production'
+    ? 'https://www.paypalobjects.com/Payouts/embed-payouts.js'
+    : 'https://www.paypalobjects.com/Payouts/staging-embed-payouts.js';
 
 const basicAuthHeader = () => {
   const user = (process.env.HYPERWALLET_USERNAME || '').trim();
@@ -54,7 +64,7 @@ const basicAuthHeader = () => {
 export const hyperwalletFetch = async (path, { method = 'GET', body } = {}) => {
   if (!isHyperwalletConfigured()) {
     throw new Error(
-      'Hyperwallet is not configured. Set HYPERWALLET_USERNAME, HYPERWALLET_PASSWORD and HYPERWALLET_PROGRAM_TOKEN.'
+      'Hyperwallet is not configured. Set HYPERWALLET_USERNAME, HYPERWALLET_PASSWORD, HYPERWALLET_PROGRAM_TOKEN and HYPERWALLET_USER_PROGRAM_TOKEN.'
     );
   }
 

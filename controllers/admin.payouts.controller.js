@@ -8,14 +8,17 @@ import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { logAdminActivity } from '../services/activity.service.js';
-import { listTransferMethods } from '../services/hyperwallet.service.js';
+import { getHyperwalletWidgetScriptUrl } from '../config/hyperwallet.js';
+import {
+  createHyperwalletAuthenticationToken,
+  listTransferMethods
+} from '../services/hyperwallet.service.js';
 import {
   getPayoutConfig,
   creditsToUsd,
   ensureHyperwalletUser,
-  attachBankAccount,
-  attachPaypalAccount,
   removePayoutMethod,
+  syncPayoutMethodFromHyperwallet,
   hasPayoutMethod,
   createPayoutRequest,
   executePayout,
@@ -148,7 +151,7 @@ export const listPayoutAccounts = catchAsync(async (req, res) => {
 // GET /admin/payouts/accounts/:advisorId
 export const getAdvisorPayoutAccount = catchAsync(async (req, res) => {
   const advisor = await User.findOne({ _id: req.params.advisorId, role: 'advisor' })
-    .select('name email profilePhoto country state hyperwallet');
+    .select('name email profilePhoto dateOfBirth country state city hyperwallet');
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
 
   const cfg = await getPayoutConfig();
@@ -184,7 +187,10 @@ export const getAdvisorPayoutAccount = catchAsync(async (req, res) => {
         name: advisor.name,
         email: advisor.email,
         profilePhoto: advisor.profilePhoto,
-        country: advisor.country
+        country: advisor.country,
+        state: advisor.state,
+        city: advisor.city,
+        dateOfBirth: advisor.dateOfBirth
       },
       account: publicAccount(advisor),
       transferMethods,
@@ -216,42 +222,29 @@ export const setupAdvisorAccount = catchAsync(async (req, res) => {
   return sendResponse(res, { message: 'Payout account created', data: publicAccount(advisor) });
 });
 
-// POST /admin/payouts/accounts/:advisorId/bank
-export const addAdvisorBankAccount = catchAsync(async (req, res) => {
-  const { branchId, bankAccountId, bankAccountPurpose, currency } = req.body;
-  if (!branchId || !bankAccountId) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'branchId (routing number) and bankAccountId are required');
-  }
+// POST /admin/payouts/accounts/:advisorId/drop-in-token
+export const createAdvisorDropInToken = catchAsync(async (req, res) => {
   const advisor = await User.findOne({ _id: req.params.advisorId, role: 'advisor' });
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
-
-  await attachBankAccount(advisor, { branchId, bankAccountId, bankAccountPurpose, currency, extra: req.body });
-  await logAdminActivity({
-    adminId: req.user?._id,
-    action: 'payout.account.bank',
-    description: `Added bank payout method for ${advisor.name}`,
-    targetType: 'advisor',
-    targetUser: advisor._id
+  if (!advisor.hyperwallet?.userToken) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Create the Hyperwallet payout account first');
+  }
+  const authenticationToken = await createHyperwalletAuthenticationToken(advisor.hyperwallet.userToken);
+  return sendResponse(res, {
+    data: {
+      userToken: advisor.hyperwallet.userToken,
+      authenticationToken,
+      widgetScriptUrl: getHyperwalletWidgetScriptUrl()
+    }
   });
-  return sendResponse(res, { message: 'Bank account added', data: publicAccount(advisor) });
 });
 
-// POST /admin/payouts/accounts/:advisorId/paypal
-export const addAdvisorPaypalAccount = catchAsync(async (req, res) => {
-  const { email, currency } = req.body;
-  if (!email) throw new ApiError(StatusCodes.BAD_REQUEST, 'PayPal email is required');
+// POST /admin/payouts/accounts/:advisorId/sync-method
+export const syncAdvisorDropInMethod = catchAsync(async (req, res) => {
   const advisor = await User.findOne({ _id: req.params.advisorId, role: 'advisor' });
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
-
-  await attachPaypalAccount(advisor, { email, currency, extra: req.body });
-  await logAdminActivity({
-    adminId: req.user?._id,
-    action: 'payout.account.paypal',
-    description: `Added PayPal payout method for ${advisor.name}`,
-    targetType: 'advisor',
-    targetUser: advisor._id
-  });
-  return sendResponse(res, { message: 'PayPal account added', data: publicAccount(advisor) });
+  await syncPayoutMethodFromHyperwallet(advisor);
+  return sendResponse(res, { message: 'Payout method connected', data: publicAccount(advisor) });
 });
 
 // DELETE /admin/payouts/accounts/:advisorId/method

@@ -85,8 +85,8 @@ import {
   listPayoutAccounts,
   getAdvisorPayoutAccount,
   setupAdvisorAccount,
-  addAdvisorBankAccount,
-  addAdvisorPaypalAccount,
+  createAdvisorDropInToken,
+  syncAdvisorDropInMethod,
   removeAdvisorMethod,
   createPayout,
   processPayout,
@@ -235,8 +235,8 @@ router.get('/payouts/stats', payoutStats);
 router.get('/payouts/accounts', listPayoutAccounts);
 router.get('/payouts/accounts/:advisorId', getAdvisorPayoutAccount);
 router.post('/payouts/accounts/:advisorId/setup', setupAdvisorAccount);
-router.post('/payouts/accounts/:advisorId/bank', addAdvisorBankAccount);
-router.post('/payouts/accounts/:advisorId/paypal', addAdvisorPaypalAccount);
+router.post('/payouts/accounts/:advisorId/drop-in-token', createAdvisorDropInToken);
+router.post('/payouts/accounts/:advisorId/sync-method', syncAdvisorDropInMethod);
 router.delete('/payouts/accounts/:advisorId/method', removeAdvisorMethod);
 router.post('/payouts', createPayout);
 router.post('/payouts/:id/process', processPayout);
