@@ -75,3 +75,6 @@ coverage/
 # ------------------------------
 # public/uploads/
 # public/images/uploads/
+
+# Apple/App Store Connect private keys
+*.p8
