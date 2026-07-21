@@ -15,6 +15,7 @@ import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { detectCountry } from '../utils/geo.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import { DEFAULT_CREDIT_PRICING } from '../services/credit.service.js';
+import { MOBILE_LOGIN_ROLES, mobileLoginRoleError } from '../utils/mobileLoginRole.js';
 
 const OTP_EXPIRES_MIN = 10;
 
@@ -436,8 +437,11 @@ export const resendOtp = catchAsync(async (req, res) => {
 
 // ========== Login ==========
 export const login = catchAsync(async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, expectedRole } = req.body;
   if (!email || !password) throw new ApiError(StatusCodes.BAD_REQUEST, 'email and password required');
+  if (expectedRole !== undefined && !MOBILE_LOGIN_ROLES.includes(String(expectedRole).toLowerCase())) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'expectedRole must be either user or advisor');
+  }
 
   const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
   if (!user) throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials');
@@ -446,6 +450,15 @@ export const login = catchAsync(async (req, res) => {
 
   const ok = await user.comparePassword(password);
   if (!ok) throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials');
+
+  // Mobile clients identify which login entry point was used. Enforce that
+  // choice before creating tokens so admin accounts and cross-role logins do
+  // not enter an unsupported mobile UI. Calls that omit expectedRole (for
+  // example the web admin portal) retain the existing behavior.
+  if (expectedRole !== undefined) {
+    const roleError = mobileLoginRoleError({ actualRole: user.role, expectedRole });
+    if (roleError) throw new ApiError(StatusCodes.FORBIDDEN, roleError);
+  }
 
   user.lastLoginAt = new Date();
   await user.save();
