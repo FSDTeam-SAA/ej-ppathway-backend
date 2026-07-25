@@ -29,6 +29,7 @@ import {
   approveAdvisorProfile,
   rejectAdvisorProfile,
   deleteApplication,
+  downloadApplicationContractAsset,
   listAdvisors,
   getAdvisor,
   addAdvisorManually,
@@ -179,6 +180,7 @@ router.delete('/users/:id', deleteUser);
 // Advisor applications
 router.get('/advisor-applications', listApplications);
 router.get('/advisor-applications/:id', getApplication);
+router.get('/advisor-applications/:id/contract/:asset', downloadApplicationContractAsset);
 router.patch('/advisor-applications/:id/schedule-interview', scheduleLiveInterview);
 router.get('/advisor-applications/:id/interview-token', interviewToken);
 router.patch('/advisor-applications/:id/contract', documentUpload.single('contract'), sendContract);

@@ -1,4 +1,6 @@
 import { StatusCodes } from 'http-status-codes';
+import mongoose from 'mongoose';
+import { Readable } from 'node:stream';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
@@ -24,7 +26,7 @@ import {
 import { createNotification } from '../services/notification.service.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import { signContractToken } from '../utils/jwt.js';
-import { uploadBufferToCloudinary } from '../services/upload.service.js';
+import { fetchObjectStorage, parseObjectStorageUrl, uploadBufferToCloudinary } from '../services/upload.service.js';
 import { isWithinSchedule } from '../utils/availability.js';
 import { logAdminActivity } from '../services/activity.service.js';
 
@@ -68,6 +70,14 @@ const appendPath = (base, path) => {
 };
 
 const appendQuery = (url, query, hash = '') => `${url}${url.includes('?') ? '&' : '?'}${query}${hash}`;
+
+const safeDownloadName = (value, fallback) => {
+  const cleaned = String(value || '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100);
+  return cleaned || fallback;
+};
 
 const publicSiteBase = () => trimTrailingSlash(
   process.env.PUBLIC_SITE_URL ||
@@ -174,6 +184,79 @@ export const getApplication = catchAsync(async (req, res) => {
     .lean();
 
   return sendResponse(res, { data: { ...app, profile: profile || null } });
+});
+
+export const downloadApplicationContractAsset = catchAsync(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid application ID');
+  }
+
+  const assetConfig = {
+    signature: {
+      field: 'signatureImageUrl',
+      contentType: 'image/png',
+      disposition: 'inline',
+      filename: (app) => `advisor-signature-${app._id}.png`
+    },
+    'signed-pdf': {
+      field: 'signedPdfUrl',
+      contentType: 'application/pdf',
+      disposition: 'attachment',
+      filename: (app) => `signed-advisor-contract-${app._id}.pdf`
+    }
+  }[req.params.asset];
+
+  if (!assetConfig) throw new ApiError(StatusCodes.NOT_FOUND, 'Contract asset not found');
+
+  const app = await AdvisorApplication.findById(req.params.id).select('contract').lean();
+  if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
+
+  const assetUrl = app.contract?.[assetConfig.field];
+  if (!assetUrl) throw new ApiError(StatusCodes.NOT_FOUND, 'Contract asset is not available');
+  if (!parseObjectStorageUrl(assetUrl)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Contract asset is not stored in private storage');
+  }
+
+  let upstream;
+  try {
+    upstream = await fetchObjectStorage(assetUrl);
+  } catch (error) {
+    console.error('[admin] contract asset fetch failed:', {
+      applicationId: String(app._id),
+      asset: req.params.asset,
+      message: error?.message
+    });
+    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Could not retrieve the contract asset');
+  }
+
+  if (!upstream?.ok || !upstream.body) {
+    console.error('[admin] contract asset storage returned an error:', {
+      applicationId: String(app._id),
+      asset: req.params.asset,
+      status: upstream?.status
+    });
+    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Could not retrieve the contract asset');
+  }
+
+  const filename = safeDownloadName(assetConfig.filename(app), 'contract-asset');
+  res.setHeader('Content-Type', upstream.headers.get('content-type') || assetConfig.contentType);
+  res.setHeader('Content-Disposition', `${assetConfig.disposition}; filename="${filename}"`);
+  const length = upstream.headers.get('content-length');
+  if (length) res.setHeader('Content-Length', length);
+  res.setHeader('Cache-Control', 'private, no-store');
+
+  const stream = Readable.fromWeb(upstream.body);
+  req.on('aborted', () => stream.destroy());
+  stream.on('error', (error) => {
+    console.error('[admin] contract asset stream failed:', {
+      applicationId: String(app._id),
+      asset: req.params.asset,
+      message: error?.message
+    });
+    if (!res.headersSent) res.status(StatusCodes.BAD_GATEWAY).end();
+    else res.destroy(error);
+  });
+  stream.pipe(res);
 });
 
 export const scheduleLiveInterview = catchAsync(async (req, res) => {
