@@ -723,7 +723,7 @@ export const getAdvisor = catchAsync(async (req, res) => {
         missed: { $sum: { $cond: [{ $eq: ['$status', 'no_show'] }, 1, 0] } },
         grossRevenue: { $sum: '$chargedAmount' },
         advisorEarnings: { $sum: '$advisorPayout' },
-        platformEarnings: { $sum: '$platformCommission' },
+        platformEarnings: { $sum: 0 },
         refunds: { $sum: '$refundIssued' },
         tips: { $sum: '$tipAmount' },
         completedDurationSec: {

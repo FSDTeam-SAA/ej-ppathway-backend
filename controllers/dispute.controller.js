@@ -203,7 +203,7 @@ export const adminResolveDispute = catchAsync(async (req, res) => {
     // Reverse advisor earnings proportional
     const advisorWallet = await Wallet.findOne({ user: session.advisor });
     if (advisorWallet) {
-      const reverse = Math.min(advisorWallet.earningsBalance, round2(session.advisorPayout || amount * 0.8));
+      const reverse = Math.min(advisorWallet.earningsBalance, round2(session.advisorPayout || amount));
       if (reverse > 0) {
         advisorWallet.earningsBalance = round2(advisorWallet.earningsBalance - reverse);
         await advisorWallet.save();

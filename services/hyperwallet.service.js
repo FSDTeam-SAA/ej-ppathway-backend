@@ -205,7 +205,7 @@ export const deactivatePaypalAccount = async (userToken, trmToken) => {
  * @param {string} [args.currency=USD]
  * @param {string} args.clientPaymentId   unique idempotency id (our transaction id)
  * @param {string} [args.notes]
- * @param {string} [args.purpose=G0002] Hyperwallet purpose code (G0002 = Commission)
+ * @param {string} [args.purpose=G0002] Hyperwallet purpose code for service payouts
  * @returns {Promise<object>} raw payment (contains `token` pmt-… and `status`)
  */
 export const createPayment = async ({

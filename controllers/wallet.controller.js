@@ -21,8 +21,7 @@ import {
   creditsToUsd,
   ensureHyperwalletUser,
   removePayoutMethod,
-  syncPayoutMethodFromHyperwallet,
-  createPayoutRequest
+  syncPayoutMethodFromHyperwallet
 } from '../services/payout.service.js';
 
 const publicPayoutAccount = (advisor) => {
@@ -413,22 +412,11 @@ export const getTopupStatus = catchAsync(async (req, res) => {
 });
 
 // ===== Withdrawal =====
-// Advisor requests a payout of `credits` from their earnings balance. Credits are
-// held immediately; an admin then approves/sends the payout via Hyperwallet.
+// Advisor self-service withdrawals are disabled. Admins manage payout amounts
+// and payout timing from the admin payout dashboard.
 export const requestWithdrawal = catchAsync(async (req, res) => {
   if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
-  const credits = Number(req.body.credits ?? req.body.amount);
-
-  const advisor = await User.findById(req.user._id);
-  const tx = await createPayoutRequest({
-    advisor,
-    credits,
-    initiatedBy: req.user._id,
-    note: 'Advisor payout request',
-    autoProcess: false
-  });
-
-  return sendResponse(res, { message: 'Withdrawal requested', data: tx });
+  throw new ApiError(StatusCodes.FORBIDDEN, 'Payout amounts are managed by admins');
 });
 
 // ===== Advisor self-service payout account (Hyperwallet) =====
@@ -523,10 +511,6 @@ export const myEarningsOverview = catchAsync(async (req, res) => {
     { $match: { advisor: req.user._id, type: 'advisor_earning', status: 'completed' } },
     { $group: { _id: null, t: { $sum: '$amount' } } }
   ]);
-  const totalCommission = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'platform_commission', status: 'completed' } },
-    { $group: { _id: null, t: { $sum: '$amount' } } }
-  ]);
   const totalWithdraw = await Transaction.aggregate([
     { $match: { advisor: req.user._id, type: 'advisor_payout', withdrawalStatus: 'paid' } },
     { $group: { _id: null, t: { $sum: '$amount' } } }
@@ -539,7 +523,7 @@ export const myEarningsOverview = catchAsync(async (req, res) => {
       todayWithdrawals: todayWithdraw[0]?.t || 0,
       revenueCurve: curve,
       grossEarnings: totalEarnings[0]?.t || 0,
-      platformFee: totalCommission[0]?.t || 0,
+      platformFee: 0,
       netEarnings: round2((totalEarnings[0]?.t || 0)),
       totalWithdrawn: totalWithdraw[0]?.t || 0
     }

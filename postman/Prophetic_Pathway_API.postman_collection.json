@@ -5426,66 +5426,6 @@
           "response": []
         },
         {
-          "name": "Get Commissions",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/admin/finance/commissions",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "finance",
-                "commissions"
-              ],
-              "query": []
-            },
-            "description": ""
-          },
-          "response": []
-        },
-        {
-          "name": "Update Commissions",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/admin/finance/commissions",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "admin",
-                "finance",
-                "commissions"
-              ],
-              "query": []
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"bronze\": 20,\n  \"silver\": 15,\n  \"gold\": 10\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Update Minimum Withdrawal",
           "request": {
             "method": "PUT",

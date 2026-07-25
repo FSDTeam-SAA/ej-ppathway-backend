@@ -814,8 +814,6 @@ if (json && json.data && json.data._id) pm.collectionVariables.set("chatId", jso
       item('Finance Payouts', 'GET', '/api/v1/admin/finance/payouts?status=requested&page=1&limit=10'),
       item('Approve Payout', 'POST', '/api/v1/admin/finance/payouts/{{payoutId}}/approve'),
       item('Reject Payout', 'POST', '/api/v1/admin/finance/payouts/{{payoutId}}/reject', { body: jsonBody({ reason: 'Bank details missing.' }) }),
-      item('Get Commissions', 'GET', '/api/v1/admin/finance/commissions'),
-      item('Update Commissions', 'PUT', '/api/v1/admin/finance/commissions', { body: jsonBody({ bronze: 20, silver: 15, gold: 10 }) }),
       item('Update Minimum Withdrawal', 'PUT', '/api/v1/admin/finance/min-withdrawal', { body: jsonBody({ min: 50 }) }),
       item('Admin List Plans', 'GET', '/api/v1/admin/subscriptions/plans'),
       item('Admin Create Plan', 'POST', '/api/v1/admin/subscriptions/plans', {

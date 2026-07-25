@@ -59,8 +59,6 @@ const sessionSchema = new Schema(
     chargedAmount: { type: Number, default: 0 },       // total credits charged from user wallet
     creditsUsed: { type: Number, default: 0 },         // free credits used
     advisorPayout: { type: Number, default: 0 },
-    platformCommission: { type: Number, default: 0 },
-    commissionPercent: { type: Number, default: 20 },
 
     // Recording / transcript unlock
     recordingUrl: { type: String },

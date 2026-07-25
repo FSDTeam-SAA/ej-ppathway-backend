@@ -151,7 +151,7 @@ export const ROLE_PRESETS = {
   },
   finance_manager: {
     label: 'Finance Manager',
-    description: 'Revenue, payouts, subscriptions, refunds, commissions',
+    description: 'Revenue, payouts, subscriptions, and refunds',
     permissions: keysFor('Dashboard Overview', 'Revenue & Finance', 'Subscription Plans')
   },
   compliance_manager: {

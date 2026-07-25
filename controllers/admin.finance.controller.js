@@ -123,8 +123,6 @@ export const overview = catchAsync(async (req, res) => {
       monthlyRevenue: pMonth.gross,
       pendingPayouts: pay('requested').amount,
       pendingPayoutsCount: pay('requested').count,
-      platformCommission: pAll.net,
-
       platformRevenue: { today: pToday.gross, week: pWeek.gross, month: pMonth.gross, year: pYear.gross, allTime: pAll.gross },
       netRevenue: { today: pToday.net, week: pWeek.net, month: pMonth.net, year: pYear.net, allTime: pAll.net },
       wallet: {
@@ -159,7 +157,7 @@ export const overview = catchAsync(async (req, res) => {
   });
 });
 
-// Advisor Earnings tab — per-advisor gross/commission/net/paid figures.
+// Advisor Earnings tab — per-advisor earned and paid payout figures.
 export const advisorEarnings = catchAsync(async (req, res) => {
   const { page, limit } = parsePagination(req.query);
   const agg = await Transaction.aggregate([
@@ -168,7 +166,6 @@ export const advisorEarnings = catchAsync(async (req, res) => {
       $group: {
         _id: '$advisor',
         grossEarnings: { $sum: { $cond: [{ $in: ['$type', ADVISOR_TYPES] }, '$amount', 0] } },
-        platformCommission: { $sum: { $cond: [{ $eq: ['$type', 'platform_commission'] }, '$amount', 0] } },
         paidEarnings: {
           $sum: {
             $cond: [
@@ -199,7 +196,6 @@ export const advisorEarnings = catchAsync(async (req, res) => {
     tier: pMap.get(String(x._id))?.tier === 'bronze' ? 'silver' : pMap.get(String(x._id))?.tier || 'silver',
     totalSessions: pMap.get(String(x._id))?.totalSessions || 0,
     grossEarnings: round2(x.grossEarnings),
-    platformCommission: round2(x.platformCommission),
     netEarnings: round2(x.grossEarnings),
     paidEarnings: round2(x.paidEarnings)
   }));
@@ -227,7 +223,6 @@ export const exportReport = catchAsync(async (req, res) => {
         $group: {
           _id: '$advisor',
           gross: { $sum: { $cond: [{ $in: ['$type', ADVISOR_TYPES] }, '$amount', 0] } },
-          commission: { $sum: { $cond: [{ $eq: ['$type', 'platform_commission'] }, '$amount', 0] } },
           paid: { $sum: { $cond: [{ $and: [{ $eq: ['$type', 'advisor_payout'] }, { $eq: ['$withdrawalStatus', 'paid'] }] }, '$amount', 0] } }
         }
       },
@@ -235,10 +230,10 @@ export const exportReport = catchAsync(async (req, res) => {
     ]);
     const users = await User.find({ _id: { $in: agg.map((a) => a._id) } }).select('name email').lean();
     const uMap = new Map(users.map((u) => [String(u._id), u]));
-    headers = ['Advisor', 'Email', 'Gross Earnings', 'Platform Commission', 'Net Earnings', 'Paid Earnings'];
+    headers = ['Advisor', 'Email', 'Total Earned', 'Paid Earnings'];
     rows = agg.map((a) => {
       const u = uMap.get(String(a._id));
-      return [u?.name || '', u?.email || '', round2(a.gross), round2(a.commission), round2(a.gross), round2(a.paid)];
+      return [u?.name || '', u?.email || '', round2(a.gross), round2(a.paid)];
     });
   } else if (report === 'payouts') {
     const txs = await Transaction.find({ type: 'advisor_payout' })
@@ -402,29 +397,6 @@ export const rejectPayout = catchAsync(async (req, res) => {
   });
 
   return sendResponse(res, { message: 'Payout rejected', data: updated });
-});
-
-export const updateCommissions = catchAsync(async (req, res) => {
-  const { silver, gold, platinum } = req.body;
-  const settings = await getPlatformSettings();
-  const apply = (key, value) => {
-    if (typeof value === 'undefined') return;
-    const n = Number(value);
-    if (!Number.isFinite(n) || n < 0 || n > 100) {
-      throw new ApiError(StatusCodes.BAD_REQUEST, `${key} commission must be between 0 and 100`);
-    }
-    settings.commissions[key] = n;
-  };
-  apply('silver', silver);
-  apply('gold', gold);
-  apply('platinum', platinum);
-  await settings.save();
-  return sendResponse(res, { message: 'Commissions updated', data: settings.commissions });
-});
-
-export const getCommissions = catchAsync(async (_req, res) => {
-  const settings = await getPlatformSettings();
-  return sendResponse(res, { data: settings.commissions });
 });
 
 export const updateMinWithdrawal = catchAsync(async (req, res) => {

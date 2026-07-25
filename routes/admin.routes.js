@@ -63,8 +63,6 @@ import {
   listPayouts,
   approvePayout,
   rejectPayout,
-  getCommissions,
-  updateCommissions,
   updateMinWithdrawal
 } from '../controllers/admin.finance.controller.js';
 
@@ -224,8 +222,6 @@ router.delete('/finance/transactions/:id', deleteTransaction);
 router.get('/finance/payouts', listPayouts);
 router.patch('/finance/payouts/:id/approve', approvePayout);
 router.patch('/finance/payouts/:id/reject', rejectPayout);
-router.get('/finance/commissions', getCommissions);
-router.patch('/finance/commissions', updateCommissions);
 router.patch('/finance/min-withdrawal', updateMinWithdrawal);
 // Manual out-of-band completion fallback for a payout.
 router.patch('/finance/payouts/:id/mark-paid', markPayoutPaid);

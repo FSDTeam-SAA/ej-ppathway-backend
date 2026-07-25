@@ -17,7 +17,6 @@ export const TX_TYPES = [
   'advisor_earning',       // advisor earned from session
   'advisor_tip',
   'advisor_payout',        // advisor withdrew funds
-  'platform_commission',
   'promotion_purchase'
 ];
 

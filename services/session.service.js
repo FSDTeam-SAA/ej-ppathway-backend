@@ -2,7 +2,7 @@ import Session from '../models/session.model.js';
 import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import AdvisorProfile from '../models/advisorProfile.model.js';
-import { commissionPercentForAdvisor, computeTier } from './tier.service.js';
+import { computeTier } from './tier.service.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const roundCredits = (n) => Math.ceil(Number(n || 0));
@@ -60,7 +60,7 @@ export const creditAdvisor = async ({ advisorId, amount }) => {
 };
 
 /**
- * Settle a session: compute used minutes, charge user, pay advisor minus commission.
+ * Settle a session: compute used minutes, charge user, credit the advisor.
  */
 export const settleSession = async (session) => {
   if (!session.startedAt || !session.endedAt) return session;
@@ -69,10 +69,6 @@ export const settleSession = async (session) => {
 
   const minutes = sec / 60;
   const grossUserCharge = roundCredits(minutes * session.ratePerMin);
-
-  // determine commission from advisor tier (snapshot here)
-  const commissionPct = await commissionPercentForAdvisor(session.advisor);
-  session.commissionPercent = commissionPct;
 
   // user has been charging incrementally during session normally; final settle = final charge for any remainder
   // Here we assume holdAmount was charged upfront; we reconcile.
@@ -115,11 +111,8 @@ export const settleSession = async (session) => {
     });
   }
 
-  // advisor payout = chargedAmount * (100 - commission)/100
   const finalCharge = session.chargedAmount;
-  const platformCommission = round2((finalCharge * commissionPct) / 100);
-  const advisorPayout = round2(finalCharge - platformCommission);
-  session.platformCommission = platformCommission;
+  const advisorPayout = round2(finalCharge);
   session.advisorPayout = advisorPayout;
 
   if (advisorPayout > 0) {
@@ -132,15 +125,6 @@ export const settleSession = async (session) => {
       session: session._id,
       amount: advisorPayout,
       description: `Earnings from session ${session.sessionCode}`
-    });
-    await Transaction.create({
-      type: 'platform_commission',
-      status: 'completed',
-      user: session.user,
-      advisor: session.advisor,
-      session: session._id,
-      amount: platformCommission,
-      description: `Platform commission ${commissionPct}% on session ${session.sessionCode}`
     });
   }
 

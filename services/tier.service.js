@@ -24,15 +24,7 @@ export const computeTier = async (advisorId) => {
 
   if (profile.tier !== tier) {
     profile.tier = tier;
-    await profile.save();
+  await profile.save();
   }
   return tier;
-};
-
-export const commissionPercentForAdvisor = async (advisorId) => {
-  const profile = await AdvisorProfile.findOne({ user: advisorId });
-  const settings = await getPlatformSettings();
-  if (!profile) return settings.commissions.silver;
-  const tier = profile.tier === 'bronze' ? 'silver' : profile.tier;
-  return settings.commissions[tier] ?? settings.commissions.silver;
 };
