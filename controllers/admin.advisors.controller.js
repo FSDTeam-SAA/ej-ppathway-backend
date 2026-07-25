@@ -313,7 +313,6 @@ export const approveApplication = catchAsync(async (req, res) => {
         languages: app.languages,
         audioMessageUrl: app.audioMessageUrl,
         introVideoUrl: app.introVideoUrl,
-        pricing: app.pricing,
         profileReviewStatus: 'approved',
         profileSubmittedAt: new Date(),
         profileReviewedAt: new Date(),
@@ -432,8 +431,7 @@ export const sendOnboarding = catchAsync(async (req, res) => {
         styles: app.styles,
         languages: app.languages,
         audioMessageUrl: app.audioMessageUrl,
-        introVideoUrl: app.introVideoUrl,
-        pricing: app.pricing
+        introVideoUrl: app.introVideoUrl
       },
       $set: {
         profileReviewStatus: 'pending_review',
@@ -757,7 +755,7 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   const {
     name, phoneNumber, country, state, city, timezone,
     professionalTitle, bio, detailedDescription, yearsOfExperience,
-    expertise, styles, languages, tier, pricing,
+    expertise, styles, languages, tier,
     isOnline, autoOnlineMode, sessionTypes, weeklySchedule, dateAvailability
   } = req.body;
 
@@ -798,12 +796,6 @@ export const updateAdvisor = catchAsync(async (req, res) => {
     if (!normalizedTier) throw new ApiError(StatusCodes.BAD_REQUEST, 'Tier must be Silver, Gold, or Platinum');
     profPatch.tier = normalizedTier;
   }
-  if (pricing && typeof pricing === 'object') {
-    if (pricing.chatPerMin !== undefined && pricing.chatPerMin !== '') profPatch['pricing.chatPerMin'] = Number(pricing.chatPerMin);
-    if (pricing.callPerMin !== undefined && pricing.callPerMin !== '') profPatch['pricing.callPerMin'] = Number(pricing.callPerMin);
-    if (pricing.videoPerMin !== undefined && pricing.videoPerMin !== '') profPatch['pricing.videoPerMin'] = Number(pricing.videoPerMin);
-  }
-
   let profile = await AdvisorProfile.findOne({ user: user._id });
   if (Object.keys(profPatch).length) {
     profile = await AdvisorProfile.findOneAndUpdate({ user: user._id }, profPatch, { new: true, upsert: true });
@@ -819,7 +811,7 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
     country, state, city, timezone,
     language, languages, experience,
     type, style, expertise, styles,
-    professionalTitle, bio, tier, pricing
+    professionalTitle, bio, tier
   } = req.body;
   if (!name || !email || !password) throw new ApiError(StatusCodes.BAD_REQUEST, 'Missing required fields');
 
@@ -869,14 +861,6 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
     if (!normalizedTier) throw new ApiError(StatusCodes.BAD_REQUEST, 'Tier must be Silver, Gold, or Platinum');
     profileData.tier = normalizedTier;
   }
-  if (pricing && typeof pricing === 'object') {
-    const p = {};
-    if (pricing.chatPerMin !== undefined && pricing.chatPerMin !== '') p.chatPerMin = Number(pricing.chatPerMin);
-    if (pricing.callPerMin !== undefined && pricing.callPerMin !== '') p.callPerMin = Number(pricing.callPerMin);
-    if (pricing.videoPerMin !== undefined && pricing.videoPerMin !== '') p.videoPerMin = Number(pricing.videoPerMin);
-    if (Object.keys(p).length) profileData.pricing = p;
-  }
-
   await AdvisorProfile.create(profileData);
   await Wallet.findOneAndUpdate({ user: user._id }, { $setOnInsert: { user: user._id } }, { upsert: true });
 

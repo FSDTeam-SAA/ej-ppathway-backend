@@ -12,6 +12,7 @@ import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { computeTier } from '../services/tier.service.js';
+import { getAdvisorCreditPricing } from '../services/credit.service.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { sendSessionAvailabilityChangedEmail } from '../services/email.service.js';
@@ -347,26 +348,11 @@ const notifySessionsNeedingReschedule = async ({ req, advisor, nextProfile, time
   return affected.length;
 };
 
-const normalizePricing = (pricing = {}) => ({
-  chatPerMin: Number(pricing.chatPerMin || 0),
-  callPerMin: Number(pricing.callPerMin || 0),
-  videoPerMin: Number(pricing.videoPerMin || 0)
-});
-
 const normalizeSessionTypes = (sessionTypes = {}) => ({
   chat: sessionTypes.chat !== false,
   call: sessionTypes.call !== false,
   video: sessionTypes.video !== false
 });
-
-const pricingChanged = (existingProfile, profileUpdate) => {
-  if (typeof profileUpdate.pricing === 'undefined') return false;
-  if (!existingProfile) return true;
-
-  const before = normalizePricing(existingProfile.pricing || {});
-  const after = normalizePricing(profileUpdate.pricing || {});
-  return stringifyComparable(before) !== stringifyComparable(after);
-};
 
 const markProfilePendingReview = async (userId) => {
   await Promise.all([
@@ -452,16 +438,19 @@ export const uploadIntroVideo = catchAsync(async (req, res) => {
 // ===== Profile =====
 export const getMyProfile = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
-  const profile = await AdvisorProfile.findOne({ user: req.user._id });
-  const user = await User.findById(req.user._id);
-  return sendResponse(res, { data: { user, profile } });
+  const [profile, user, pricing] = await Promise.all([
+    AdvisorProfile.findOne({ user: req.user._id }).lean(),
+    User.findById(req.user._id).lean(),
+    getAdvisorCreditPricing()
+  ]);
+  return sendResponse(res, { data: { user, profile: profile ? { ...profile, pricing } : profile } });
 });
 
 export const updateMyProfile = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const allowedProfile = [
     'professionalTitle', 'bio', 'detailedDescription', 'yearsOfExperience',
-    'expertise', 'styles', 'languages', 'sessionTypes', 'autoOnlineMode', 'availabilitySettings', 'availabilityTemplates', 'weeklySchedule', 'dateAvailability', 'audioMessageUrl', 'introVideoUrl',
+    'expertise', 'styles', 'languages', 'isOnline', 'sessionTypes', 'autoOnlineMode', 'availabilitySettings', 'availabilityTemplates', 'weeklySchedule', 'dateAvailability', 'audioMessageUrl', 'introVideoUrl',
     'psychicExtension', 'tools', 'wordsOfWisdom', 'endorsements'
   ];
   const allowedUser = ['name', 'phone', 'country', 'city', 'profilePhoto', 'language', 'timezone'];
@@ -496,7 +485,7 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   }
 
   const existingProfile = await AdvisorProfile.findOne({ user: req.user._id }).lean();
-  const requiresAdminReview = pricingChanged(existingProfile, profileUpdate);
+  const requiresAdminReview = false;
   const availabilityChanged =
     typeof profileUpdate.weeklySchedule !== 'undefined' ||
     typeof profileUpdate.dateAvailability !== 'undefined';

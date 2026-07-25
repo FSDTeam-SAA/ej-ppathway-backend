@@ -32,11 +32,11 @@ router.get('/topup/cancel', stripeTopupCancel);
 router.get('/paypal/success', paypalTopupSuccess);
 router.get('/paypal/cancel', paypalTopupCancel);
 router.get('/credit-banner', getPublicCreditBanner);
+router.get('/credit-packs', getCreditPacks);
 
 router.use(auth());
 
 // User wallet
-router.get('/credit-packs', getCreditPacks);
 router.get('/me', getMyWallet);
 router.get('/transactions', getMyTransactions);
 router.post('/topup', createTopupCheckout);

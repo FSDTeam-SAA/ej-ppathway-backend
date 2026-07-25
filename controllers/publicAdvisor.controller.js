@@ -9,6 +9,7 @@ import AdvisorProfile from '../models/advisorProfile.model.js';
 import Review from '../models/review.model.js';
 import Favorite from '../models/favorite.model.js';
 import { buildAdvisorAvailability } from './session.controller.js';
+import { getAdvisorCreditPricing } from '../services/credit.service.js';
 
 const buildFilters = (q) => {
   const filter = {
@@ -30,12 +31,12 @@ const buildFilters = (q) => {
   // Connection method → advisor must offer a positive per-minute price for the
   // selected channel(s). chat | call | video map onto the pricing sub-fields.
   if (q.connection) {
-    const map = { chat: 'pricing.chatPerMin', call: 'pricing.callPerMin', video: 'pricing.videoPerMin' };
+    const map = { chat: 'sessionTypes.chat', call: 'sessionTypes.call', video: 'sessionTypes.video' };
     const conds = String(q.connection)
       .split(',')
       .map((c) => map[c.trim()])
       .filter(Boolean)
-      .map((path) => ({ [path]: { $gt: 0 } }));
+      .map((path) => ({ $or: [{ [path]: { $ne: false } }, { sessionTypes: { $exists: false } }] }));
     if (conds.length) filter.$and = filter.$and.concat(conds);
   }
 
@@ -43,8 +44,7 @@ const buildFilters = (q) => {
 };
 
 const buildSort = (q) => {
-  if (q.sortBy === 'price_low') return { 'pricing.chatPerMin': 1 };
-  if (q.sortBy === 'price_high') return { 'pricing.chatPerMin': -1 };
+  if (q.sortBy === 'price_low' || q.sortBy === 'price_high') return { avgRating: -1, totalSessions: -1 };
   if (q.sortBy === 'alphabetical') return { 'userName': 1 };
   if (q.sortBy === 'rating') return { avgRating: -1 };
   return { tier: -1, avgRating: -1, totalSessions: -1 };
@@ -58,12 +58,16 @@ const parseTimezoneOffsetMinutes = (value) => {
   return parsed;
 };
 
+const withGlobalPricing = (profile, pricing) => profile ? { ...profile, pricing } : profile;
 
 const populateUser = async (profiles) => {
   const ids = profiles.map((p) => p.user);
-  const users = await User.find({ _id: { $in: ids } }).lean();
+  const [users, pricing] = await Promise.all([
+    User.find({ _id: { $in: ids } }).lean(),
+    getAdvisorCreditPricing()
+  ]);
   const map = new Map(users.map((u) => [String(u._id), u]));
-  return profiles.map((p) => ({ profile: p, user: map.get(String(p.user)) || null }));
+  return profiles.map((p) => ({ profile: withGlobalPricing(p, pricing), user: map.get(String(p.user)) || null }));
 };
 
 const normalizeTags = (items = []) =>
@@ -154,9 +158,11 @@ export const getAdvisorDetails = catchAsync(async (req, res) => {
     }
   ]);
 
+  const pricing = await getAdvisorCreditPricing();
   const publicProfile = profile
     ? {
         ...profile,
+        pricing,
         avgRating: reviewStats ? Math.round(reviewStats.avgRating * 100) / 100 : 0,
         ratingsCount: reviewStats?.ratingsCount || 0
       }

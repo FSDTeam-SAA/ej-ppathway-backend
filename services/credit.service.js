@@ -76,6 +76,16 @@ export const getCreditUsdRate = async () => {
   return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_CREDIT_USD_RATE;
 };
 
+export const getAdvisorCreditPricing = async () => {
+  const settings = await getPlatformSettings();
+  const pricing = settings.advisorCreditPricing || DEFAULT_CREDIT_PRICING;
+  return {
+    chatPerMin: Number(pricing.chatPerMin ?? DEFAULT_CREDIT_PRICING.chatPerMin),
+    callPerMin: Number(pricing.callPerMin ?? DEFAULT_CREDIT_PRICING.callPerMin),
+    videoPerMin: Number(pricing.videoPerMin ?? DEFAULT_CREDIT_PRICING.videoPerMin)
+  };
+};
+
 export const findCreditPack = async ({ packId, credits }) => {
   const packs = await listCreditPacks();
   if (packId) {
@@ -111,8 +121,8 @@ export const findCreditPackByRevenueCatProduct = async (productId) => {
   return packs.find((pack) => pack.revenueCatProductId === id || pack.id === id) || null;
 };
 
-export const getAdvisorCreditRate = (profile, type) => {
-  const pricing = profile?.pricing || {};
+export const getAdvisorCreditRate = async (_profile, type) => {
+  const pricing = await getAdvisorCreditPricing();
   if (type === 'chat') return Number(pricing.chatPerMin ?? DEFAULT_CREDIT_PRICING.chatPerMin);
   if (type === 'call') return Number(pricing.callPerMin ?? DEFAULT_CREDIT_PRICING.callPerMin);
   if (type === 'video') return Number(pricing.videoPerMin ?? DEFAULT_CREDIT_PRICING.videoPerMin);
@@ -134,7 +144,7 @@ export const calculateSessionCredits = async ({ profile, type, durationMinutes }
     };
   }
 
-  const ratePerMin = Math.max(0, getAdvisorCreditRate(profile, type));
+  const ratePerMin = Math.max(0, await getAdvisorCreditRate(profile, type));
   return {
     ratePerMin,
     credits: roundCredits(ratePerMin * duration)
@@ -144,6 +154,7 @@ export const calculateSessionCredits = async ({ profile, type, durationMinutes }
 export const creditUsageSummary = async () => ({
   packs: await listCreditPacks(),
   creditUsdRate: await getCreditUsdRate(),
+  advisorCreditPricing: await getAdvisorCreditPricing(),
   customPurchasesEnabled: true,
   addOns: await getCreditUsage(),
   usageBlocks: await listCreditUsageBlocks(),

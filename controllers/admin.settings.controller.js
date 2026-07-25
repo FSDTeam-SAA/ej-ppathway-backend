@@ -133,6 +133,23 @@ const normalizeUsageBlocks = (blocks = []) => {
   });
 };
 
+const normalizeAdvisorCreditPricing = (pricing = {}) => {
+  const chatPerMin = Number(pricing.chatPerMin);
+  const callPerMin = Number(pricing.callPerMin);
+  const videoPerMin = Number(pricing.videoPerMin);
+  if (
+    !Number.isFinite(chatPerMin) ||
+    chatPerMin < 0 ||
+    !Number.isFinite(callPerMin) ||
+    callPerMin < 0 ||
+    !Number.isFinite(videoPerMin) ||
+    videoPerMin < 0
+  ) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Advisor credit pricing values must be non-negative numbers');
+  }
+  return { chatPerMin, callPerMin, videoPerMin };
+};
+
 // GET /api/v1/admin/promotion-plans
 export const listPromotionPlans = catchAsync(async (_req, res) => {
   const settings = await getPlatformSettings();
@@ -207,6 +224,7 @@ export const getCreditSettings = catchAsync(async (_req, res) => {
       signupFreeCredits: settings.signupFreeCredits,
       creditExpirationDays: settings.creditExpirationDays,
       creditUsdRate: settings.creditUsdRate,
+      advisorCreditPricing: creditUsage.advisorCreditPricing,
       ...bannerPayload(settings),
       creditPacks: creditUsage.packs,
       creditUsage: creditUsage.addOns,
@@ -241,6 +259,10 @@ export const updateCreditSettings = catchAsync(async (req, res) => {
       throw new ApiError(StatusCodes.BAD_REQUEST, 'creditExpirationDays must be greater than 0');
     }
     settings.creditExpirationDays = value;
+  }
+
+  if (req.body.advisorCreditPricing && typeof req.body.advisorCreditPricing === 'object') {
+    settings.advisorCreditPricing = normalizeAdvisorCreditPricing(req.body.advisorCreditPricing);
   }
 
   if (typeof req.body.creditBannerTitle !== 'undefined') {
@@ -312,6 +334,7 @@ export const updateCreditSettings = catchAsync(async (req, res) => {
       signupFreeCredits: settings.signupFreeCredits,
       creditExpirationDays: settings.creditExpirationDays,
       creditUsdRate: settings.creditUsdRate,
+      advisorCreditPricing: creditUsage.advisorCreditPricing,
       ...bannerPayload(settings),
       creditPacks: creditUsage.packs,
       creditUsage: creditUsage.addOns,

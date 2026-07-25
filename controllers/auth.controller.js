@@ -14,7 +14,6 @@ import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { detectCountry } from '../utils/geo.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
-import { DEFAULT_CREDIT_PRICING } from '../services/credit.service.js';
 import { MOBILE_LOGIN_ROLES, mobileLoginRoleError } from '../utils/mobileLoginRole.js';
 
 const OTP_EXPIRES_MIN = 10;
@@ -50,15 +49,6 @@ const toArrayField = (value) => {
       .filter(Boolean);
   }
   return [];
-};
-
-const toPricingField = (body = {}) => {
-  const parsed = parseJsonField(body.pricing, {});
-  return {
-    chatPerMin: Number(parsed?.chatPerMin ?? body.chatPerMin ?? DEFAULT_CREDIT_PRICING.chatPerMin),
-    callPerMin: Number(parsed?.callPerMin ?? body.callPerMin ?? DEFAULT_CREDIT_PRICING.callPerMin),
-    videoPerMin: Number(parsed?.videoPerMin ?? body.videoPerMin ?? DEFAULT_CREDIT_PRICING.videoPerMin)
-  };
 };
 
 const issueOtp = async (user, purpose = 'verify') => {
@@ -347,7 +337,6 @@ export const advisorApply = catchAsync(async (req, res) => {
     expertise: toArrayField(body.expertise || body.type),
     styles: toArrayField(body.styles || body.style),
     languages: toArrayField(body.languages || body.language || 'English'),
-    pricing: toPricingField(body),
     preRecordedAnswers: Array.isArray(preRecordedAnswers) ? preRecordedAnswers : [],
     stage: 'application',
     status: 'pending_review',

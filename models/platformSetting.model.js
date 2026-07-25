@@ -49,9 +49,9 @@ const DEFAULT_CREDIT_BANNER_TITLE = 'Prophetic Guidance';
 const DEFAULT_CREDIT_BANNER_SUBTITLE = 'As low as $1 per credit';
 
 const DEFAULT_ADVISOR_CREDIT_PRICING = {
-  chatPerMin: 0,
-  callPerMin: 0,
-  videoPerMin: 0
+  chatPerMin: 1,
+  callPerMin: 1,
+  videoPerMin: 2
 };
 
 const DEFAULT_PROMOTION_PLANS = {
@@ -149,6 +149,11 @@ const platformSettingSchema = new Schema(
       audioRecording: { type: Number, default: DEFAULT_CREDIT_USAGE.audioRecording, min: 0 },
       sessionRecording: { type: Number, default: DEFAULT_CREDIT_USAGE.sessionRecording, min: 0 }
     },
+    advisorCreditPricing: {
+      chatPerMin: { type: Number, default: DEFAULT_ADVISOR_CREDIT_PRICING.chatPerMin, min: 0 },
+      callPerMin: { type: Number, default: DEFAULT_ADVISOR_CREDIT_PRICING.callPerMin, min: 0 },
+      videoPerMin: { type: Number, default: DEFAULT_ADVISOR_CREDIT_PRICING.videoPerMin, min: 0 }
+    },
     creditUsageBlocks: { type: [new Schema({
       id: { type: String, required: true, trim: true },
       activity: { type: String, required: true, trim: true },
@@ -189,6 +194,10 @@ export const getPlatformSettings = async () => {
   if (typeof s.creditUsage.videoRecording !== 'number') s.creditUsage.videoRecording = s.creditUsage.sessionRecording ?? DEFAULT_CREDIT_USAGE.videoRecording;
   if (typeof s.creditUsage.audioRecording !== 'number') s.creditUsage.audioRecording = s.creditUsage.sessionRecording ?? DEFAULT_CREDIT_USAGE.audioRecording;
   if (typeof s.creditUsage.sessionRecording !== 'number') s.creditUsage.sessionRecording = DEFAULT_CREDIT_USAGE.sessionRecording;
+  if (!s.advisorCreditPricing) s.advisorCreditPricing = DEFAULT_ADVISOR_CREDIT_PRICING;
+  if (typeof s.advisorCreditPricing.chatPerMin !== 'number') s.advisorCreditPricing.chatPerMin = DEFAULT_ADVISOR_CREDIT_PRICING.chatPerMin;
+  if (typeof s.advisorCreditPricing.callPerMin !== 'number') s.advisorCreditPricing.callPerMin = DEFAULT_ADVISOR_CREDIT_PRICING.callPerMin;
+  if (typeof s.advisorCreditPricing.videoPerMin !== 'number') s.advisorCreditPricing.videoPerMin = DEFAULT_ADVISOR_CREDIT_PRICING.videoPerMin;
   if (!Array.isArray(s.creditUsageBlocks) || s.creditUsageBlocks.length === 0) {
     s.creditUsageBlocks = DEFAULT_CREDIT_USAGE_BLOCKS;
   } else {
