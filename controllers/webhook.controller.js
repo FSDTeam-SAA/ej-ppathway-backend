@@ -6,6 +6,7 @@ import Wallet from '../models/wallet.model.js';
 import User from '../models/user.model.js';
 import { findCreditPackByRevenueCatProduct } from '../services/credit.service.js';
 import { applyPaymentWebhook } from '../services/payout.service.js';
+import { reverseIapTipByStoreTransactionId } from '../services/iapTip.service.js';
 
 /**
  * Resolve which session an egress event belongs to.
@@ -96,11 +97,21 @@ export const revenueCatWebhook = async (req, res) => {
 
     const event = req.body?.event || req.body;
     const type = String(event?.type || '').toUpperCase();
+    const transactionId = event.transaction_id || event.transactionId || event.id;
+    const isRefund =
+      ['REFUND', 'REFUNDED'].includes(type) ||
+      (type === 'CANCELLATION' && ['CUSTOMER_SUPPORT', 'REFUND'].includes(String(event.cancel_reason || event.cancelReason || '').toUpperCase()));
+    if (isRefund && transactionId) {
+      const reversed = await reverseIapTipByStoreTransactionId(transactionId);
+      if (reversed?.type === 'tip_fiat') {
+        return res.status(200).json({ ok: true, reversedTip: true });
+      }
+    }
+
     const shouldCredit = ['INITIAL_PURCHASE', 'NON_RENEWING_PURCHASE', 'VIRTUAL_CURRENCY_TRANSACTION'].includes(type);
     if (!shouldCredit) return res.status(200).json({ ok: true, skipped: true });
 
     const productId = event.product_id || event.productId || event.product_identifier;
-    const transactionId = event.transaction_id || event.transactionId || event.id;
     const appUserId = event.app_user_id || event.appUserId;
     if (!productId || !transactionId || !appUserId) {
       return res.status(200).json({ ok: false, skipped: true, message: 'Missing purchase identifiers' });

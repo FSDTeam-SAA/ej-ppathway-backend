@@ -98,6 +98,8 @@ const sessionSchema = new Schema(
 
     // Tip
     tipAmount: { type: Number, default: 0 },
+    tipAmountFiatUsd: { type: Number, default: 0 },
+    tipCount: { type: Number, default: 0 },
 
     // Rating reference
     review: { type: Schema.Types.ObjectId, ref: 'Review' }

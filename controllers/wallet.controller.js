@@ -38,6 +38,13 @@ const publicPayoutAccount = (advisor) => {
 };
 
 const round2 = (n) => Math.round(n * 100) / 100;
+const advisorEarningAmountExpr = {
+  $cond: [
+    { $eq: ['$type', 'advisor_tip_fiat'] },
+    { $ifNull: ['$payoutCredits', '$amount'] },
+    '$amount'
+  ]
+};
 const recentDate = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 const topupRedirectBase = (kind) => {
   if (kind === 'success') {
@@ -490,9 +497,10 @@ export const myEarningsOverview = catchAsync(async (req, res) => {
   );
 
   const startDay = new Date(); startDay.setHours(0,0,0,0);
+  const advisorEarningTypes = ['advisor_earning', 'advisor_tip', 'advisor_tip_fiat'];
   const todayEarn = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'advisor_earning', status: 'completed', createdAt: { $gte: startDay } } },
-    { $group: { _id: null, t: { $sum: '$amount' } } }
+    { $match: { advisor: req.user._id, type: { $in: advisorEarningTypes }, status: 'completed', createdAt: { $gte: startDay } } },
+    { $group: { _id: null, t: { $sum: advisorEarningAmountExpr } } }
   ]);
   const todayWithdraw = await Transaction.aggregate([
     { $match: { advisor: req.user._id, type: 'advisor_payout', createdAt: { $gte: startDay } } },
@@ -502,14 +510,14 @@ export const myEarningsOverview = catchAsync(async (req, res) => {
   // weekly revenue curve
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const curve = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'advisor_earning', status: 'completed', createdAt: { $gte: weekAgo } } },
-    { $group: { _id: { $dayOfWeek: '$createdAt' }, total: { $sum: '$amount' } } },
+    { $match: { advisor: req.user._id, type: { $in: advisorEarningTypes }, status: 'completed', createdAt: { $gte: weekAgo } } },
+    { $group: { _id: { $dayOfWeek: '$createdAt' }, total: { $sum: advisorEarningAmountExpr } } },
     { $sort: { _id: 1 } }
   ]);
 
   const totalEarnings = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'advisor_earning', status: 'completed' } },
-    { $group: { _id: null, t: { $sum: '$amount' } } }
+    { $match: { advisor: req.user._id, type: { $in: advisorEarningTypes }, status: 'completed' } },
+    { $group: { _id: null, t: { $sum: advisorEarningAmountExpr } } }
   ]);
   const totalWithdraw = await Transaction.aggregate([
     { $match: { advisor: req.user._id, type: 'advisor_payout', withdrawalStatus: 'paid' } },
@@ -532,7 +540,7 @@ export const myEarningsOverview = catchAsync(async (req, res) => {
 
 export const myEarningsHistory = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
-  const filter = { advisor: req.user._id, type: { $in: ['advisor_earning', 'advisor_tip'] } };
+  const filter = { advisor: req.user._id, type: { $in: ['advisor_earning', 'advisor_tip', 'advisor_tip_fiat'] } };
   if (req.query.range === 'today') {
     const start = new Date(); start.setHours(0,0,0,0);
     filter.createdAt = { $gte: start };

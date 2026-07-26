@@ -18,6 +18,7 @@ import { resolveRecordingUrl } from '../services/recording.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { calculateSessionCredits, getCreditUsage } from '../services/credit.service.js';
 import { fetchObjectStorage, parseObjectStorageUrl } from '../services/upload.service.js';
+import { recordIapTip } from '../services/iapTip.service.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const UNSTARTED_TIMEOUT_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'];
@@ -1397,6 +1398,45 @@ export const tipAdvisor = catchAsync(async (req, res) => {
   }, 'session:updated');
 
   return sendResponse(res, { message: 'Tip sent', data: session });
+});
+
+export const tipAdvisorWithIap = catchAsync(async (req, res) => {
+  const result = await recordIapTip({
+    userId: req.user._id,
+    sessionId: req.params.id,
+    body: req.body || {}
+  });
+
+  if (result.duplicate) {
+    return sendResponse(res, {
+      message: 'Tip already recorded',
+      data: { transaction: result.transaction, session: result.session }
+    });
+  }
+
+  await createAndBroadcastNotification(req, {
+    recipient: result.session.advisor,
+    type: 'tip_received',
+    title: 'You received a tip',
+    body: `You received a local-currency tip from your client`,
+    data: {
+      sessionId: result.session._id,
+      transactionId: result.transaction._id,
+      amountUsd: result.transaction.amountUsd,
+      currency: result.transaction.currency,
+      amount: result.transaction.amount,
+      payoutCredits: result.payoutCredits
+    }
+  }, 'session:updated');
+
+  return sendResponse(res, {
+    message: 'Tip sent',
+    data: {
+      transaction: result.transaction,
+      advisorTransaction: result.advisorTransaction,
+      session: result.session
+    }
+  });
 });
 
 // ============= Unlock recording / transcript =============

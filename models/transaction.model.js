@@ -8,6 +8,7 @@ export const TX_TYPES = [
   'session_charge',        // user charged for a session
   'session_refund',        // user refunded
   'tip',                   // user tipped advisor
+  'tip_fiat',              // user tipped advisor via store IAP/local currency
   'unlock_recording',      // user paid to unlock recording
   'unlock_transcript',     // user paid to unlock transcript
   'subscription',          // user paid for subscription
@@ -16,6 +17,7 @@ export const TX_TYPES = [
   'free_credit_grant',     // admin granted credits
   'advisor_earning',       // advisor earned from session
   'advisor_tip',
+  'advisor_tip_fiat',
   'advisor_payout',        // advisor withdrew funds
   'promotion_purchase'
 ];
@@ -31,6 +33,7 @@ const transactionSchema = new Schema(
     user: { type: Schema.Types.ObjectId, ref: 'User', index: true }, // who initiated
     advisor: { type: Schema.Types.ObjectId, ref: 'User', index: true }, // beneficiary if applicable
     session: { type: Schema.Types.ObjectId, ref: 'Session', index: true },
+    sourceTransaction: { type: Schema.Types.ObjectId, ref: 'Transaction', index: true },
     subscription: { type: Schema.Types.ObjectId, ref: 'UserSubscription' },
     plan: { type: Schema.Types.ObjectId, ref: 'Plan' },
 
@@ -40,6 +43,12 @@ const transactionSchema = new Schema(
     amountUsd: { type: Number },                        // equivalent base USD amount (for reporting)
     provider: { type: String, enum: ['stripe', 'paypal', 'internal', 'revenuecat', 'hyperwallet'], default: 'stripe', index: true },
     description: { type: String, default: '' },
+
+    // Store / IAP links
+    iapProductId: { type: String, index: true, sparse: true },
+    iapPlatform: { type: String, enum: ['ios', 'android', 'app_store', 'play_store', 'unknown'], default: undefined, index: true },
+    storeTransactionId: { type: String, unique: true, index: true, sparse: true },
+    revenueCatPurchaseId: { type: String, index: true, sparse: true },
 
     // Stripe links
     stripePaymentIntentId: { type: String, index: true, sparse: true },

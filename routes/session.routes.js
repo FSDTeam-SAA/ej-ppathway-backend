@@ -17,6 +17,7 @@ import {
   cancelSession,
   rescheduleSession,
   tipAdvisor,
+  tipAdvisorWithIap,
   unlockSessionAsset,
   getOngoing,
   sessionSummary,
@@ -51,6 +52,7 @@ router.post('/:id/heartbeat', sessionHeartbeat);
 router.post('/:id/extend', extendSession);
 router.post('/:id/cancel', cancelSession);
 router.post('/:id/reschedule', rescheduleSession);
+router.post('/:id/tip/iap', tipAdvisorWithIap);
 router.post('/:id/tip', tipAdvisor);
 router.post('/:id/unlock', unlockSessionAsset);
 router.post('/:id/notes', saveSessionNote);

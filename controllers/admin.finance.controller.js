@@ -20,11 +20,18 @@ import {
 } from '../services/payout.service.js';
 
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
+const advisorEarningAmountExpr = {
+  $cond: [
+    { $eq: ['$type', 'advisor_tip_fiat'] },
+    { $ifNull: ['$payoutCredits', '$amount'] },
+    '$amount'
+  ]
+};
 
 // Money the platform collects from users.
 const REVENUE_TYPES = ['credit_pack_purchase', 'wallet_topup', 'subscription', 'promotion_purchase'];
 // Money owed to / earned by advisors.
-const ADVISOR_TYPES = ['advisor_earning', 'advisor_tip'];
+const ADVISOR_TYPES = ['advisor_earning', 'advisor_tip', 'advisor_tip_fiat'];
 const REFUND_TYPES = ['session_refund', 'subscription_refund'];
 
 const periodBounds = () => {
@@ -44,11 +51,19 @@ const sumTypes = async (types, match = {}) => {
   return { amount: round2(agg[0]?.t || 0), count: agg[0]?.c || 0 };
 };
 
+const sumAdvisorTypes = async (match = {}) => {
+  const agg = await Transaction.aggregate([
+    { $match: { status: 'completed', type: { $in: ADVISOR_TYPES }, ...match } },
+    { $group: { _id: null, t: { $sum: advisorEarningAmountExpr }, c: { $sum: 1 } } }
+  ]);
+  return { amount: round2(agg[0]?.t || 0), count: agg[0]?.c || 0 };
+};
+
 const periodStats = async (since) => {
   const m = since ? { createdAt: { $gte: since } } : {};
   const [g, a, r] = await Promise.all([
     sumTypes(REVENUE_TYPES, m),
-    sumTypes(ADVISOR_TYPES, m),
+    sumAdvisorTypes(m),
     sumTypes(REFUND_TYPES, m)
   ]);
   return {
@@ -82,7 +97,7 @@ export const overview = catchAsync(async (req, res) => {
   // Advisor metrics
   const topEarnerAgg = await Transaction.aggregate([
     { $match: { status: 'completed', type: { $in: ADVISOR_TYPES } } },
-    { $group: { _id: '$advisor', total: { $sum: '$amount' } } },
+    { $group: { _id: '$advisor', total: { $sum: advisorEarningAmountExpr } } },
     { $sort: { total: -1 } },
     { $limit: 1 }
   ]);
@@ -165,7 +180,7 @@ export const advisorEarnings = catchAsync(async (req, res) => {
     {
       $group: {
         _id: '$advisor',
-        grossEarnings: { $sum: { $cond: [{ $in: ['$type', ADVISOR_TYPES] }, '$amount', 0] } },
+        grossEarnings: { $sum: { $cond: [{ $in: ['$type', ADVISOR_TYPES] }, advisorEarningAmountExpr, 0] } },
         paidEarnings: {
           $sum: {
             $cond: [
@@ -222,7 +237,7 @@ export const exportReport = catchAsync(async (req, res) => {
       {
         $group: {
           _id: '$advisor',
-          gross: { $sum: { $cond: [{ $in: ['$type', ADVISOR_TYPES] }, '$amount', 0] } },
+          gross: { $sum: { $cond: [{ $in: ['$type', ADVISOR_TYPES] }, advisorEarningAmountExpr, 0] } },
           paid: { $sum: { $cond: [{ $and: [{ $eq: ['$type', 'advisor_payout'] }, { $eq: ['$withdrawalStatus', 'paid'] }] }, '$amount', 0] } }
         }
       },
