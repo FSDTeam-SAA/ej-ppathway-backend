@@ -565,12 +565,19 @@ export const uploadProfilePhoto = catchAsync(async (req, res) => {
 export const setOnlineMode = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const { isOnline } = req.body;
+  const nextOnline = !!isOnline;
   const profile = await AdvisorProfile.findOneAndUpdate(
     { user: req.user._id },
-    { isOnline: !!isOnline, lastSeenAt: new Date() },
+    {
+      $set: { isOnline: nextOnline, lastSeenAt: new Date() },
+      $setOnInsert: { user: req.user._id }
+    },
     { new: true, upsert: true }
   );
-  return sendResponse(res, { data: profile });
+  return sendResponse(res, {
+    message: nextOnline ? 'You are online' : 'You are offline',
+    data: profile
+  });
 });
 
 // ===== Dashboard =====
