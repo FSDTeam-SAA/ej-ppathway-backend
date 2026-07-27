@@ -15,6 +15,13 @@ import {
 
 const ONLINE_WINDOW_MS = 5 * 60 * 1000;
 
+const subAdminRoleLabel = (user) => ROLE_PRESETS[user.roleKey]?.label || user.location || 'Sub Admin';
+
+const serializeSubAdmin = (user) => {
+  const data = typeof user.toJSON === 'function' ? user.toJSON() : { ...user };
+  return { ...data, roleLabel: subAdminRoleLabel(data) };
+};
+
 export const listSubAdmins = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = { role: 'sub_admin' };
@@ -43,6 +50,7 @@ export const listSubAdmins = catchAsync(async (req, res) => {
 
   const data = items.map((u) => ({
     ...u,
+    roleLabel: subAdminRoleLabel(u),
     isOnline: u.lastActiveAt ? Date.now() - new Date(u.lastActiveAt).getTime() < ONLINE_WINDOW_MS : false
   }));
 
@@ -78,7 +86,7 @@ export const getSubAdmin = catchAsync(async (req, res) => {
     : false;
 
   return sendResponse(res, {
-    data: { ...user, isOnline, recentActivity, roleLabel: ROLE_PRESETS[user.roleKey]?.label || user.location || '—' }
+    data: { ...user, isOnline, recentActivity, roleLabel: subAdminRoleLabel(user) }
   });
 });
 
@@ -139,7 +147,7 @@ export const createSubAdmin = catchAsync(async (req, res) => {
     targetUser: user._id
   });
 
-  return sendResponse(res, { statusCode: StatusCodes.CREATED, data: user });
+  return sendResponse(res, { statusCode: StatusCodes.CREATED, data: serializeSubAdmin(user) });
 });
 
 export const updateSubAdmin = catchAsync(async (req, res) => {
@@ -170,7 +178,7 @@ export const updateSubAdmin = catchAsync(async (req, res) => {
     targetUser: user._id
   });
 
-  return sendResponse(res, { data: user });
+  return sendResponse(res, { data: serializeSubAdmin(user) });
 });
 
 export const suspendSubAdmin = catchAsync(async (req, res) => {
@@ -187,7 +195,7 @@ export const suspendSubAdmin = catchAsync(async (req, res) => {
     targetType: 'sub_admin',
     targetUser: user._id
   });
-  return sendResponse(res, { message: 'Sub-admin suspended', data: user });
+  return sendResponse(res, { message: 'Sub-admin suspended', data: serializeSubAdmin(user) });
 });
 
 export const unsuspendSubAdmin = catchAsync(async (req, res) => {
@@ -204,7 +212,7 @@ export const unsuspendSubAdmin = catchAsync(async (req, res) => {
     targetType: 'sub_admin',
     targetUser: user._id
   });
-  return sendResponse(res, { data: user });
+  return sendResponse(res, { data: serializeSubAdmin(user) });
 });
 
 export const deleteSubAdmin = catchAsync(async (req, res) => {

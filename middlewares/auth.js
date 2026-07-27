@@ -2,6 +2,7 @@ import { StatusCodes } from 'http-status-codes';
 import ApiError from '../utils/ApiError.js';
 import { verifyAccessToken } from '../utils/jwt.js';
 import User from '../models/user.model.js';
+import { hasGrantedPermission } from '../config/subAdminPermissions.js';
 
 export const auth = (...allowedRoles) => async (req, _res, next) => {
   try {
@@ -70,7 +71,7 @@ export const requirePermission = (...perms) => (req, _res, next) => {
   if (req.user.role === 'admin') return next();
   if (req.user.role === 'sub_admin') {
     const granted = req.user.permissions || [];
-    const ok = perms.every((p) => granted.includes(p));
+    const ok = perms.every((p) => hasGrantedPermission(granted, p));
     if (!ok) return next(new ApiError(StatusCodes.FORBIDDEN, 'Insufficient permissions'));
     return next();
   }

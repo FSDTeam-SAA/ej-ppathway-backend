@@ -181,4 +181,37 @@ export const resolvePermissions = (roleKey, explicit = []) => {
   return (explicit || []).filter((p) => ALL_PERMISSIONS.includes(p));
 };
 
-export default { PERMISSION_GROUPS, ALL_PERMISSIONS, ROLE_PRESETS, resolvePermissions };
+export const PERMISSION_ALIASES = {
+  'users.manage': ['users.view', 'users.edit', 'users.suspend', 'users.delete'],
+  'advisors.manage': ['advisors.view', 'advisors.edit', 'advisors.suspend', 'advisors.reactivate', 'advisors.reset_password'],
+  'advisors.approve': ['approvals.view', 'approvals.interview', 'approvals.approve', 'approvals.decline', 'approvals.contract'],
+  'sessions.manage': ['sessions.view', 'sessions.cancel', 'sessions.modify', 'recordings.view'],
+  'compliance.manage': ['compliance.view', 'compliance.investigate', 'compliance.warn', 'compliance.suspend_accounts'],
+  'finance.manage': ['finance.view', 'finance.transactions', 'finance.refunds', 'finance.chargebacks', 'finance.approve_payouts', 'finance.release_payouts'],
+  'subscriptions.manage': ['plans.view', 'plans.create', 'plans.edit', 'plans.delete'],
+  'cms.manage': ['cms.pages', 'cms.faqs', 'cms.blogs', 'cms.legal'],
+  'chats.manage': ['chat.view', 'chat.reply', 'chat.escalate'],
+  'faq.manage': ['cms.faqs', 'reviews.view', 'reviews.remove', 'reviews.feature', 'testimonials.view', 'testimonials.approve', 'testimonials.remove'],
+  'reviews.manage': ['reviews.view', 'reviews.remove', 'reviews.feature'],
+  'sub_admins.manage': ['subadmins.view', 'subadmins.add', 'subadmins.edit_permissions', 'subadmins.remove']
+};
+
+export const hasGrantedPermission = (granted = [], permission) => {
+  if (granted.includes('*') || granted.includes(permission)) return true;
+  return (PERMISSION_ALIASES[permission] || []).some((alias) => granted.includes(alias));
+};
+
+export const roleLabelFor = (user) =>
+  user?.role === 'sub_admin'
+    ? ROLE_PRESETS[user.roleKey]?.label || user.location || 'Sub Admin'
+    : user?.role;
+
+export default {
+  PERMISSION_GROUPS,
+  ALL_PERMISSIONS,
+  ROLE_PRESETS,
+  PERMISSION_ALIASES,
+  resolvePermissions,
+  hasGrantedPermission,
+  roleLabelFor
+};

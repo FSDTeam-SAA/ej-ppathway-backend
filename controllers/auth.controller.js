@@ -15,15 +15,22 @@ import { uploadBufferToCloudinary } from '../services/upload.service.js';
 import { detectCountry } from '../utils/geo.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import { MOBILE_LOGIN_ROLES, mobileLoginRoleError } from '../utils/mobileLoginRole.js';
+import { roleLabelFor } from '../config/subAdminPermissions.js';
 
 const OTP_EXPIRES_MIN = 10;
+
+const serializeAuthUser = (user) => {
+  const data = typeof user.toJSON === 'function' ? user.toJSON() : { ...user };
+  data.roleLabel = roleLabelFor(data);
+  return data;
+};
 
 const buildAuthResponse = (user) => {
   const payload = { sub: user._id.toString(), role: user.role };
   return {
     accessToken: signAccessToken(payload),
     refreshToken: signRefreshToken(payload),
-    user
+    user: serializeAuthUser(user)
   };
 };
 
@@ -523,5 +530,5 @@ export const refreshToken = catchAsync(async (req, res) => {
 
 // ========== Me ==========
 export const me = catchAsync(async (req, res) => {
-  return sendResponse(res, { data: req.user });
+  return sendResponse(res, { data: serializeAuthUser(req.user) });
 });
