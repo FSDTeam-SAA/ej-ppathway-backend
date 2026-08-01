@@ -1418,7 +1418,7 @@ export const tipAdvisorWithIap = catchAsync(async (req, res) => {
     recipient: result.session.advisor,
     type: 'tip_received',
     title: 'You received a tip',
-    body: `You received a local-currency tip from your client`,
+    body: `You received a ${String(result.transaction.currency || 'usd').toUpperCase()} ${Number(result.transaction.amount || 0).toFixed(2)} tip from your client`,
     data: {
       sessionId: result.session._id,
       transactionId: result.transaction._id,

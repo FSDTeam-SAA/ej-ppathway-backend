@@ -5,6 +5,13 @@ import Session from '../models/session.model.js';
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+const DEFAULT_TIP_AMOUNTS_USD = new Map([
+  ['tip_5', 5],
+  ['tip_10', 10],
+  ['tip_20', 20],
+  ['tip_50', 50]
+]);
+
 const envList = (name) =>
   String(process.env[name] || '')
     .split(',')
@@ -13,12 +20,15 @@ const envList = (name) =>
 
 const tipProductIds = () => envList('IAP_TIP_PRODUCT_IDS');
 
+const configuredTipProductIds = () => {
+  const configured = tipProductIds();
+  return configured.length ? configured : [...DEFAULT_TIP_AMOUNTS_USD.keys()];
+};
+
 const isAllowedTipProduct = (productId) => {
   const id = String(productId || '').trim();
   if (!id) return false;
-  const configured = tipProductIds();
-  if (configured.length) return configured.includes(id);
-  return /^tip[_.-]/i.test(id);
+  return configuredTipProductIds().includes(id);
 };
 
 const revenueCatApiKey = () =>
@@ -86,6 +96,7 @@ export const verifyRevenueCatTipPurchase = async ({
   const apiKey = revenueCatApiKey();
   const projectId = process.env.REVENUECAT_PROJECT_ID;
   const allowUnverified = process.env.IAP_TIP_ALLOW_UNVERIFIED === 'true';
+  const configuredAmountUsd = DEFAULT_TIP_AMOUNTS_USD.get(productId);
 
   if (!apiKey || !projectId) {
     if (!allowUnverified) {
@@ -95,7 +106,11 @@ export const verifyRevenueCatTipPurchase = async ({
       );
     }
     const amount = Number(fallbackAmount);
-    const amountUsd = Number(fallbackAmountUsd ?? (String(fallbackCurrency).toLowerCase() === 'usd' ? amount : NaN));
+    const amountUsd = Number(
+      configuredAmountUsd ??
+      fallbackAmountUsd ??
+      (String(fallbackCurrency).toLowerCase() === 'usd' ? amount : NaN)
+    );
     if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(amountUsd) || amountUsd <= 0) {
       throw Object.assign(new Error('Verified tip amount is required'), { statusCode: 400 });
     }
@@ -170,6 +185,7 @@ export const verifyRevenueCatTipPurchase = async ({
   const amountUsd =
     revenueAmount(purchase, 'revenue_in_usd') ??
     revenueAmount(purchase, 'revenueInUsd') ??
+    configuredAmountUsd ??
     Number(fallbackAmountUsd ?? (localCurrency === 'usd' ? localAmount : NaN));
 
   if (!Number.isFinite(localAmount) || localAmount <= 0 || !Number.isFinite(amountUsd) || amountUsd <= 0) {
