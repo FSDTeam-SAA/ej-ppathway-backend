@@ -130,7 +130,7 @@ export const dashboardOverview = catchAsync(async (req, res) => {
   revMonthAgg.forEach((r) => { revenueByMonth[r._id.m - 1].total = round2(r.total); });
 
   const recentTransactions = await Transaction.find({
-    type: { $ne: 'platform_commission' }
+    type: { $nin: ['platform_commission', 'advisor_earning'] }
   })
     .populate('user', 'name profilePhoto email')
     .populate('advisor', 'name profilePhoto email')
