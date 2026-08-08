@@ -177,8 +177,9 @@ export const getUserDetails = catchAsync(async (req, res) => {
     .lean();
   const recentTransactions = await Transaction.find({
     user: user._id,
-    type: { $ne: 'platform_commission' }
+    type: 'session_charge'
   })
+    .populate('session', 'sessionCode type durationMinutes actualDurationSec startedAt endedAt status')
     .populate('advisor', 'name email profilePhoto')
     .populate('plan', 'name')
     .sort({ createdAt: -1 })

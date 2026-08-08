@@ -7,7 +7,7 @@ import sendResponse from '../utils/sendResponse.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 import bcrypt from 'bcryptjs';
 import User from '../models/user.model.js';
-import AdvisorApplication from '../models/advisorApplication.model.js';
+import AdvisorApplication, { APP_STATUSES } from '../models/advisorApplication.model.js';
 import AdvisorProfile from '../models/advisorProfile.model.js';
 import Wallet from '../models/wallet.model.js';
 import Session from '../models/session.model.js';
@@ -135,19 +135,42 @@ const buildOnboardingUrl = (token) => {
   return appendQuery(trimTrailingSlash(base), `${queryName}=${encodeURIComponent(token)}`, hash);
 };
 
+const stageForApplicationStatus = (status, currentStage = 'application') => {
+  if (status === 'new' || status === 'pending_review') return 'application';
+  if (status === 'scheduled' || status === 'live_interview' || status === 'under_review') return 'live_interview';
+  if (status === 'awaiting_signature' || status === 'awaiting_approval' || status === 'awaiting_submission') return 'contract';
+  return currentStage;
+};
+
+const applicationStatusEmailMessage = (status) => {
+  const messages = {
+    pending_review: 'Your application is waiting for admin review.',
+    scheduled: 'A live interview is the next step in your advisor review process.',
+    live_interview: 'A live interview is the next step in your advisor review process.',
+    under_review: 'The admin team is reviewing your submitted application.',
+    awaiting_signature: 'Your advisor contract has been sent and is waiting for your signature.',
+    awaiting_approval: 'Your signed contract is waiting for admin approval.',
+    awaiting_submission: 'Your advisor onboarding profile is waiting for submission.'
+  };
+  return messages[status] || 'Please check your advisor dashboard for any next steps.';
+};
+
 // ====== Approvals ======
 export const listApplications = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = {};
-  if (req.query.status === 'new') filter.stage = 'application';
+  if (req.query.status === 'new') filter.status = 'new';
   if (req.query.status === 'pending_review') filter.status = 'pending_review';
+  if (req.query.status === 'scheduled') filter.status = 'scheduled';
   if (req.query.status === 'under_review') filter.status = 'under_review';
   if (req.query.status === 'interview_pending') filter.stage = 'pre_recorded_interview';
   if (req.query.status === 'live_interview') {
-    filter.stage = 'live_interview';
-    filter.status = { $in: ['live_interview', 'scheduled'] };
+    filter.status = 'live_interview';
   }
   if (req.query.status === 'contract') filter.stage = 'contract';
+  if (req.query.status === 'awaiting_signature') filter.status = 'awaiting_signature';
+  if (req.query.status === 'awaiting_approval') filter.status = 'awaiting_approval';
+  if (req.query.status === 'awaiting_submission') filter.status = 'awaiting_submission';
   if (req.query.status === 'approved') filter.status = 'approved';
   if (req.query.status === 'rejected') filter.status = 'rejected';
   if (req.query.q) {
@@ -445,35 +468,24 @@ export const rejectApplication = catchAsync(async (req, res) => {
 export const updateApplicationStatus = catchAsync(async (req, res) => {
   const { status } = req.body || {};
   if (!status) throw new ApiError(StatusCodes.BAD_REQUEST, 'status is required');
+  const nextStatus = String(status);
+  const manualStatuses = APP_STATUSES.filter((item) => !['approved', 'rejected'].includes(item));
+  if (!manualStatuses.includes(nextStatus)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Unsupported status option');
+  }
 
   const app = await AdvisorApplication.findById(req.params.id).populate('user');
   if (!app) throw new ApiError(StatusCodes.NOT_FOUND, 'Application not found');
 
-  if (status === 'new') {
-    app.stage = 'application';
-    app.status = 'new';
-  } else if (status === 'pending_review') {
-    app.stage = 'application';
-    app.status = 'pending_review';
-  } else if (status === 'live_interview') {
-    app.stage = 'live_interview';
-    app.status = 'live_interview';
-  } else if (status === 'under_review') {
-    app.status = 'under_review';
-    if (app.stage === 'application') app.stage = 'live_interview';
-  } else if (status === 'interview_pending') {
-    app.stage = 'pre_recorded_interview';
-    app.status = 'scheduled';
-  } else {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Unsupported status option');
-  }
+  app.stage = stageForApplicationStatus(nextStatus, app.stage);
+  app.status = nextStatus;
 
   await app.save();
 
   await logAdminActivity({
     adminId: req.user?._id,
     action: 'advisor.application_status',
-    description: `Updated advisor application status for ${app.user?.name || 'applicant'} to ${status}`,
+    description: `Updated advisor application status for ${app.user?.name || 'applicant'} to ${nextStatus}`,
     targetType: 'advisor',
     targetUser: app.user?._id
   });
@@ -481,14 +493,8 @@ export const updateApplicationStatus = catchAsync(async (req, res) => {
   const mail = await safeEmail('advisor application status', () =>
     sendAdvisorStatusUpdateEmail(app.user?.email, {
       name: app.user?.name,
-      status,
-      message: status === 'live_interview'
-        ? 'A live interview is the next step in your advisor review process.'
-        : status === 'under_review'
-          ? 'The admin team is reviewing your submitted application.'
-          : status === 'pending_review'
-            ? 'Your application is waiting for admin review.'
-            : 'Please check your advisor dashboard for any next steps.'
+      status: nextStatus,
+      message: applicationStatusEmailMessage(nextStatus)
     })
   );
   await recordNotification(app, 'application_status', 'Advisor Application Status Updated', mail);
@@ -540,6 +546,9 @@ export const sendOnboarding = catchAsync(async (req, res) => {
   const mail = await safeEmail('advisor onboarding', () =>
     sendAdvisorOnboardingEmail(app.user.email, { name: app.user.name, onboardingUrl })
   );
+  app.stage = 'contract';
+  app.status = 'awaiting_submission';
+  await app.save();
   await recordNotification(app, 'onboarding', 'Complete Your Advisor Profile', mail);
   await createNotification({
     recipient: app.user._id,

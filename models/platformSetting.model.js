@@ -180,7 +180,7 @@ export const getPlatformSettings = async () => {
   if (!s.creditBannerTitle) s.creditBannerTitle = DEFAULT_CREDIT_BANNER_TITLE;
   if (!s.creditBannerSubtitle) s.creditBannerSubtitle = DEFAULT_CREDIT_BANNER_SUBTITLE;
   if (typeof s.creditExpirationDays !== 'number') s.creditExpirationDays = DEFAULT_CREDIT_EXPIRATION_DAYS;
-  if (!Array.isArray(s.creditPacks) || s.creditPacks.length === 0) s.creditPacks = DEFAULT_CREDIT_PACKS;
+  if (!Array.isArray(s.creditPacks)) s.creditPacks = DEFAULT_CREDIT_PACKS;
   if (!s.creditUsage) s.creditUsage = DEFAULT_CREDIT_USAGE;
   if (typeof s.creditUsage.chatTranscript !== 'number') s.creditUsage.chatTranscript = DEFAULT_CREDIT_USAGE.chatTranscript;
   if (typeof s.creditUsage.videoRecording !== 'number') s.creditUsage.videoRecording = s.creditUsage.sessionRecording ?? DEFAULT_CREDIT_USAGE.videoRecording;
@@ -190,13 +190,8 @@ export const getPlatformSettings = async () => {
   if (typeof s.advisorCreditPricing.chatPerMin !== 'number') s.advisorCreditPricing.chatPerMin = DEFAULT_ADVISOR_CREDIT_PRICING.chatPerMin;
   if (typeof s.advisorCreditPricing.callPerMin !== 'number') s.advisorCreditPricing.callPerMin = DEFAULT_ADVISOR_CREDIT_PRICING.callPerMin;
   if (typeof s.advisorCreditPricing.videoPerMin !== 'number') s.advisorCreditPricing.videoPerMin = DEFAULT_ADVISOR_CREDIT_PRICING.videoPerMin;
-  if (!Array.isArray(s.creditUsageBlocks) || s.creditUsageBlocks.length === 0) {
+  if (!Array.isArray(s.creditUsageBlocks)) {
     s.creditUsageBlocks = DEFAULT_CREDIT_USAGE_BLOCKS;
-  } else {
-    const existingBlockIds = new Set(s.creditUsageBlocks.map((block) => block.id));
-    for (const block of DEFAULT_CREDIT_USAGE_BLOCKS) {
-      if (!existingBlockIds.has(block.id)) s.creditUsageBlocks.push(block);
-    }
   }
   if (!s.payout) s.payout = {};
   if (typeof s.payout.payoutCreditUsdRate !== 'number') s.payout.payoutCreditUsdRate = s.creditUsdRate ?? DEFAULT_CREDIT_USD_RATE;
