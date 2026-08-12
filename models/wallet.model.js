@@ -12,7 +12,11 @@ const walletSchema = new Schema(
     pendingPayouts: { type: Number, default: 0 },  // pending payout requests
     totalEarned: { type: Number, default: 0 },
     totalSpent: { type: Number, default: 0 },
-    totalWithdrawn: { type: Number, default: 0 }
+    totalWithdrawn: { type: Number, default: 0 },
+    // Private idempotency ledger for consumable IAP credit fulfillment. Keeping
+    // the key on the wallet makes the balance increment and receipt claim one
+    // atomic MongoDB update, even when RevenueCat retries a webhook.
+    processedIapTransactionIds: { type: [String], default: [], select: false }
   },
   { timestamps: true }
 );

@@ -84,7 +84,7 @@ export const livekitWebhook = async (req, res) => {
 
 const revenueCatSecretMatches = (req) => {
   const expected = process.env.REVENUECAT_WEBHOOK_SECRET;
-  if (!expected) return true;
+  if (!expected) return false;
   const auth = String(req.get('Authorization') || '').trim();
   return auth === expected || auth === `Bearer ${expected}`;
 };
@@ -97,7 +97,8 @@ export const revenueCatWebhook = async (req, res) => {
 
     const event = req.body?.event || req.body;
     const type = String(event?.type || '').toUpperCase();
-    const transactionId = event.transaction_id || event.transactionId || event.id;
+    const transactionId = event.transaction_id || event.transactionId;
+    const originalTransactionId = event.original_transaction_id || event.originalTransactionId;
     const isRefund =
       ['REFUND', 'REFUNDED'].includes(type) ||
       (type === 'CANCELLATION' && ['CUSTOMER_SUPPORT', 'REFUND'].includes(String(event.cancel_reason || event.cancelReason || '').toUpperCase()));
@@ -108,7 +109,9 @@ export const revenueCatWebhook = async (req, res) => {
       }
     }
 
-    const shouldCredit = ['INITIAL_PURCHASE', 'NON_RENEWING_PURCHASE', 'VIRTUAL_CURRENCY_TRANSACTION'].includes(type);
+    // RevenueCat reports consumables as NON_RENEWING_PURCHASE. Restore and
+    // entitlement events must never rebuild or add to a user's credit balance.
+    const shouldCredit = type === 'NON_RENEWING_PURCHASE';
     if (!shouldCredit) return res.status(200).json({ ok: true, skipped: true });
 
     const productId = event.product_id || event.productId || event.product_identifier;
@@ -119,7 +122,10 @@ export const revenueCatWebhook = async (req, res) => {
 
     const existing = await Transaction.findOne({
       provider: 'revenuecat',
-      'metadata.revenueCatTransactionId': String(transactionId)
+      $or: [
+        { storeTransactionId: String(transactionId) },
+        { 'metadata.revenueCatTransactionId': String(transactionId) }
+      ]
     });
     if (existing) return res.status(200).json({ ok: true, duplicate: true });
 
@@ -130,41 +136,81 @@ export const revenueCatWebhook = async (req, res) => {
     if (!user) return res.status(200).json({ ok: false, skipped: true, message: 'Unknown app user id' });
 
     const credited = Number(pack.totalCredits || pack.credits || 0);
-    const wallet = await Wallet.findOneAndUpdate(
+    await Wallet.updateOne(
       { user: user._id },
-      { $inc: { balance: credited }, $setOnInsert: { user: user._id } },
-      { new: true, upsert: true }
+      { $setOnInsert: { user: user._id } },
+      { upsert: true }
+    );
+    const wallet = await Wallet.findOneAndUpdate(
+      {
+        user: user._id,
+        processedIapTransactionIds: { $ne: String(transactionId) }
+      },
+      {
+        $inc: { balance: credited },
+        $addToSet: { processedIapTransactionIds: String(transactionId) }
+      },
+      { new: true }
     );
 
     const price = Number(event.price || event.price_in_purchased_currency || pack.priceUsd);
     const currency = String(event.currency || event.currency_code || 'usd').toLowerCase();
 
-    await Transaction.create({
-      type: 'credit_pack_purchase',
-      status: 'completed',
-      provider: 'revenuecat',
-      user: user._id,
-      amount: Number.isFinite(price) ? price : pack.priceUsd,
-      currency,
-      amountUsd: pack.priceUsd,
-      description: `${pack.label} credit pack via RevenueCat`,
-      metadata: {
-        packId: pack.id,
-        credits: pack.credits,
-        bonusCredits: pack.bonusCredits || 0,
-        totalCredits: credited,
-        revenueCatProductId: productId,
-        revenueCatTransactionId: transactionId,
-        revenueCatStore: event.store,
-        revenueCatEventType: type
-      }
-    });
+    await Transaction.findOneAndUpdate(
+      { storeTransactionId: String(transactionId) },
+      {
+        $setOnInsert: {
+          txCode: `IAP-${String(transactionId)}`,
+          type: 'credit_pack_purchase',
+          status: 'completed',
+          provider: 'revenuecat',
+          user: user._id,
+          amount: Number.isFinite(price) ? price : pack.priceUsd,
+          currency,
+          amountUsd: pack.priceUsd,
+          iapProductId: productId,
+          iapPlatform: normalizeRevenueCatStore(event.store),
+          storeTransactionId: String(transactionId),
+          description: `${pack.label} credit pack via RevenueCat`,
+          metadata: {
+            packId: pack.id,
+            credits: pack.credits,
+            bonusCredits: pack.bonusCredits || 0,
+            totalCredits: credited,
+            revenueCatProductId: productId,
+            revenueCatTransactionId: String(transactionId),
+            revenueCatOriginalTransactionId: originalTransactionId
+              ? String(originalTransactionId)
+              : undefined,
+            revenueCatStore: event.store,
+            revenueCatEventType: type
+          }
+        }
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    if (!wallet) {
+      const currentWallet = await Wallet.findOne({ user: user._id });
+      return res.status(200).json({
+        ok: true,
+        duplicate: true,
+        walletBalance: currentWallet?.balance
+      });
+    }
 
     return res.status(200).json({ ok: true, walletBalance: wallet.balance });
   } catch (e) {
     console.error('revenueCatWebhook error', e?.message);
     return res.status(200).json({ ok: false });
   }
+};
+
+const normalizeRevenueCatStore = (value) => {
+  const store = String(value || '').toLowerCase();
+  if (['app_store', 'app store', 'ios', 'mac_app_store'].includes(store)) return 'app_store';
+  if (['play_store', 'play store', 'google_play', 'android'].includes(store)) return 'play_store';
+  return 'unknown';
 };
 
 /**

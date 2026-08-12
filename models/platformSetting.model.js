@@ -17,10 +17,9 @@ const creditPackSchema = new Schema(
 );
 
 const DEFAULT_CREDIT_PACKS = [
-  { id: 'credits_25', label: '25 Credits', credits: 25, bonusCredits: 0, priceUsd: 19, revenueCatProductId: 'credits_25', isActive: true, sortOrder: 1 },
-  { id: 'credits_50', label: '50 Credits', credits: 50, bonusCredits: 0, priceUsd: 35, revenueCatProductId: 'credits_50', isActive: true, sortOrder: 2 },
-  { id: 'credits_100', label: '100 Credits', credits: 100, bonusCredits: 0, priceUsd: 59, revenueCatProductId: 'credits_100', isActive: true, sortOrder: 3 },
-  { id: 'credits_200', label: '200 Credits', credits: 200, bonusCredits: 0, priceUsd: 99, revenueCatProductId: 'credits_200', isActive: true, sortOrder: 4 }
+  { id: 'credits_50', label: '50 Credits', credits: 50, bonusCredits: 0, priceUsd: 35, revenueCatProductId: 'credits_50', isActive: true, sortOrder: 1 },
+  { id: 'credits_100', label: '100 Credits', credits: 100, bonusCredits: 0, priceUsd: 59, revenueCatProductId: 'credits_100', isActive: true, sortOrder: 2 },
+  { id: 'credits_200', label: '200 Credits', credits: 200, bonusCredits: 0, priceUsd: 99, revenueCatProductId: 'credits_200', isActive: true, sortOrder: 3 }
 ];
 
 const DEFAULT_CREDIT_USAGE = {
@@ -181,6 +180,13 @@ export const getPlatformSettings = async () => {
   if (!s.creditBannerSubtitle) s.creditBannerSubtitle = DEFAULT_CREDIT_BANNER_SUBTITLE;
   if (typeof s.creditExpirationDays !== 'number') s.creditExpirationDays = DEFAULT_CREDIT_EXPIRATION_DAYS;
   if (!Array.isArray(s.creditPacks)) s.creditPacks = DEFAULT_CREDIT_PACKS;
+  // Remove the retired legacy tier from already-created settings documents.
+  // New documents no longer contain it in DEFAULT_CREDIT_PACKS.
+  const currentCreditPacks = s.creditPacks.filter((pack) => Number(pack.credits) !== 25);
+  if (currentCreditPacks.length !== s.creditPacks.length) {
+    s.creditPacks = currentCreditPacks;
+    await s.save();
+  }
   if (!s.creditUsage) s.creditUsage = DEFAULT_CREDIT_USAGE;
   if (typeof s.creditUsage.chatTranscript !== 'number') s.creditUsage.chatTranscript = DEFAULT_CREDIT_USAGE.chatTranscript;
   if (typeof s.creditUsage.videoRecording !== 'number') s.creditUsage.videoRecording = s.creditUsage.sessionRecording ?? DEFAULT_CREDIT_USAGE.videoRecording;
