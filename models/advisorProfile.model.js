@@ -83,10 +83,13 @@ const advisorProfileSchema = new Schema(
     introVideoUrl: { type: String, default: '' },
 
     pricing: {
-      chatPerMin: { type: Number, default: 0 },
-      callPerMin: { type: Number, default: 0 },
-      videoPerMin: { type: Number, default: 0 }
+      chatPerMin: { type: Number, default: 0, min: 0 },
+      callPerMin: { type: Number, default: 0, min: 0 },
+      videoPerMin: { type: Number, default: 0, min: 0 }
     },
+    // Existing profiles continue to inherit the platform-wide rates. Admins
+    // explicitly enable this flag by saving advisor-specific pricing.
+    pricingOverrideEnabled: { type: Boolean, default: false },
     sessionTypes: {
       chat: { type: Boolean, default: true },
       call: { type: Boolean, default: true },

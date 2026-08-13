@@ -12,7 +12,7 @@ import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { computeTier } from '../services/tier.service.js';
-import { getAdvisorCreditPricing } from '../services/credit.service.js';
+import { getAdvisorCreditPricing, resolveAdvisorCreditPricing } from '../services/credit.service.js';
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { sendSessionAvailabilityChangedEmail } from '../services/email.service.js';
@@ -443,7 +443,14 @@ export const getMyProfile = catchAsync(async (req, res) => {
     User.findById(req.user._id).lean(),
     getAdvisorCreditPricing()
   ]);
-  return sendResponse(res, { data: { user, profile: profile ? { ...profile, pricing } : profile } });
+  return sendResponse(res, {
+    data: {
+      user,
+      profile: profile
+        ? { ...profile, pricing: resolveAdvisorCreditPricing(profile, pricing) }
+        : profile
+    }
+  });
 });
 
 export const updateMyProfile = catchAsync(async (req, res) => {
@@ -542,13 +549,19 @@ export const updateMyProfile = catchAsync(async (req, res) => {
       })
     : 0;
 
+  const globalPricing = await getAdvisorCreditPricing();
+  const profileData = profile?.toObject ? profile.toObject() : profile;
+  const effectiveProfile = profileData
+    ? { ...profileData, pricing: resolveAdvisorCreditPricing(profileData, globalPricing) }
+    : profileData;
+
   return sendResponse(res, {
     message: affectedSessions
       ? `Profile updated. ${affectedSessions} booked session${affectedSessions === 1 ? '' : 's'} need a new time, and clients were notified.`
       : requiresAdminReview
         ? 'Pricing changes submitted for admin review'
         : 'Profile updated',
-    data: { user, profile, requiresAdminReview, affectedSessions }
+    data: { user, profile: effectiveProfile, requiresAdminReview, affectedSessions }
   });
 });
 

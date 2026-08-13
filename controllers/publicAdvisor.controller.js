@@ -9,7 +9,7 @@ import AdvisorProfile from '../models/advisorProfile.model.js';
 import Review from '../models/review.model.js';
 import Favorite from '../models/favorite.model.js';
 import { buildAdvisorAvailability } from './session.controller.js';
-import { getAdvisorCreditPricing } from '../services/credit.service.js';
+import { getAdvisorCreditPricing, resolveAdvisorCreditPricing } from '../services/credit.service.js';
 
 const buildFilters = (q) => {
   const filter = {
@@ -58,7 +58,9 @@ const parseTimezoneOffsetMinutes = (value) => {
   return parsed;
 };
 
-const withGlobalPricing = (profile, pricing) => profile ? { ...profile, pricing } : profile;
+const withEffectivePricing = (profile, globalPricing) => profile
+  ? { ...profile, pricing: resolveAdvisorCreditPricing(profile, globalPricing) }
+  : profile;
 
 const populateUser = async (profiles) => {
   const ids = profiles.map((p) => p.user);
@@ -67,7 +69,7 @@ const populateUser = async (profiles) => {
     getAdvisorCreditPricing()
   ]);
   const map = new Map(users.map((u) => [String(u._id), u]));
-  return profiles.map((p) => ({ profile: withGlobalPricing(p, pricing), user: map.get(String(p.user)) || null }));
+  return profiles.map((p) => ({ profile: withEffectivePricing(p, pricing), user: map.get(String(p.user)) || null }));
 };
 
 const normalizeTags = (items = []) =>
@@ -162,7 +164,7 @@ export const getAdvisorDetails = catchAsync(async (req, res) => {
   const publicProfile = profile
     ? {
         ...profile,
-        pricing,
+        pricing: resolveAdvisorCreditPricing(profile, pricing),
         avgRating: reviewStats ? Math.round(reviewStats.avgRating * 100) / 100 : 0,
         ratingsCount: reviewStats?.ratingsCount || 0
       }

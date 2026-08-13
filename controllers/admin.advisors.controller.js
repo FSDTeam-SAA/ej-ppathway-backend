@@ -29,6 +29,10 @@ import { signContractToken } from '../utils/jwt.js';
 import { fetchObjectStorage, parseObjectStorageUrl, uploadBufferToCloudinary } from '../services/upload.service.js';
 import { isWithinSchedule } from '../utils/availability.js';
 import { logAdminActivity } from '../services/activity.service.js';
+import {
+  getAdvisorCreditPricing,
+  resolveAdvisorCreditPricing
+} from '../services/credit.service.js';
 
 // Notification emails are best-effort: a mail outage (e.g. bad SMTP creds) must
 // never roll back or fail the underlying action that already persisted.
@@ -648,6 +652,27 @@ const normalizeAdvisorTier = (tier) => {
   return ADVISOR_TIERS.includes(tier) ? tier : null;
 };
 
+const normalizeAdvisorPricing = (pricing) => {
+  if (!pricing || typeof pricing !== 'object' || Array.isArray(pricing)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Advisor pricing is required');
+  }
+
+  const keys = ['chatPerMin', 'callPerMin', 'videoPerMin'];
+  if (keys.some((key) => pricing[key] === undefined || pricing[key] === null || pricing[key] === '')) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Chat, audio, and video pricing are required');
+  }
+
+  const normalized = {
+    chatPerMin: Number(pricing.chatPerMin),
+    callPerMin: Number(pricing.callPerMin),
+    videoPerMin: Number(pricing.videoPerMin)
+  };
+  if (Object.values(normalized).some((value) => !Number.isFinite(value) || value < 0)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Advisor pricing values must be non-negative numbers');
+  }
+  return normalized;
+};
+
 // Tabs: all | active | deactivated | online | available_now
 export const listAdvisors = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
@@ -800,7 +825,19 @@ export const getAdvisor = catchAsync(async (req, res) => {
     }
   };
 
-  return sendResponse(res, { data: { user, profile, wallet, sessionsAgg, metrics } });
+  const globalPricing = await getAdvisorCreditPricing();
+  const profileData = profile?.toObject ? profile.toObject() : profile;
+  const effectivePricing = resolveAdvisorCreditPricing(profileData, globalPricing);
+
+  return sendResponse(res, {
+    data: {
+      user,
+      profile: profileData ? { ...profileData, pricing: effectivePricing } : profileData,
+      wallet,
+      sessionsAgg,
+      metrics
+    }
+  });
 });
 
 export const suspendAdvisor = catchAsync(async (req, res) => {
@@ -848,7 +885,8 @@ export const updateAdvisor = catchAsync(async (req, res) => {
     name, phoneNumber, country, state, city, timezone,
     professionalTitle, bio, detailedDescription, yearsOfExperience,
     expertise, styles, languages, tier,
-    isOnline, autoOnlineMode, sessionTypes, weeklySchedule, dateAvailability
+    isOnline, autoOnlineMode, sessionTypes, weeklySchedule, dateAvailability,
+    pricing
   } = req.body;
 
   const userPatch = {};
@@ -883,6 +921,10 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   }
   if (weeklySchedule && typeof weeklySchedule === 'object') profPatch.weeklySchedule = weeklySchedule;
   if (dateAvailability && typeof dateAvailability === 'object') profPatch.dateAvailability = dateAvailability;
+  if (pricing !== undefined) {
+    profPatch.pricing = normalizeAdvisorPricing(pricing);
+    profPatch.pricingOverrideEnabled = true;
+  }
   if (tier !== undefined) {
     const normalizedTier = normalizeAdvisorTier(tier);
     if (!normalizedTier) throw new ApiError(StatusCodes.BAD_REQUEST, 'Tier must be Silver, Gold, or Platinum');
@@ -890,7 +932,21 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   }
   let profile = await AdvisorProfile.findOne({ user: user._id });
   if (Object.keys(profPatch).length) {
-    profile = await AdvisorProfile.findOneAndUpdate({ user: user._id }, profPatch, { new: true, upsert: true });
+    profile = await AdvisorProfile.findOneAndUpdate(
+      { user: user._id },
+      profPatch,
+      { new: true, upsert: true, runValidators: true }
+    );
+  }
+
+  if (pricing !== undefined) {
+    await logAdminActivity({
+      adminId: req.user?._id,
+      action: 'advisor.pricing.update',
+      description: `Updated advisor-specific session pricing for ${user.name}`,
+      targetType: 'advisor',
+      targetUser: user._id
+    });
   }
 
   const updatedUser = await User.findById(user._id);

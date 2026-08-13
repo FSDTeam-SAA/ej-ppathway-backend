@@ -86,6 +86,39 @@ export const getAdvisorCreditPricing = async () => {
   };
 };
 
+const nonNegativeRate = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : Number(fallback);
+};
+
+export const resolveAdvisorCreditPricing = (profile, globalPricing = DEFAULT_CREDIT_PRICING) => {
+  const fallback = {
+    chatPerMin: nonNegativeRate(globalPricing?.chatPerMin, DEFAULT_CREDIT_PRICING.chatPerMin),
+    callPerMin: nonNegativeRate(globalPricing?.callPerMin, DEFAULT_CREDIT_PRICING.callPerMin),
+    videoPerMin: nonNegativeRate(globalPricing?.videoPerMin, DEFAULT_CREDIT_PRICING.videoPerMin)
+  };
+
+  if (!profile?.pricingOverrideEnabled) return fallback;
+
+  return {
+    chatPerMin: nonNegativeRate(profile.pricing?.chatPerMin, fallback.chatPerMin),
+    callPerMin: nonNegativeRate(profile.pricing?.callPerMin, fallback.callPerMin),
+    videoPerMin: nonNegativeRate(profile.pricing?.videoPerMin, fallback.videoPerMin)
+  };
+};
+
+const hasCompleteAdvisorPricing = (profile) =>
+  profile?.pricingOverrideEnabled &&
+  ['chatPerMin', 'callPerMin', 'videoPerMin'].every((key) => {
+    const value = Number(profile.pricing?.[key]);
+    return Number.isFinite(value) && value >= 0;
+  });
+
+export const getEffectiveAdvisorCreditPricing = async (profile) => {
+  if (hasCompleteAdvisorPricing(profile)) return resolveAdvisorCreditPricing(profile);
+  return resolveAdvisorCreditPricing(profile, await getAdvisorCreditPricing());
+};
+
 export const findCreditPack = async ({ packId, credits }) => {
   const packs = await listCreditPacks();
   if (packId) {
@@ -121,8 +154,8 @@ export const findCreditPackByRevenueCatProduct = async (productId) => {
   return packs.find((pack) => pack.revenueCatProductId === id || pack.id === id) || null;
 };
 
-export const getAdvisorCreditRate = async (_profile, type) => {
-  const pricing = await getAdvisorCreditPricing();
+export const getAdvisorCreditRate = async (profile, type) => {
+  const pricing = await getEffectiveAdvisorCreditPricing(profile);
   if (type === 'chat') return Number(pricing.chatPerMin ?? DEFAULT_CREDIT_PRICING.chatPerMin);
   if (type === 'call') return Number(pricing.callPerMin ?? DEFAULT_CREDIT_PRICING.callPerMin);
   if (type === 'video') return Number(pricing.videoPerMin ?? DEFAULT_CREDIT_PRICING.videoPerMin);
@@ -131,6 +164,17 @@ export const getAdvisorCreditRate = async (_profile, type) => {
 
 export const calculateSessionCredits = async ({ profile, type, durationMinutes }) => {
   const duration = Math.max(1, Number(durationMinutes) || 15);
+
+  // An advisor-specific per-minute rate is authoritative for every duration.
+  // Legacy fixed-duration usage blocks remain in effect for global pricing.
+  if (profile?.pricingOverrideEnabled) {
+    const ratePerMin = Math.max(0, await getAdvisorCreditRate(profile, type));
+    return {
+      ratePerMin,
+      credits: roundCredits(ratePerMin * duration)
+    };
+  }
+
   const blocks = await listCreditUsageBlocks();
   const exactBlock = blocks.find((block) => (
     block.sessionType === type &&
