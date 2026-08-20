@@ -64,7 +64,7 @@ export const updateBlog = catchAsync(async (req, res) => {
     });
     data.thumbnail = r.secure_url;
   }
-  const blog = await Blog.findByIdAndUpdate(req.params.id, data, { new: true });
+  const blog = await Blog.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after' });
   if (!blog) throw new ApiError(StatusCodes.NOT_FOUND, 'Blog not found');
   return sendResponse(res, { data: blog });
 });
@@ -92,7 +92,7 @@ export const createFaq = catchAsync(async (req, res) => {
 });
 
 export const updateFaq = catchAsync(async (req, res) => {
-  const f = await Faq.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  const f = await Faq.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' });
   if (!f) throw new ApiError(StatusCodes.NOT_FOUND, 'FAQ not found');
   return sendResponse(res, { data: f });
 });
@@ -120,7 +120,7 @@ export const upsertPage = catchAsync(async (req, res) => {
   const page = await CmsPage.findOneAndUpdate(
     { slug },
     { $set: { title, content }, $setOnInsert: { slug } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
   return sendResponse(res, { data: page });
 });

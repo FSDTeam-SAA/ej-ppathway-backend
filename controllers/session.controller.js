@@ -259,8 +259,11 @@ const dateAvailabilityEntry = (dateAvailability, dateKey) => {
 // A date rule overrides the weekly schedule only when it explicitly marks the
 // day unavailable or defines its own slots. An empty/stale entry (no slots and
 // not marked unavailable) is ignored so the advisor's regular weekly hours apply.
-const dateOverrideActive = (entry) =>
-  !!entry && (entry.unavailable === true || (Array.isArray(entry.slots) && entry.slots.length > 0));
+// Any stored entry replaces the weekday schedule: `unavailable` blocks the date
+// outright, and an empty slots list means every window was removed — also
+// nothing bookable. Falling back to the weekly plan requires deleting the entry.
+// Matches `isWithinSchedule` in utils/availability.js and the dashboard.
+const dateOverrideActive = (entry) => !!entry;
 
 const dateAvailabilitySlots = (day) => {
   if (!day || day.unavailable === true) return [];
@@ -309,7 +312,9 @@ const availabilityForDate = (profile, dateKey, weekday) => {
       ? []
       : dateAvailabilitySlots(dateRule).map(({ from, to }) => ({ from, to }));
     return {
-      scheduleForDay: dateRule.unavailable === true ? null : { enabled: true, slots: dateRule.slots },
+      // No windows left means the date is closed, so report no schedule at all
+      // rather than an "enabled" day the caller would read a blank window from.
+      scheduleForDay: windows.length ? { enabled: true, slots: dateRule.slots } : null,
       scheduleWindows: windows
     };
   }
@@ -1068,7 +1073,7 @@ export const advisorStartSession = catchAsync(async (req, res) => {
         recordingStatus: { $nin: ['starting', 'recording', 'completed'] }
       },
       { $set: { recordingStatus: 'starting', recordingError: '' } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (claimed) {

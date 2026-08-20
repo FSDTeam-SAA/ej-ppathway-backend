@@ -150,7 +150,7 @@ export const revenueCatWebhook = async (req, res) => {
         $inc: { balance: credited },
         $addToSet: { processedIapTransactionIds: String(transactionId) }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     const price = Number(event.price || event.price_in_purchased_currency || pack.priceUsd);
@@ -187,7 +187,7 @@ export const revenueCatWebhook = async (req, res) => {
           }
         }
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
+      { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
     );
 
     if (!wallet) {

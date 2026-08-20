@@ -223,7 +223,7 @@ export const giveFreeCredits = catchAsync(async (req, res) => {
   const wallet = await Wallet.findOneAndUpdate(
     { user: user._id },
     { $inc: { freeCredits: value } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
 
   await Transaction.create({
@@ -258,7 +258,7 @@ export const suspendUser = catchAsync(async (req, res) => {
   const user = await User.findByIdAndUpdate(
     req.params.id,
     { status: 'suspended', suspendedReason: reason || '', suspendedAt: new Date() },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
   await logAdminActivity({
@@ -275,7 +275,7 @@ export const unsuspendUser = catchAsync(async (req, res) => {
   const user = await User.findByIdAndUpdate(
     req.params.id,
     { status: 'active', suspendedReason: null, suspendedAt: null },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
   return sendResponse(res, { message: 'User unsuspended', data: user });

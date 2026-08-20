@@ -134,7 +134,7 @@ export const completeAdvisorOnboarding = catchAsync(async (req, res) => {
       },
       $setOnInsert: { user: user._id }
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   await createNotification({

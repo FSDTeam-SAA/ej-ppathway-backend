@@ -327,7 +327,7 @@ export const adminFlagSession = catchAsync(async (req, res) => {
       flaggedAt: new Date(),
       flaggedBy: req.user?._id
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   return sendResponse(res, { data: session });
@@ -342,7 +342,7 @@ export const adminRemoveFlagSession = catchAsync(async (req, res) => {
       flaggedAt: null,
       flaggedBy: null
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   return sendResponse(res, { message: 'Flag removed', data: session });
@@ -352,14 +352,14 @@ export const adminUpdateSessionNotes = catchAsync(async (req, res) => {
   const session = await Session.findByIdAndUpdate(
     req.params.id,
     { internalNotes: req.body?.internalNotes || '' },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   return sendResponse(res, { message: 'Internal notes saved', data: session });
 });
 
 export const adminResolveDisputed = catchAsync(async (req, res) => {
-  const session = await Session.findByIdAndUpdate(req.params.id, { status: 'completed' }, { new: true });
+  const session = await Session.findByIdAndUpdate(req.params.id, { status: 'completed' }, { returnDocument: 'after' });
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   return sendResponse(res, { message: 'Marked as resolved', data: session });
 });

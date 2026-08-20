@@ -83,7 +83,7 @@ export const createCurrency = catchAsync(async (req, res) => {
 
 export const updateCurrency = catchAsync(async (req, res) => {
   const body = sanitize(req.body);
-  const row = await Currency.findByIdAndUpdate(req.params.id, body, { new: true });
+  const row = await Currency.findByIdAndUpdate(req.params.id, body, { returnDocument: 'after' });
   if (!row) throw new ApiError(StatusCodes.NOT_FOUND, 'Currency not found');
   invalidatePricingCache();
   return sendResponse(res, { data: row });

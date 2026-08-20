@@ -42,7 +42,7 @@ export const markAsRead = catchAsync(async (req, res) => {
   const n = await Notification.findOneAndUpdate(
     { _id: req.params.id, recipient: req.user._id },
     { read: true, readAt: new Date() },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!n) throw new ApiError(StatusCodes.NOT_FOUND, 'Notification not found');
   return sendResponse(res, { data: n });

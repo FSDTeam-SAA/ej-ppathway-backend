@@ -79,7 +79,7 @@ const syncTopupWithStripe = async ({ tx, sessionId }) => {
     const wallet = await Wallet.findOneAndUpdate(
       { user: tx.user },
       { $inc: { balance: credits } },
-      { new: true, upsert: true },
+      { returnDocument: 'after', upsert: true },
     );
 
     tx.status = 'completed';
@@ -133,7 +133,7 @@ export const getMyWallet = catchAsync(async (req, res) => {
   const wallet = await Wallet.findOneAndUpdate(
     { user: req.user._id },
     { $setOnInsert: { user: req.user._id } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
 
   // determine plan label
@@ -323,7 +323,7 @@ export const paypalTopupSuccess = catchAsync(async (req, res) => {
   const wallet = await Wallet.findOneAndUpdate(
     { user: tx.user },
     { $inc: { balance: credits } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
 
   tx.status = 'completed';
@@ -403,7 +403,7 @@ export const getTopupStatus = catchAsync(async (req, res) => {
     wallet = await Wallet.findOneAndUpdate(
       { user: req.user._id },
       { $setOnInsert: { user: req.user._id } },
-      { new: true, upsert: true },
+      { returnDocument: 'after', upsert: true },
     );
   }
 
@@ -493,7 +493,7 @@ export const myEarningsOverview = catchAsync(async (req, res) => {
   const wallet = await Wallet.findOneAndUpdate(
     { user: req.user._id },
     { $setOnInsert: { user: req.user._id } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
 
   const startDay = new Date(); startDay.setHours(0,0,0,0);
@@ -569,7 +569,7 @@ export const deleteEarningRecord = catchAsync(async (req, res) => {
   const tx = await Transaction.findOneAndUpdate(
     { _id: req.params.id, advisor: req.user._id },
     { $set: { 'metadata.archived': true } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!tx) throw new ApiError(StatusCodes.NOT_FOUND, 'Transaction not found');
   return sendResponse(res, { message: 'Archived', data: tx });

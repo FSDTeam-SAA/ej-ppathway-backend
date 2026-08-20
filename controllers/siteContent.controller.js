@@ -65,7 +65,7 @@ export const upsertSiteContent = catchAsync(async (req, res) => {
       },
       $setOnInsert: { pageSlug }
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   return sendResponse(res, { data: doc, message: 'Site content updated' });

@@ -104,7 +104,7 @@ export const adminUpdateContactMessage = catchAsync(async (req, res) => {
   }
   if (req.body.adminNote !== undefined) update.adminNote = String(req.body.adminNote);
 
-  const doc = await ContactMessage.findByIdAndUpdate(req.params.id, update, { new: true });
+  const doc = await ContactMessage.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' });
   if (!doc) throw new ApiError(StatusCodes.NOT_FOUND, 'Message not found');
   return sendResponse(res, { data: doc, message: 'Message updated' });
 });

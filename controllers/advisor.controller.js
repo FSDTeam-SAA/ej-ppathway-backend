@@ -141,8 +141,9 @@ const dateAvailabilityEntry = (dateAvailability, dateKey) => {
   return dateAvailability[dateKey] || null;
 };
 
-const dateOverrideActive = (entry) =>
-  !!entry && (entry.unavailable === true || (Array.isArray(entry.slots) && entry.slots.length > 0));
+// See session.controller.js: any stored entry replaces the weekday schedule,
+// including one whose windows were all removed.
+const dateOverrideActive = (entry) => !!entry;
 
 const dateAvailabilitySlots = (day) => {
   if (!day || day.unavailable === true) return [];
@@ -401,7 +402,7 @@ export const updateMyApplication = catchAsync(async (req, res) => {
   const app = await AdvisorApplication.findOneAndUpdate(
     { user: req.user._id },
     { $set: update, $setOnInsert: { user: req.user._id } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   return sendResponse(res, { data: app, message: 'Application updated' });
 });
@@ -532,9 +533,9 @@ export const updateMyProfile = catchAsync(async (req, res) => {
       },
       $setOnInsert: { user: req.user._id }
     },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
-  const user = await User.findByIdAndUpdate(req.user._id, userUpdate, { new: true });
+  const user = await User.findByIdAndUpdate(req.user._id, userUpdate, { returnDocument: 'after' });
 
   if (requiresAdminReview) {
     await markProfilePendingReview(req.user._id);
@@ -550,7 +551,8 @@ export const updateMyProfile = catchAsync(async (req, res) => {
     : 0;
 
   const globalPricing = await getAdvisorCreditPricing();
-  const profileData = profile?.toObject ? profile.toObject() : profile;
+  // flattenMaps: without it `dateAvailability` (a Map) stays a native Map and JSON.stringify drops it to {}.
+  const profileData = profile?.toObject ? profile.toObject({ flattenMaps: true }) : profile;
   const effectiveProfile = profileData
     ? { ...profileData, pricing: resolveAdvisorCreditPricing(profileData, globalPricing) }
     : profileData;
@@ -571,7 +573,7 @@ export const uploadProfilePhoto = catchAsync(async (req, res) => {
     contentType: req.file.mimetype,
     filename: req.file.originalname
   });
-  const user = await User.findByIdAndUpdate(req.user._id, { profilePhoto: result.secure_url }, { new: true });
+  const user = await User.findByIdAndUpdate(req.user._id, { profilePhoto: result.secure_url }, { returnDocument: 'after' });
   return sendResponse(res, { data: { user, url: result.secure_url } });
 });
 
@@ -585,7 +587,7 @@ export const setOnlineMode = catchAsync(async (req, res) => {
       $set: { isOnline: nextOnline, lastSeenAt: new Date() },
       $setOnInsert: { user: req.user._id }
     },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   return sendResponse(res, {
     message: nextOnline ? 'You are online' : 'You are offline',
@@ -770,7 +772,7 @@ export const activatePromotion = catchAsync(async (req, res) => {
     {
       activePromotion: { plan, startsAt, expiresAt, impressions: 0, profileViews: 0, clicks: 0, newClients: 0 }
     },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   return sendResponse(res, { message: 'Promotion activated', data: profile.activePromotion });
 });

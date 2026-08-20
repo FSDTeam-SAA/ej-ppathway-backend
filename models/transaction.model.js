@@ -89,11 +89,10 @@ const transactionSchema = new Schema(
   { timestamps: true }
 );
 
-transactionSchema.pre('save', function (next) {
+transactionSchema.pre('save', function () {
   if (!this.txCode) {
     this.txCode = 'TXN-' + Math.floor(1000 + Math.random() * 9000) + Date.now().toString().slice(-4);
   }
-  next();
 });
 
 const Transaction = mongoose.model('Transaction', transactionSchema);

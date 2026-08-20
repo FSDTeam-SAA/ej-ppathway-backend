@@ -191,7 +191,7 @@ export const signupAdvisor = catchAsync(async (req, res) => {
   await AdvisorApplication.findOneAndUpdate(
     { user: user._id },
     { $setOnInsert: { user: user._id, ...rest, stage: 'application', status: 'new' } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   return sendResponse(res, {
@@ -362,7 +362,7 @@ export const advisorApply = catchAsync(async (req, res) => {
   const application = await AdvisorApplication.findOneAndUpdate(
     { user: user._id },
     { $set: applicationUpdate, $setOnInsert: { user: user._id, submittedAt: new Date() } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   return sendResponse(res, {

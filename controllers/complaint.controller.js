@@ -202,7 +202,7 @@ export const adminUpdateComplaintStatus = catchAsync(async (req, res) => {
       resolvedBy: req.user._id,
       ...(status === 'complete' || status === 'reject' ? { resolvedAt: new Date() } : {})
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!c) throw new ApiError(StatusCodes.NOT_FOUND, 'Complaint not found');
 

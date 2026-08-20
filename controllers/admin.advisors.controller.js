@@ -429,7 +429,7 @@ export const approveApplication = catchAsync(async (req, res) => {
         profileReviewedBy: req.user?._id
       }
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   await User.findByIdAndUpdate(app.user._id, { role: 'advisor', status: 'active', isVerified: true });
@@ -532,7 +532,7 @@ export const sendOnboarding = catchAsync(async (req, res) => {
         profileRejectionReason: ''
       }
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   await User.findByIdAndUpdate(app.user._id, {
@@ -577,7 +577,7 @@ export const approveAdvisorProfile = catchAsync(async (req, res) => {
       profileReviewedAt: new Date(),
       profileReviewedBy: req.user?._id
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile not found');
 
@@ -621,7 +621,7 @@ export const rejectAdvisorProfile = catchAsync(async (req, res) => {
       profileReviewedAt: new Date(),
       profileReviewedBy: req.user?._id
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile not found');
 
@@ -826,7 +826,8 @@ export const getAdvisor = catchAsync(async (req, res) => {
   };
 
   const globalPricing = await getAdvisorCreditPricing();
-  const profileData = profile?.toObject ? profile.toObject() : profile;
+  // flattenMaps: without it `dateAvailability` (a Map) stays a native Map and JSON.stringify drops it to {}.
+  const profileData = profile?.toObject ? profile.toObject({ flattenMaps: true }) : profile;
   const effectivePricing = resolveAdvisorCreditPricing(profileData, globalPricing);
 
   return sendResponse(res, {
@@ -845,7 +846,7 @@ export const suspendAdvisor = catchAsync(async (req, res) => {
   const user = await User.findByIdAndUpdate(
     req.params.id,
     { status: 'deactivated', suspendedReason: reason || '', suspendedAt: new Date() },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   await logAdminActivity({
@@ -862,7 +863,7 @@ export const unsuspendAdvisor = catchAsync(async (req, res) => {
   const user = await User.findByIdAndUpdate(
     req.params.id,
     { status: 'active', suspendedReason: null, suspendedAt: null },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   return sendResponse(res, { message: 'Advisor reactivated', data: user });
@@ -935,7 +936,7 @@ export const updateAdvisor = catchAsync(async (req, res) => {
     profile = await AdvisorProfile.findOneAndUpdate(
       { user: user._id },
       profPatch,
-      { new: true, upsert: true, runValidators: true }
+      { returnDocument: 'after', upsert: true, runValidators: true }
     );
   }
 
@@ -1060,7 +1061,7 @@ export const setAdvisorFeaturedOnHome = catchAsync(async (req, res) => {
   const profile = await AdvisorProfile.findOneAndUpdate(
     { user: req.params.id },
     { isFeaturedOnHome },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile not found');
   return sendResponse(res, { data: profile, message: 'Featured flag updated' });

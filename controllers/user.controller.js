@@ -52,7 +52,7 @@ export const updateProfile = catchAsync(async (req, res) => {
     update.profilePhoto = result.secure_url;
   }
 
-  const user = await User.findByIdAndUpdate(req.user._id, update, { new: true });
+  const user = await User.findByIdAndUpdate(req.user._id, update, { returnDocument: 'after' });
   return sendResponse(res, { message: 'Profile updated', data: user });
 });
 
@@ -62,7 +62,7 @@ export const updateNotificationPrefs = catchAsync(async (req, res) => {
   for (const k of prefs) {
     if (typeof req.body[k] === 'boolean') update[`notifPrefs.${k}`] = req.body[k];
   }
-  const user = await User.findByIdAndUpdate(req.user._id, update, { new: true });
+  const user = await User.findByIdAndUpdate(req.user._id, update, { returnDocument: 'after' });
   return sendResponse(res, { message: 'Preferences updated', data: user.notifPrefs });
 });
 
@@ -234,7 +234,7 @@ export const submitPreferences = catchAsync(async (req, res) => {
   }
   if (completed && !onboarding.completedAt) update['onboarding.completedAt'] = now;
 
-  const user = await User.findByIdAndUpdate(req.user._id, update, { new: true });
+  const user = await User.findByIdAndUpdate(req.user._id, update, { returnDocument: 'after' });
 
   return sendResponse(res, {
     message: completed ? 'Onboarding complete' : 'Preferences saved',
@@ -312,7 +312,7 @@ export const addFavorite = catchAsync(async (req, res) => {
   await Favorite.findOneAndUpdate(
     { user: req.user._id, advisor: advisorId },
     { $setOnInsert: { user: req.user._id, advisor: advisorId } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
   return sendResponse(res, { message: 'Added to favorites' });
 });

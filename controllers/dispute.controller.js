@@ -281,7 +281,7 @@ export const adminRejectDispute = catchAsync(async (req, res) => {
   const dispute = await Dispute.findByIdAndUpdate(
     req.params.id,
     { status: 'rejected', resolutionNote: note || '', resolvedBy: req.user._id, resolvedAt: new Date() },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!dispute) throw new ApiError(StatusCodes.NOT_FOUND, 'Dispute not found');
 
@@ -300,7 +300,7 @@ export const adminMarkInvestigating = catchAsync(async (req, res) => {
   const dispute = await Dispute.findByIdAndUpdate(
     req.params.id,
     { status: 'investigating', resolvedBy: req.user._id },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!dispute) throw new ApiError(StatusCodes.NOT_FOUND, 'Dispute not found');
   return sendResponse(res, { data: dispute });

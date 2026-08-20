@@ -54,7 +54,7 @@ export const creditAdvisor = async ({ advisorId, amount }) => {
   const wallet = await Wallet.findOneAndUpdate(
     { user: advisorId },
     { $inc: { earningsBalance: round2(amount), totalEarned: round2(amount) } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   return wallet;
 };

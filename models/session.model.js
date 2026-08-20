@@ -107,11 +107,10 @@ const sessionSchema = new Schema(
   { timestamps: true }
 );
 
-sessionSchema.pre('save', function (next) {
+sessionSchema.pre('save', function () {
   if (!this.sessionCode) {
     this.sessionCode = 'SES-' + Math.floor(100000 + Math.random() * 900000);
   }
-  next();
 });
 
 const Session = mongoose.model('Session', sessionSchema);

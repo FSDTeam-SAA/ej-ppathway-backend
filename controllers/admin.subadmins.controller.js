@@ -185,7 +185,7 @@ export const suspendSubAdmin = catchAsync(async (req, res) => {
   const user = await User.findOneAndUpdate(
     { _id: req.params.id, role: 'sub_admin' },
     { status: 'suspended', suspendedAt: new Date() },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Sub-admin not found');
   await logAdminActivity({
@@ -202,7 +202,7 @@ export const unsuspendSubAdmin = catchAsync(async (req, res) => {
   const user = await User.findOneAndUpdate(
     { _id: req.params.id, role: 'sub_admin' },
     { status: 'active', suspendedAt: null },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Sub-admin not found');
   await logAdminActivity({

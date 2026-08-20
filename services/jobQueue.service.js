@@ -71,7 +71,7 @@ const claimNextJob = async () => {
       $set: { status: 'processing', lockedAt: now, lastError: '' },
       $inc: { attempts: 1 }
     },
-    { sort: { runAt: 1, createdAt: 1 }, new: true }
+    { sort: { runAt: 1, createdAt: 1 }, returnDocument: 'after' }
   );
 };
 

@@ -304,7 +304,7 @@ export const cancelMySubscription = catchAsync(async (req, res) => {
   const sub = await UserSubscription.findOneAndUpdate(
     { user: req.user._id, status: { $in: ['active', 'trialing'] } },
     { status: 'cancelled', cancelledAt: new Date() },
-    { new: true }
+    { returnDocument: 'after' }
   );
   return sendResponse(res, { message: 'Subscription cancelled', data: sub });
 });

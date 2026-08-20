@@ -141,7 +141,7 @@ const holdEarnings = async (advisorId, credits) => {
   const wallet = await Wallet.findOneAndUpdate(
     { user: advisorId, earningsBalance: { $gte: c } },
     { $inc: { earningsBalance: -c, pendingPayouts: c } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   return wallet; // null → insufficient balance
 };
@@ -274,7 +274,7 @@ export const finalizePaid = async (txOrId, rawStatus) => {
         hyperwalletStatus: rawStatus || 'COMPLETED'
       }
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!tx) return Transaction.findById(id); // already finalized / not held
   const credits = roundCredits(tx.payoutCredits ?? tx.amount);
@@ -298,7 +298,7 @@ export const finalizeFailed = async (txOrId, reason) => {
         hyperwalletStatus: reason ? undefined : 'FAILED'
       }
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!tx) return Transaction.findById(id);
   const credits = roundCredits(tx.payoutCredits ?? tx.amount);
@@ -323,7 +323,7 @@ export const rejectPayout = async (tx, reason, adminId) => {
         withdrawalApprovedBy: adminId || undefined
       }
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!updated) {
     throw Object.assign(new Error('Payout is not in a rejectable state'), { statusCode: 400 });

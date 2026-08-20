@@ -58,7 +58,7 @@ export const submitReview = catchAsync(async (req, res) => {
         sessionType: session.type
       }
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   session.review = r._id;
@@ -133,7 +133,7 @@ export const listFeaturedTestimonials = catchAsync(async (_req, res) => {
 export const adminSetReviewFeatured = catchAsync(async (req, res) => {
   const { id } = req.params;
   const isFeaturedTestimonial = !!req.body?.isFeaturedTestimonial;
-  const r = await Review.findByIdAndUpdate(id, { isFeaturedTestimonial }, { new: true });
+  const r = await Review.findByIdAndUpdate(id, { isFeaturedTestimonial }, { returnDocument: 'after' });
   if (!r) throw new ApiError(StatusCodes.NOT_FOUND, 'Review not found');
   return sendResponse(res, { data: r, message: 'Featured flag updated' });
 });
@@ -172,7 +172,7 @@ export const adminUpdateShowcaseReview = catchAsync(async (req, res) => {
   const review = await Review.findOneAndUpdate(
     { _id: req.params.id, isAdminShowcase: true },
     update,
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!review) throw new ApiError(StatusCodes.NOT_FOUND, 'Review not found');
   return sendResponse(res, { data: review });
@@ -213,7 +213,7 @@ export const adminUpdateUserReview = catchAsync(async (req, res) => {
   const review = await Review.findOneAndUpdate(
     { _id: req.params.id, isAdminShowcase: { $ne: true } },
     update,
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!review) throw new ApiError(StatusCodes.NOT_FOUND, 'Review not found');
   // Real reviews affect the advisor's rating, so keep aggregates in sync.

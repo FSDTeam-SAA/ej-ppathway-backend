@@ -107,7 +107,7 @@ export const ensureSeed = async () => {
     }
   ];
   for (const p of planSeeds) {
-    await Plan.findOneAndUpdate({ tier: p.tier }, { $set: p }, { upsert: true, new: true });
+    await Plan.findOneAndUpdate({ tier: p.tier }, { $set: p }, { upsert: true, returnDocument: 'after' });
   }
 
   // CMS placeholders

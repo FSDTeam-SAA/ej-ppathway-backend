@@ -13,13 +13,13 @@ export const createPlan = catchAsync(async (req, res) => {
 });
 
 export const updatePlan = catchAsync(async (req, res) => {
-  const plan = await Plan.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  const plan = await Plan.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' });
   if (!plan) throw new ApiError(StatusCodes.NOT_FOUND, 'Plan not found');
   return sendResponse(res, { data: plan });
 });
 
 export const deletePlan = catchAsync(async (req, res) => {
-  const plan = await Plan.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
+  const plan = await Plan.findByIdAndUpdate(req.params.id, { isActive: false }, { returnDocument: 'after' });
   if (!plan) throw new ApiError(StatusCodes.NOT_FOUND, 'Plan not found');
   return sendResponse(res, { message: 'Plan deactivated', data: plan });
 });
