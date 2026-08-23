@@ -1,7 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { verifyRevenueCatTipPurchase } from '../services/iapTip.service.js';
+import {
+  lookupRevenueCatPurchase,
+  verifyRevenueCatTipPurchase
+} from '../services/iapTip.service.js';
+
+test('retries a RevenueCat purchase lookup when the transaction is not visible yet', async () => {
+  let calls = 0;
+  const purchase = await lookupRevenueCatPurchase({
+    url: new URL('https://api.revenuecat.com/v2/projects/test/purchases'),
+    apiKey: 'test-secret-key',
+    delaysMs: [0, 0],
+    fetchImpl: async () => {
+      calls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          calls === 1
+            ? { items: [] }
+            : { items: [{ id: 'purchase-1', product_store_identifier: 'tip_10' }] }
+      };
+    }
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(purchase.id, 'purchase-1');
+});
 
 test('accepts fixed tip tiers and derives USD from the product ID in development', async () => {
   const previous = {

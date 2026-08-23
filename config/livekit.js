@@ -166,7 +166,7 @@ export const removeParticipant = async (roomName, identity) => {
  * `nameOnly` is just the file name (e.g. "<sessionId>-<ts>.mp4").
  * Returns { egressId, filepath, storage, recordingUrl } or null on failure.
  */
-export const startRoomRecording = async (roomName, nameOnly) => {
+export const startRoomRecording = async (roomName, nameOnly, { audioOnly = false } = {}) => {
   if (!egressClient) {
     console.error('startRoomRecording error: LiveKit egress is not configured', { roomName });
     return null;
@@ -198,7 +198,11 @@ export const startRoomRecording = async (roomName, nameOnly) => {
     }
 
     const fileOutput = new EncodedFileOutput(fileOutputConfig);
-    const info = await egressClient.startRoomCompositeEgress(roomName, { file: fileOutput });
+    const info = await egressClient.startRoomCompositeEgress(
+      roomName,
+      { file: fileOutput },
+      { audioOnly }
+    );
     return {
       egressId: info?.egressId,
       filepath,

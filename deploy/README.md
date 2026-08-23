@@ -74,7 +74,18 @@ R2_FORCE_PATH_STYLE=true
 R2_PUBLIC_BASE_URL=https://<public-r2-domain>
 EGRESS_OUTPUT_DIR=/recordings
 # EGRESS_S3_* can stay empty; egress reuses R2_* above.
+REVENUECAT_SECRET_API_KEY=<REVENUECAT_V2_SECRET_API_KEY>
+REVENUECAT_PROJECT_ID=<REVENUECAT_PROJECT_ID>
+REVENUECAT_WEBHOOK_SECRET=<RANDOM_WEBHOOK_AUTH_SECRET>
+IAP_TIP_PRODUCT_IDS=tip_5,tip_10,tip_20,tip_50
+IAP_TIP_ALLOW_UNVERIFIED=false
 ```
+
+The RevenueCat V2 secret key must have
+`customer_information:purchases:read` permission. Configure RevenueCat's
+webhook URL as
+`https://ejpathwayapi.duckdns.org/api/v1/webhooks/revenuecat` and use the same
+authorization secret in RevenueCat and `REVENUECAT_WEBHOOK_SECRET`.
 
 Edit **`deploy/livekit.yaml`** — set `keys:` to `<API_KEY>: <API_SECRET>` and
 `webhook.urls` to `https://ejpathwayapi.duckdns.org/api/v1/webhooks/livekit`.

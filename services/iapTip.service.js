@@ -80,6 +80,78 @@ const purchaseItems = (payload) => {
   return [];
 };
 
+const REVENUECAT_LOOKUP_DELAYS_MS = [0, 500, 1500];
+
+const wait = (milliseconds) =>
+  milliseconds > 0
+    ? new Promise((resolve) => setTimeout(resolve, milliseconds))
+    : Promise.resolve();
+
+/**
+ * A newly completed StoreKit transaction can take a short time to appear in
+ * RevenueCat's purchases search. Retry only empty/not-found, throttled, server,
+ * and network responses; authentication/configuration errors fail immediately.
+ */
+export const lookupRevenueCatPurchase = async ({
+  url,
+  apiKey,
+  fetchImpl = fetch,
+  delaysMs = REVENUECAT_LOOKUP_DELAYS_MS
+}) => {
+  let lastResponse = null;
+  let lastPayload = null;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < delaysMs.length; attempt += 1) {
+    await wait(delaysMs[attempt]);
+
+    try {
+      lastResponse = await fetchImpl(url, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        }
+      });
+      lastError = null;
+
+      try {
+        lastPayload = await lastResponse.json();
+      } catch {
+        lastPayload = null;
+      }
+
+      if (lastResponse.ok) {
+        const purchase = purchaseItems(lastPayload)[0];
+        if (purchase) return purchase;
+      } else {
+        const retryable =
+          lastResponse.status === 404 ||
+          lastResponse.status === 429 ||
+          lastResponse.status >= 500;
+        if (!retryable) break;
+      }
+    } catch (error) {
+      lastError = error;
+      lastResponse = null;
+      lastPayload = null;
+    }
+  }
+
+  if (lastResponse && !lastResponse.ok) {
+    throw Object.assign(new Error('RevenueCat purchase verification failed'), {
+      statusCode: lastResponse.status === 404 ? 400 : 502,
+      details: lastPayload
+    });
+  }
+  if (lastError) {
+    throw Object.assign(new Error('RevenueCat purchase verification failed'), {
+      statusCode: 502,
+      cause: lastError
+    });
+  }
+  throw Object.assign(new Error('Purchase was not found in RevenueCat'), { statusCode: 400 });
+};
+
 export const verifyRevenueCatTipPurchase = async ({
   productId,
   storeTransactionId,
@@ -133,32 +205,7 @@ export const verifyRevenueCatTipPurchase = async ({
   const url = new URL(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/purchases`);
   url.searchParams.set('store_purchase_identifier', storeTransactionId);
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    }
-  });
-
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-
-  if (!response.ok) {
-    throw Object.assign(new Error('RevenueCat purchase verification failed'), {
-      statusCode: response.status === 404 ? 400 : 502,
-      details: payload
-    });
-  }
-
-  const purchases = purchaseItems(payload);
-  const purchase = purchases[0];
-  if (!purchase) {
-    throw Object.assign(new Error('Purchase was not found in RevenueCat'), { statusCode: 400 });
-  }
+  const purchase = await lookupRevenueCatPurchase({ url, apiKey });
 
   const productMatches = purchaseProductIds(purchase).includes(String(productId));
   if (purchaseProductIds(purchase).length && !productMatches) {

@@ -17,9 +17,10 @@ const creditPackSchema = new Schema(
 );
 
 const DEFAULT_CREDIT_PACKS = [
-  { id: 'credits_50', label: '50 Credits', credits: 50, bonusCredits: 0, priceUsd: 35, revenueCatProductId: 'credits_50', isActive: true, sortOrder: 1 },
-  { id: 'credits_100', label: '100 Credits', credits: 100, bonusCredits: 0, priceUsd: 59, revenueCatProductId: 'credits_100', isActive: true, sortOrder: 2 },
-  { id: 'credits_200', label: '200 Credits', credits: 200, bonusCredits: 0, priceUsd: 99, revenueCatProductId: 'credits_200', isActive: true, sortOrder: 3 }
+  { id: 'credits_25', label: '25 Credits', credits: 25, bonusCredits: 0, priceUsd: 19, revenueCatProductId: 'credits_25', isActive: true, sortOrder: 1 },
+  { id: 'credits_50', label: '50 Credits', credits: 50, bonusCredits: 0, priceUsd: 35, revenueCatProductId: 'credits_50', isActive: true, sortOrder: 2 },
+  { id: 'credits_100', label: '100 Credits', credits: 100, bonusCredits: 0, priceUsd: 59, revenueCatProductId: 'credits_100', isActive: true, sortOrder: 3 },
+  { id: 'credits_200', label: '200 Credits', credits: 200, bonusCredits: 0, priceUsd: 99, revenueCatProductId: 'credits_200', isActive: true, sortOrder: 4 }
 ];
 
 const DEFAULT_CREDIT_USAGE = {
@@ -136,6 +137,10 @@ const platformSettingSchema = new Schema(
     creditUsdRate: { type: Number, default: DEFAULT_CREDIT_USD_RATE, min: 0 },
     creditBannerTitle: { type: String, default: DEFAULT_CREDIT_BANNER_TITLE, trim: true },
     creditBannerSubtitle: { type: String, default: DEFAULT_CREDIT_BANNER_SUBTITLE, trim: true },
+    // Increment when a required store-backed pack must be seeded once into
+    // existing settings. Keeping the version lets admins remove packs later
+    // without the application silently recreating them on every read.
+    creditPackCatalogVersion: { type: Number, default: 0, min: 0 },
     creditPacks: { type: [creditPackSchema], default: () => DEFAULT_CREDIT_PACKS },
     creditUsage: {
       chatTranscript: { type: Number, default: DEFAULT_CREDIT_USAGE.chatTranscript, min: 0 },
@@ -180,11 +185,15 @@ export const getPlatformSettings = async () => {
   if (!s.creditBannerSubtitle) s.creditBannerSubtitle = DEFAULT_CREDIT_BANNER_SUBTITLE;
   if (typeof s.creditExpirationDays !== 'number') s.creditExpirationDays = DEFAULT_CREDIT_EXPIRATION_DAYS;
   if (!Array.isArray(s.creditPacks)) s.creditPacks = DEFAULT_CREDIT_PACKS;
-  // Remove the retired legacy tier from already-created settings documents.
-  // New documents no longer contain it in DEFAULT_CREDIT_PACKS.
-  const currentCreditPacks = s.creditPacks.filter((pack) => Number(pack.credits) !== 25);
-  if (currentCreditPacks.length !== s.creditPacks.length) {
-    s.creditPacks = currentCreditPacks;
+  if (Number(s.creditPackCatalogVersion || 0) < 1) {
+    const has25CreditPack = s.creditPacks.some((pack) => (
+      String(pack.id || '').trim() === 'credits_25' ||
+      String(pack.revenueCatProductId || '').trim() === 'credits_25'
+    ));
+    if (!has25CreditPack) {
+      s.creditPacks.push({ ...DEFAULT_CREDIT_PACKS[0] });
+    }
+    s.creditPackCatalogVersion = 1;
     await s.save();
   }
   if (!s.creditUsage) s.creditUsage = DEFAULT_CREDIT_USAGE;

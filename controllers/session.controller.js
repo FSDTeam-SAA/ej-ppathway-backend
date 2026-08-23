@@ -1079,7 +1079,9 @@ export const advisorStartSession = catchAsync(async (req, res) => {
     if (claimed) {
       const roomName = claimed.livekitRoom || `session_${claimed._id}`;
       const fileName = `${claimed._id}-${Date.now()}.mp4`;
-      const egress = await startRoomRecording(roomName, fileName);
+      const egress = await startRoomRecording(roomName, fileName, {
+        audioOnly: claimed.type === 'call'
+      });
       if (egress?.egressId) {
         const update = {
           egressId: egress.egressId,
