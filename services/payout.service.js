@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import User from '../models/user.model.js';
@@ -135,15 +136,60 @@ export const hasPayoutMethod = (advisor) =>
 /* Wallet holds (credits)                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Atomically move `credits` from earningsBalance → pendingPayouts (guards sufficiency). */
-const holdEarnings = async (advisorId, credits) => {
+const payoutSources = (tx) => ({
+  // Legacy payout records stored credits in amount. New records always set
+  // both payout source fields explicitly.
+  credits: roundCredits(
+    tx.payoutCredits ?? (typeof tx.payoutTipUsd === 'number' ? 0 : tx.amount)
+  ),
+  tipUsd: round2(tx.payoutTipUsd || 0)
+});
+
+const holdPayoutSources = async (advisorId, { credits, tipUsd }, dbSession) => {
   const c = roundCredits(credits);
-  const wallet = await Wallet.findOneAndUpdate(
-    { user: advisorId, earningsBalance: { $gte: c } },
-    { $inc: { earningsBalance: -c, pendingPayouts: c } },
-    { returnDocument: 'after' }
+  const t = round2(tipUsd);
+  const filter = { user: advisorId };
+  const inc = {};
+  if (c > 0) {
+    filter.earningsBalance = { $gte: c };
+    inc.earningsBalance = -c;
+    inc.pendingPayouts = c;
+  }
+  if (t > 0) {
+    filter.tipEarningsBalanceUsd = { $gte: t };
+    inc.tipEarningsBalanceUsd = -t;
+    inc.pendingTipPayoutUsd = t;
+  }
+  if (!Object.keys(inc).length) return null;
+  return Wallet.findOneAndUpdate(
+    filter,
+    { $inc: inc },
+    { returnDocument: 'after', ...(dbSession ? { session: dbSession } : {}) }
   );
-  return wallet; // null → insufficient balance
+};
+
+export const walletAvailableUsd = (wallet, cfg) =>
+  round2(Math.max(
+    0,
+    creditsToUsd(Math.max(0, Number(wallet?.earningsBalance || 0)), cfg) +
+      Number(wallet?.tipEarningsBalanceUsd || 0)
+  ));
+
+export const allocatePayout = (wallet, requestedUsd, cfg) => {
+  const requested = round2(requestedUsd);
+  const availableTipUsd = round2(Math.max(0, Number(wallet?.tipEarningsBalanceUsd || 0)));
+  const availableCredits = roundCredits(Math.max(0, Number(wallet?.earningsBalance || 0)));
+  if (requested <= 0 || requested > walletAvailableUsd(wallet, cfg) + 0.001) return null;
+
+  const tipUsd = round2(Math.min(requested, availableTipUsd));
+  const remainingUsd = round2(requested - tipUsd);
+  if (remainingUsd > 0 && Number(cfg.payoutCreditUsdRate) <= 0) return null;
+  const credits = remainingUsd > 0
+    ? Math.min(availableCredits, roundCredits(remainingUsd / cfg.payoutCreditUsdRate))
+    : 0;
+  const amountUsd = round2(tipUsd + creditsToUsd(credits, cfg));
+  if (amountUsd <= 0 || Math.abs(amountUsd - requested) > 0.011) return null;
+  return { credits, tipUsd, amountUsd };
 };
 
 /* -------------------------------------------------------------------------- */
@@ -157,44 +203,93 @@ const holdEarnings = async (advisorId, credits) => {
  *
  * @returns {Promise<Transaction>}
  */
-export const createPayoutRequest = async ({ advisor, credits, initiatedBy, note, autoProcess = false }) => {
+export const createPayoutRequest = async ({ advisor, amountUsd, initiatedBy, note, autoProcess = false }) => {
   const cfg = await getPayoutConfig();
-  const c = roundCredits(credits);
-  if (!Number.isFinite(c) || c <= 0) {
-    throw Object.assign(new Error('Enter a valid credit amount'), { statusCode: 400 });
+  const requestedUsd = round2(amountUsd);
+  const minimumUsd = creditsToUsd(cfg.minPayoutCredits, cfg);
+  if (!Number.isFinite(requestedUsd) || requestedUsd <= 0) {
+    throw Object.assign(new Error('Enter a valid USD payout amount'), { statusCode: 400 });
   }
-  if (c < cfg.minPayoutCredits) {
-    throw Object.assign(new Error(`Minimum payout is ${cfg.minPayoutCredits} credits`), { statusCode: 400 });
-  }
-
-  const wallet = await holdEarnings(advisor._id, c);
-  if (!wallet) {
-    throw Object.assign(new Error('Insufficient earnings balance'), { statusCode: 402 });
+  if (requestedUsd < minimumUsd) {
+    throw Object.assign(new Error(`Minimum payout is USD ${minimumUsd.toFixed(2)}`), { statusCode: 400 });
   }
 
-  const amountUsd = creditsToUsd(c, cfg);
-  const methodType = advisor.hyperwallet?.transferMethodType;
-  const tx = await Transaction.create({
-    type: 'advisor_payout',
-    status: 'pending',
-    provider: 'hyperwallet',
-    advisor: advisor._id,
-    amount: c,                       // credits held (wallet math is in credits)
-    currency: cfg.payoutCurrency.toLowerCase(),
-    amountUsd,
-    payoutCredits: c,
-    payoutRateUsd: cfg.payoutCreditUsdRate,
-    description: note || 'Advisor payout',
-    withdrawalMethod: methodType ? `hyperwallet_${methodType === 'paypal' ? 'paypal' : 'bank'}` : 'hyperwallet',
-    withdrawalStatus: 'requested',
-    withdrawalRequestedAt: new Date(),
-    hyperwalletUserToken: advisor.hyperwallet?.userToken,
-    metadata: { initiatedBy: initiatedBy ? String(initiatedBy) : undefined }
-  });
+  const dbSession = await mongoose.startSession();
+  let tx;
+  try {
+    await dbSession.withTransaction(async () => {
+      const wallet = await Wallet.findOne({ user: advisor._id }).session(dbSession);
+      const allocation = allocatePayout(wallet, requestedUsd, cfg);
+      if (!allocation) {
+        throw Object.assign(
+          new Error('Insufficient balance or invalid USD amount for the current service-credit rate'),
+          { statusCode: 402 }
+        );
+      }
 
-  if (autoProcess) {
-    return executePayout(tx, advisor);
+      const held = await Wallet.findOneAndUpdate(
+        {
+          user: advisor._id,
+          ...(allocation.credits > 0
+            ? { earningsBalance: { $gte: allocation.credits } }
+            : {}),
+          ...(allocation.tipUsd > 0
+            ? { tipEarningsBalanceUsd: { $gte: allocation.tipUsd } }
+            : {})
+        },
+        {
+          $inc: {
+            ...(allocation.credits > 0
+              ? { earningsBalance: -allocation.credits, pendingPayouts: allocation.credits }
+              : {}),
+            ...(allocation.tipUsd > 0
+              ? {
+                  tipEarningsBalanceUsd: -allocation.tipUsd,
+                  pendingTipPayoutUsd: allocation.tipUsd
+                }
+              : {})
+          }
+        },
+        { returnDocument: 'after', session: dbSession }
+      );
+      if (!held) throw Object.assign(new Error('Insufficient earnings balance'), { statusCode: 402 });
+
+      const methodType = advisor.hyperwallet?.transferMethodType;
+      [tx] = await Transaction.create(
+        [{
+          type: 'advisor_payout',
+          status: 'pending',
+          provider: 'hyperwallet',
+          advisor: advisor._id,
+          amount: allocation.amountUsd,
+          currency: 'usd',
+          amountUsd: allocation.amountUsd,
+          payoutCredits: allocation.credits,
+          payoutTipUsd: allocation.tipUsd,
+          payoutRateUsd: cfg.payoutCreditUsdRate,
+          description: note || 'Advisor payout',
+          withdrawalMethod: methodType
+            ? `hyperwallet_${methodType === 'paypal' ? 'paypal' : 'bank'}`
+            : 'hyperwallet',
+          withdrawalStatus: 'requested',
+          withdrawalRequestedAt: new Date(),
+          hyperwalletUserToken: advisor.hyperwallet?.userToken,
+          metadata: {
+            payoutSourceVersion: 2,
+            serviceCredits: allocation.credits,
+            serviceAmountUsd: creditsToUsd(allocation.credits, cfg),
+            tipAmountUsd: allocation.tipUsd,
+            initiatedBy: initiatedBy ? String(initiatedBy) : undefined
+          }
+        }],
+        { session: dbSession }
+      );
+    });
+  } finally {
+    await dbSession.endSession();
   }
+
+  if (autoProcess) return executePayout(tx, advisor);
   return tx;
 };
 
@@ -222,14 +317,17 @@ export const executePayout = async (tx, advisorArg) => {
 
   // Ensure USD figure + payout metadata exist (legacy / advisor-requested txns
   // may have been created before the payout fields were populated).
-  const credits = roundCredits(tx.payoutCredits ?? tx.amount);
-  const amountUsd = tx.amountUsd && tx.amountUsd > 0 ? tx.amountUsd : creditsToUsd(credits, cfg);
+  const sources = payoutSources(tx);
+  const amountUsd = tx.amountUsd && tx.amountUsd > 0
+    ? tx.amountUsd
+    : round2(creditsToUsd(sources.credits, cfg) + sources.tipUsd);
 
   // Mark processing before the network call so retries are idempotent.
   tx.withdrawalStatus = 'processing';
   tx.withdrawalProcessedAt = new Date();
   tx.provider = 'hyperwallet';
-  tx.payoutCredits = credits;
+  tx.payoutCredits = sources.credits;
+  tx.payoutTipUsd = sources.tipUsd;
   tx.payoutRateUsd = tx.payoutRateUsd ?? cfg.payoutCreditUsdRate;
   tx.amountUsd = amountUsd;
   tx.withdrawalMethod = `hyperwallet_${advisor.hyperwallet.transferMethodType === 'paypal' ? 'paypal' : 'bank'}`;
@@ -241,7 +339,7 @@ export const executePayout = async (tx, advisorArg) => {
     payment = await createPayment({
       destinationToken: advisor.hyperwallet.transferMethodToken,
       amount: amountUsd,
-      currency: (tx.currency || 'usd').toUpperCase(),
+      currency: 'USD',
       clientPaymentId: String(tx._id),
       notes: tx.description || `Payout ${tx.txCode || tx._id}`
     });
@@ -264,76 +362,142 @@ export const executePayout = async (tx, advisorArg) => {
 /** Idempotently finalize a held payout as paid. */
 export const finalizePaid = async (txOrId, rawStatus) => {
   const id = txOrId._id || txOrId;
-  const tx = await Transaction.findOneAndUpdate(
-    { _id: id, withdrawalStatus: { $in: HELD_STATUSES } },
-    {
-      $set: {
-        withdrawalStatus: 'paid',
-        status: 'completed',
-        withdrawalPaidAt: new Date(),
-        hyperwalletStatus: rawStatus || 'COMPLETED'
+  const dbSession = await mongoose.startSession();
+  let result;
+  try {
+    await dbSession.withTransaction(async () => {
+      const tx = await Transaction.findOneAndUpdate(
+        { _id: id, withdrawalStatus: { $in: HELD_STATUSES } },
+        {
+          $set: {
+            withdrawalStatus: 'paid',
+            status: 'completed',
+            withdrawalPaidAt: new Date(),
+            hyperwalletStatus: rawStatus || 'COMPLETED'
+          }
+        },
+        { returnDocument: 'after', session: dbSession }
+      );
+      if (!tx) {
+        result = await Transaction.findById(id).session(dbSession);
+        return;
       }
-    },
-    { returnDocument: 'after' }
-  );
-  if (!tx) return Transaction.findById(id); // already finalized / not held
-  const credits = roundCredits(tx.payoutCredits ?? tx.amount);
-  await Wallet.updateOne(
-    { user: tx.advisor },
-    { $inc: { pendingPayouts: -credits, totalWithdrawn: credits } }
-  );
-  return tx;
+      const sources = payoutSources(tx);
+      await Wallet.updateOne(
+        { user: tx.advisor },
+        {
+          $inc: {
+            ...(sources.credits > 0
+              ? { pendingPayouts: -sources.credits, totalWithdrawn: sources.credits }
+              : {}),
+            ...(sources.tipUsd > 0
+              ? {
+                  pendingTipPayoutUsd: -sources.tipUsd,
+                  totalTipWithdrawnUsd: sources.tipUsd
+                }
+              : {})
+          }
+        },
+        { session: dbSession }
+      );
+      result = tx;
+    });
+  } finally {
+    await dbSession.endSession();
+  }
+  return result;
 };
 
 /** Idempotently finalize a held payout as failed, returning credits to earnings. */
 export const finalizeFailed = async (txOrId, reason) => {
   const id = txOrId._id || txOrId;
-  const tx = await Transaction.findOneAndUpdate(
-    { _id: id, withdrawalStatus: { $in: HELD_STATUSES } },
-    {
-      $set: {
-        withdrawalStatus: 'failed',
-        status: 'failed',
-        withdrawalFailureReason: (reason || 'Payout failed').slice(0, 500),
-        hyperwalletStatus: reason ? undefined : 'FAILED'
+  const dbSession = await mongoose.startSession();
+  let result;
+  try {
+    await dbSession.withTransaction(async () => {
+      const tx = await Transaction.findOneAndUpdate(
+        { _id: id, withdrawalStatus: { $in: HELD_STATUSES } },
+        {
+          $set: {
+            withdrawalStatus: 'failed',
+            status: 'failed',
+            withdrawalFailureReason: (reason || 'Payout failed').slice(0, 500),
+            hyperwalletStatus: reason ? undefined : 'FAILED'
+          }
+        },
+        { returnDocument: 'after', session: dbSession }
+      );
+      if (!tx) {
+        result = await Transaction.findById(id).session(dbSession);
+        return;
       }
-    },
-    { returnDocument: 'after' }
-  );
-  if (!tx) return Transaction.findById(id);
-  const credits = roundCredits(tx.payoutCredits ?? tx.amount);
-  await Wallet.updateOne(
-    { user: tx.advisor },
-    { $inc: { pendingPayouts: -credits, earningsBalance: credits } }
-  );
-  return tx;
+      const sources = payoutSources(tx);
+      await Wallet.updateOne(
+        { user: tx.advisor },
+        {
+          $inc: {
+            ...(sources.credits > 0
+              ? { pendingPayouts: -sources.credits, earningsBalance: sources.credits }
+              : {}),
+            ...(sources.tipUsd > 0
+              ? { pendingTipPayoutUsd: -sources.tipUsd, tipEarningsBalanceUsd: sources.tipUsd }
+              : {})
+          }
+        },
+        { session: dbSession }
+      );
+      result = tx;
+    });
+  } finally {
+    await dbSession.endSession();
+  }
+  return result;
 };
 
 /**
  * Reject a still-held payout (admin action, no money sent). Returns credits.
  */
 export const rejectPayout = async (tx, reason, adminId) => {
-  const updated = await Transaction.findOneAndUpdate(
-    { _id: tx._id, withdrawalStatus: { $in: ['requested', 'approved'] } },
-    {
-      $set: {
-        withdrawalStatus: 'rejected',
-        status: 'cancelled',
-        withdrawalRejectedReason: reason || '',
-        withdrawalApprovedBy: adminId || undefined
+  const dbSession = await mongoose.startSession();
+  let result;
+  try {
+    await dbSession.withTransaction(async () => {
+      const updated = await Transaction.findOneAndUpdate(
+        { _id: tx._id, withdrawalStatus: { $in: ['requested', 'approved'] } },
+        {
+          $set: {
+            withdrawalStatus: 'rejected',
+            status: 'cancelled',
+            withdrawalRejectedReason: reason || '',
+            withdrawalApprovedBy: adminId || undefined
+          }
+        },
+        { returnDocument: 'after', session: dbSession }
+      );
+      if (!updated) {
+        throw Object.assign(new Error('Payout is not in a rejectable state'), { statusCode: 400 });
       }
-    },
-    { returnDocument: 'after' }
-  );
-  if (!updated) {
-    throw Object.assign(new Error('Payout is not in a rejectable state'), { statusCode: 400 });
+      const sources = payoutSources(updated);
+      await Wallet.updateOne(
+        { user: updated.advisor },
+        {
+          $inc: {
+            ...(sources.credits > 0
+              ? { pendingPayouts: -sources.credits, earningsBalance: sources.credits }
+              : {}),
+            ...(sources.tipUsd > 0
+              ? { pendingTipPayoutUsd: -sources.tipUsd, tipEarningsBalanceUsd: sources.tipUsd }
+              : {})
+          }
+        },
+        { session: dbSession }
+      );
+      result = updated;
+    });
+  } finally {
+    await dbSession.endSession();
   }
-  const credits = roundCredits(updated.payoutCredits ?? updated.amount);
-  await Wallet.updateOne(
-    { user: updated.advisor },
-    { $inc: { pendingPayouts: -credits, earningsBalance: credits } }
-  );
-  return updated;
+  return result;
 };
 
 /**
@@ -359,16 +523,31 @@ export const retryPayout = async (tx) => {
   if (!hasPayoutMethod(advisor)) {
     throw Object.assign(new Error('Advisor has no Hyperwallet payout method'), { statusCode: 400 });
   }
-  const credits = roundCredits(tx.payoutCredits ?? tx.amount);
-  const wallet = await holdEarnings(tx.advisor, credits);
-  if (!wallet) {
-    throw Object.assign(new Error('Insufficient earnings balance to retry'), { statusCode: 402 });
+  const sources = payoutSources(tx);
+  const dbSession = await mongoose.startSession();
+  let retryTx;
+  try {
+    await dbSession.withTransaction(async () => {
+      const wallet = await holdPayoutSources(tx.advisor, sources, dbSession);
+      if (!wallet) {
+        throw Object.assign(new Error('Insufficient earnings balance to retry'), { statusCode: 402 });
+      }
+      retryTx = await Transaction.findOneAndUpdate(
+        { _id: tx._id, withdrawalStatus: 'failed' },
+        {
+          $set: { withdrawalStatus: 'requested', status: 'pending' },
+          $unset: { withdrawalFailureReason: 1 }
+        },
+        { returnDocument: 'after', session: dbSession }
+      );
+      if (!retryTx) {
+        throw Object.assign(new Error('Only failed payouts can be retried'), { statusCode: 400 });
+      }
+    });
+  } finally {
+    await dbSession.endSession();
   }
-  tx.withdrawalStatus = 'requested';
-  tx.status = 'pending';
-  tx.withdrawalFailureReason = undefined;
-  await tx.save();
-  return executePayout(tx, advisor);
+  return executePayout(retryTx, advisor);
 };
 
 /**

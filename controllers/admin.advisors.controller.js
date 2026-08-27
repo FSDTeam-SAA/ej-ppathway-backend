@@ -759,7 +759,14 @@ export const getAdvisor = catchAsync(async (req, res) => {
         advisorEarnings: { $sum: '$advisorPayout' },
         platformEarnings: { $sum: 0 },
         refunds: { $sum: '$refundIssued' },
-        tips: { $sum: '$tipAmount' },
+        tips: {
+          $sum: {
+            $add: [
+              { $ifNull: ['$tipAmount', 0] },
+              { $ifNull: ['$tipNetAmountFiatUsd', 0] }
+            ]
+          }
+        },
         completedDurationSec: {
           $sum: { $cond: [{ $eq: ['$status', 'completed'] }, '$actualDurationSec', 0] }
         }
@@ -788,12 +795,12 @@ export const getAdvisor = catchAsync(async (req, res) => {
   // Payout breakdown straight off the advisor's withdrawal transactions.
   const payoutAgg = await Transaction.aggregate([
     { $match: { advisor: user._id, type: 'advisor_payout' } },
-    { $group: { _id: '$withdrawalStatus', amount: { $sum: '$amount' } } }
+    { $group: { _id: '$withdrawalStatus', amount: { $sum: '$amountUsd' } } }
   ]);
   const payoutByStatus = Object.fromEntries(payoutAgg.map((p) => [p._id || 'unknown', p.amount]));
   const pendingPayouts =
-    (payoutByStatus.requested || 0) + (payoutByStatus.approved || 0) || wallet?.pendingPayouts || 0;
-  const totalPaidOut = payoutByStatus.paid || wallet?.totalWithdrawn || 0;
+    (payoutByStatus.requested || 0) + (payoutByStatus.approved || 0) || 0;
+  const totalPaidOut = payoutByStatus.paid || 0;
 
   const completed = r.completed || 0;
   const avgSessionMinutes = completed ? Math.round((r.completedDurationSec || 0) / completed / 60) : 0;

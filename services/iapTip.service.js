@@ -1,4 +1,4 @@
-import { getPayoutConfig } from './payout.service.js';
+import mongoose from 'mongoose';
 import Transaction from '../models/transaction.model.js';
 import Wallet from '../models/wallet.model.js';
 import Session from '../models/session.model.js';
@@ -37,19 +37,25 @@ const revenueCatApiKey = () =>
   process.env.REVENUECAT_V2_API_KEY ||
   '';
 
-const revenueAmount = (purchase, key) => {
-  const value =
-    purchase?.[key]?.gross ??
-    purchase?.[key]?.proceeds ??
-    purchase?.[key]?.amount ??
-    purchase?.[key]?.value;
+const optionalMoney = (value) => {
   const number = Number(value);
-  return Number.isFinite(number) ? number : null;
+  return Number.isFinite(number) ? round2(number) : null;
 };
 
-const revenueCurrency = (purchase, key) => {
-  const value = purchase?.[key]?.currency;
-  return value ? String(value).toLowerCase() : '';
+export const revenueBreakdown = (purchase, keys) => {
+  const raw = keys.map((key) => purchase?.[key]).find((value) => value && typeof value === 'object');
+  if (!raw) return null;
+  const gross = optionalMoney(raw.gross ?? raw.amount ?? raw.value);
+  const commission = optionalMoney(raw.commission);
+  const tax = optionalMoney(raw.tax);
+  const proceeds = optionalMoney(raw.proceeds);
+  return {
+    currency: String(raw.currency || '').toLowerCase(),
+    gross,
+    commission,
+    tax,
+    proceeds
+  };
 };
 
 const purchaseProductIds = (purchase) =>
@@ -193,6 +199,14 @@ export const verifyRevenueCatTipPurchase = async ({
       amount: round2(amount),
       currency: String(fallbackCurrency || 'usd').toLowerCase(),
       amountUsd: round2(amountUsd),
+      localGrossAmount: round2(amount),
+      localCommissionAmount: 0,
+      localTaxAmount: 0,
+      localNetProceeds: round2(amount),
+      grossAmountUsd: round2(amountUsd),
+      commissionAmountUsd: 0,
+      taxAmountUsd: 0,
+      netProceedsUsd: round2(amountUsd),
       platform: platform || 'unknown',
       raw: null
     };
@@ -221,22 +235,30 @@ export const verifyRevenueCatTipPurchase = async ({
     throw Object.assign(new Error('Purchase has been refunded'), { statusCode: 409 });
   }
 
-  const localAmount =
-    revenueAmount(purchase, 'revenue_in_local_currency') ??
-    revenueAmount(purchase, 'revenueInLocalCurrency') ??
-    Number(fallbackAmount);
-  const localCurrency =
-    revenueCurrency(purchase, 'revenue_in_local_currency') ||
-    revenueCurrency(purchase, 'revenueInLocalCurrency') ||
-    String(fallbackCurrency || 'usd').toLowerCase();
-  const amountUsd =
-    revenueAmount(purchase, 'revenue_in_usd') ??
-    revenueAmount(purchase, 'revenueInUsd') ??
-    configuredAmountUsd ??
-    Number(fallbackAmountUsd ?? (localCurrency === 'usd' ? localAmount : NaN));
+  const localRevenue = revenueBreakdown(purchase, [
+    'revenue_in_local_currency',
+    'revenueInLocalCurrency'
+  ]);
+  const usdRevenue = revenueBreakdown(purchase, ['revenue_in_usd', 'revenueInUsd']);
 
-  if (!Number.isFinite(localAmount) || localAmount <= 0 || !Number.isFinite(amountUsd) || amountUsd <= 0) {
-    throw Object.assign(new Error('Verified purchase amount is invalid'), { statusCode: 400 });
+  // Store tips are paid from RevenueCat proceeds, never from a client-supplied
+  // amount or the product's face value. A newly visible purchase can briefly
+  // lack revenue details; keeping it retryable is safer than over-crediting.
+  if (
+    !localRevenue?.currency ||
+    !Number.isFinite(localRevenue.gross) ||
+    localRevenue.gross <= 0 ||
+    !Number.isFinite(localRevenue.proceeds) ||
+    localRevenue.proceeds < 0 ||
+    !Number.isFinite(usdRevenue?.gross) ||
+    usdRevenue.gross <= 0 ||
+    !Number.isFinite(usdRevenue?.proceeds) ||
+    usdRevenue.proceeds < 0
+  ) {
+    throw Object.assign(new Error('RevenueCat net proceeds are not available yet'), {
+      statusCode: 409,
+      retryable: true
+    });
   }
 
   return {
@@ -244,9 +266,17 @@ export const verifyRevenueCatTipPurchase = async ({
     productId,
     storeTransactionId,
     revenueCatPurchaseId: purchase.id,
-    amount: round2(localAmount),
-    currency: localCurrency,
-    amountUsd: round2(amountUsd),
+    amount: localRevenue.gross,
+    currency: localRevenue.currency,
+    amountUsd: usdRevenue.gross,
+    localGrossAmount: localRevenue.gross,
+    localCommissionAmount: localRevenue.commission ?? 0,
+    localTaxAmount: localRevenue.tax ?? 0,
+    localNetProceeds: localRevenue.proceeds,
+    grossAmountUsd: usdRevenue.gross,
+    commissionAmountUsd: usdRevenue.commission ?? 0,
+    taxAmountUsd: usdRevenue.tax ?? 0,
+    netProceedsUsd: usdRevenue.proceeds,
     platform: purchase.store || platform || 'unknown',
     raw: purchase
   };
@@ -257,6 +287,9 @@ export const recordIapTip = async ({ userId, sessionId, body }) => {
   if (!session) throw Object.assign(new Error('Session not found'), { statusCode: 404 });
   if (String(session.user) !== String(userId)) {
     throw Object.assign(new Error('Only the user can tip'), { statusCode: 403 });
+  }
+  if (session.status !== 'completed') {
+    throw Object.assign(new Error('Tips are available after a completed session'), { statusCode: 409 });
   }
 
   const productId = String(body.productId || body.iapProductId || '').trim();
@@ -289,112 +322,200 @@ export const recordIapTip = async ({ userId, sessionId, body }) => {
     platform: body.platform
   });
 
-  const payoutCfg = await getPayoutConfig();
-  const payoutRate = Number(payoutCfg.payoutCreditUsdRate || 1);
-  const payoutCredits = payoutRate > 0 ? round2(verified.amountUsd / payoutRate) : round2(verified.amountUsd);
-
-  const userTip = await Transaction.create({
-    type: 'tip_fiat',
-    status: 'completed',
-    provider: 'revenuecat',
-    user: session.user,
-    advisor: session.advisor,
-    session: session._id,
-    amount: verified.amount,
-    currency: verified.currency,
-    amountUsd: verified.amountUsd,
-    iapProductId: verified.productId,
-    iapPlatform: normalizeIapPlatform(verified.platform),
+  const revenueFields = {
+    localGrossAmount: verified.localGrossAmount,
+    localCommissionAmount: verified.localCommissionAmount,
+    localTaxAmount: verified.localTaxAmount,
+    localNetProceeds: verified.localNetProceeds,
+    grossAmountUsd: verified.grossAmountUsd,
+    commissionAmountUsd: verified.commissionAmountUsd,
+    taxAmountUsd: verified.taxAmountUsd,
+    netProceedsUsd: verified.netProceedsUsd
+  };
+  const revenueMetadata = {
+    verified: verified.verified,
     storeTransactionId: verified.storeTransactionId,
+    revenueCatTransactionId: verified.storeTransactionId,
     revenueCatPurchaseId: verified.revenueCatPurchaseId,
-    description: `Tip for session ${session.sessionCode} via in-app purchase`,
-    metadata: {
-      verified: verified.verified,
-      storeTransactionId: verified.storeTransactionId,
-      revenueCatTransactionId: verified.storeTransactionId,
-      revenueCatPurchaseId: verified.revenueCatPurchaseId,
-      iapProductId: verified.productId,
-      localAmount: verified.amount,
-      localCurrency: verified.currency,
-      amountUsd: verified.amountUsd,
-      payoutCredits
-    }
-  });
-
-  const advisorTip = await Transaction.create({
-    type: 'advisor_tip_fiat',
-    status: 'completed',
-    provider: 'revenuecat',
-    user: session.user,
-    advisor: session.advisor,
-    session: session._id,
-    sourceTransaction: userTip._id,
-    amount: verified.amount,
-    currency: verified.currency,
-    amountUsd: verified.amountUsd,
     iapProductId: verified.productId,
-    iapPlatform: normalizeIapPlatform(verified.platform),
-    revenueCatPurchaseId: verified.revenueCatPurchaseId,
-    payoutCredits,
-    payoutRateUsd: payoutRate,
-    description: `IAP tip received from session ${session.sessionCode}`,
-    metadata: {
-      verified: verified.verified,
-      storeTransactionId: verified.storeTransactionId,
-      revenueCatTransactionId: verified.storeTransactionId,
-      revenueCatPurchaseId: verified.revenueCatPurchaseId,
-      iapProductId: verified.productId,
-      localAmount: verified.amount,
-      localCurrency: verified.currency,
-      amountUsd: verified.amountUsd
+    localCurrency: verified.currency,
+    ...revenueFields
+  };
+
+  const dbSession = await mongoose.startSession();
+  let result;
+  try {
+    await dbSession.withTransaction(async () => {
+      const currentSession = await Session.findById(sessionId).session(dbSession);
+      if (!currentSession) throw Object.assign(new Error('Session not found'), { statusCode: 404 });
+      if (String(currentSession.user) !== String(userId)) {
+        throw Object.assign(new Error('Only the user can tip'), { statusCode: 403 });
+      }
+      if (currentSession.status !== 'completed') {
+        throw Object.assign(new Error('Tips are available after a completed session'), { statusCode: 409 });
+      }
+
+      const duplicate = await Transaction.findOne({ storeTransactionId }).session(dbSession);
+      if (duplicate) {
+        result = { duplicate: true, transaction: duplicate, session: currentSession };
+        return;
+      }
+
+      const [userTip] = await Transaction.create(
+        [{
+          type: 'tip_fiat',
+          status: 'completed',
+          provider: 'revenuecat',
+          user: currentSession.user,
+          advisor: currentSession.advisor,
+          session: currentSession._id,
+          amount: verified.amount,
+          currency: verified.currency,
+          amountUsd: verified.grossAmountUsd,
+          ...revenueFields,
+          iapProductId: verified.productId,
+          iapPlatform: normalizeIapPlatform(verified.platform),
+          storeTransactionId: verified.storeTransactionId,
+          revenueCatPurchaseId: verified.revenueCatPurchaseId,
+          description: `Tip for session ${currentSession.sessionCode} via in-app purchase`,
+          metadata: revenueMetadata
+        }],
+        { session: dbSession }
+      );
+
+      const [advisorTip] = await Transaction.create(
+        [{
+          type: 'advisor_tip_fiat',
+          status: 'completed',
+          provider: 'revenuecat',
+          user: currentSession.user,
+          advisor: currentSession.advisor,
+          session: currentSession._id,
+          sourceTransaction: userTip._id,
+          amount: verified.netProceedsUsd,
+          currency: 'usd',
+          amountUsd: verified.netProceedsUsd,
+          ...revenueFields,
+          iapProductId: verified.productId,
+          iapPlatform: normalizeIapPlatform(verified.platform),
+          revenueCatPurchaseId: verified.revenueCatPurchaseId,
+          description: `Net IAP tip received from session ${currentSession.sessionCode}`,
+          metadata: revenueMetadata
+        }],
+        { session: dbSession }
+      );
+
+      await Wallet.findOneAndUpdate(
+        { user: currentSession.advisor },
+        {
+          $inc: {
+            tipEarningsBalanceUsd: verified.netProceedsUsd,
+            totalTipEarnedUsd: verified.netProceedsUsd
+          },
+          $setOnInsert: { user: currentSession.advisor }
+        },
+        { upsert: true, session: dbSession }
+      );
+
+      currentSession.tipAmountFiatUsd = round2(
+        (currentSession.tipAmountFiatUsd || 0) + verified.grossAmountUsd
+      );
+      currentSession.tipNetAmountFiatUsd = round2(
+        (currentSession.tipNetAmountFiatUsd || 0) + verified.netProceedsUsd
+      );
+      currentSession.tipCount = (currentSession.tipCount || 0) + 1;
+      await currentSession.save({ session: dbSession });
+
+      result = {
+        duplicate: false,
+        transaction: userTip,
+        advisorTransaction: advisorTip,
+        session: currentSession,
+        netProceedsUsd: verified.netProceedsUsd
+      };
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      const duplicate = await Transaction.findOne({ storeTransactionId });
+      if (duplicate) return { duplicate: true, transaction: duplicate, session };
     }
-  });
-
-  await Wallet.findOneAndUpdate(
-    { user: session.advisor },
-    {
-      $inc: { earningsBalance: payoutCredits, totalEarned: payoutCredits },
-      $setOnInsert: { user: session.advisor }
-    },
-    { upsert: true }
-  );
-
-  session.tipAmount = round2((session.tipAmount || 0) + payoutCredits);
-  session.tipAmountFiatUsd = round2((session.tipAmountFiatUsd || 0) + verified.amountUsd);
-  session.tipCount = (session.tipCount || 0) + 1;
-  await session.save();
-
-  return { duplicate: false, transaction: userTip, advisorTransaction: advisorTip, session, payoutCredits };
+    throw error;
+  } finally {
+    await dbSession.endSession();
+  }
+  return result;
 };
 
-export const reverseIapTipByStoreTransactionId = async (storeTransactionId) => {
-  const id = String(storeTransactionId || '').trim();
-  if (!id) return null;
+export const reverseIapTipByStoreTransactionId = async (storeTransactionIds) => {
+  const ids = (Array.isArray(storeTransactionIds) ? storeTransactionIds : [storeTransactionIds])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  if (!ids.length) return null;
 
-  const userTip = await Transaction.findOne({ storeTransactionId: id });
-  if (!userTip || userTip.type !== 'tip_fiat' || userTip.status === 'refunded') return userTip;
+  const dbSession = await mongoose.startSession();
+  let result = null;
+  try {
+    await dbSession.withTransaction(async () => {
+      const userTip = await Transaction.findOne({
+        storeTransactionId: { $in: ids },
+        type: 'tip_fiat'
+      }).session(dbSession);
+      if (!userTip || userTip.status === 'refunded') {
+        if (userTip) userTip.$locals.refundApplied = false;
+        result = userTip;
+        return;
+      }
 
-  const advisorTip = await Transaction.findOne({
-    sourceTransaction: userTip._id,
-    type: 'advisor_tip_fiat'
-  });
+      const refundedAt = new Date();
+      const advisorTip = await Transaction.findOne({
+        sourceTransaction: userTip._id,
+        type: 'advisor_tip_fiat'
+      }).session(dbSession);
 
-  userTip.status = 'refunded';
-  userTip.metadata = { ...(userTip.metadata || {}), refundedAt: new Date() };
-  await userTip.save();
+      userTip.status = 'refunded';
+      userTip.$locals.refundApplied = true;
+      userTip.metadata = { ...(userTip.metadata || {}), refundedAt };
+      await userTip.save({ session: dbSession });
 
-  if (advisorTip && advisorTip.status !== 'refunded') {
-    const payoutCredits = round2(advisorTip.payoutCredits ?? advisorTip.amount);
-    await Wallet.findOneAndUpdate(
-      { user: advisorTip.advisor },
-      { $inc: { earningsBalance: -payoutCredits, totalEarned: -payoutCredits } }
-    );
-    advisorTip.status = 'refunded';
-    advisorTip.metadata = { ...(advisorTip.metadata || {}), refundedAt: new Date() };
-    await advisorTip.save();
+      if (advisorTip && advisorTip.status !== 'refunded') {
+        const netProceedsUsd = round2(
+          advisorTip.netProceedsUsd ?? advisorTip.amountUsd ?? advisorTip.amount
+        );
+        advisorTip.status = 'refunded';
+        advisorTip.metadata = { ...(advisorTip.metadata || {}), refundedAt };
+        await advisorTip.save({ session: dbSession });
+
+        // A negative available tip balance is intentional if the advisor was
+        // already paid; future earnings offset the refund debt.
+        await Wallet.findOneAndUpdate(
+          { user: advisorTip.advisor },
+          {
+            $inc: {
+              tipEarningsBalanceUsd: -netProceedsUsd,
+              totalTipEarnedUsd: -netProceedsUsd
+            }
+          },
+          { session: dbSession }
+        );
+
+        await Session.findByIdAndUpdate(
+          userTip.session,
+          {
+            $inc: {
+              tipAmountFiatUsd: -round2(userTip.grossAmountUsd ?? userTip.amountUsd ?? 0),
+              tipNetAmountFiatUsd: -netProceedsUsd,
+              tipCount: -1
+            }
+          },
+          { session: dbSession }
+        );
+      }
+      result = userTip;
+    });
+  } finally {
+    await dbSession.endSession();
   }
-
-  return userTip;
+  return result;
 };
 
 const normalizeIapPlatform = (value) => {

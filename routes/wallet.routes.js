@@ -14,6 +14,8 @@ import {
   requestWithdrawal,
   myEarningsOverview,
   myEarningsHistory,
+  mySessionHistory,
+  myTipsHistory,
   myWithdrawalsHistory,
   deleteEarningRecord,
   deleteWithdrawalRecord,
@@ -42,9 +44,11 @@ router.get('/transactions', getMyTransactions);
 router.post('/topup', createTopupCheckout);
 router.get('/topup/status', getTopupStatus);
 
-// Advisor earnings + withdrawals
+// Advisor-facing session minutes, tips, and admin-paid payout history
 router.get('/advisor/overview', myEarningsOverview);
 router.get('/advisor/earnings', myEarningsHistory);
+router.get('/advisor/sessions', mySessionHistory);
+router.get('/advisor/tips', myTipsHistory);
 router.get('/advisor/withdrawals', myWithdrawalsHistory);
 router.post('/advisor/withdraw', requestWithdrawal);
 router.delete('/advisor/earnings/:id', deleteEarningRecord);

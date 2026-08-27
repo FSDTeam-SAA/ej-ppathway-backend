@@ -1390,47 +1390,10 @@ export const rescheduleSession = catchAsync(async (req, res) => {
 
 // ============= Tip advisor =============
 export const tipAdvisor = catchAsync(async (req, res) => {
-  const { amount } = req.body;
-  const session = await Session.findById(req.params.id);
-  if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
-  if (String(session.user) !== String(req.user._id)) throw new ApiError(StatusCodes.FORBIDDEN, 'Only the user can tip');
-  if (!amount || Number(amount) <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid amount');
-
-  const amt = round2(Number(amount));
-  await chargeUserWallet({ userId: session.user, amount: amt });
-  await Wallet.findOneAndUpdate({ user: session.advisor }, { $inc: { earningsBalance: amt, totalEarned: amt } }, { upsert: true });
-
-  await Transaction.create({
-    type: 'tip',
-    status: 'completed',
-    user: session.user,
-    advisor: session.advisor,
-    session: session._id,
-    amount: amt,
-    description: `Tip for session ${session.sessionCode}`
-  });
-  await Transaction.create({
-    type: 'advisor_tip',
-    status: 'completed',
-    user: session.user,
-    advisor: session.advisor,
-    session: session._id,
-    amount: amt,
-    description: `Tip received from session ${session.sessionCode}`
-  });
-
-  session.tipAmount = round2((session.tipAmount || 0) + amt);
-  await session.save();
-
-  await createAndBroadcastNotification(req, {
-    recipient: session.advisor,
-    type: 'tip_received',
-    title: 'You received a tip',
-    body: `${amt} credits tip from your client`,
-    data: { sessionId: session._id, amount: amt }
-  }, 'session:updated');
-
-  return sendResponse(res, { message: 'Tip sent', data: session });
+  throw new ApiError(
+    StatusCodes.GONE,
+    'Credit tips are no longer supported. Use the verified in-app purchase tip endpoint.'
+  );
 });
 
 export const tipAdvisorWithIap = catchAsync(async (req, res) => {
@@ -1451,14 +1414,14 @@ export const tipAdvisorWithIap = catchAsync(async (req, res) => {
     recipient: result.session.advisor,
     type: 'tip_received',
     title: 'You received a tip',
-    body: `You received a ${String(result.transaction.currency || 'usd').toUpperCase()} ${Number(result.transaction.amount || 0).toFixed(2)} tip from your client`,
+    body: `You received USD ${Number(result.netProceedsUsd || 0).toFixed(2)} after store fees and taxes`,
     data: {
       sessionId: result.session._id,
       transactionId: result.transaction._id,
-      amountUsd: result.transaction.amountUsd,
-      currency: result.transaction.currency,
-      amount: result.transaction.amount,
-      payoutCredits: result.payoutCredits
+      purchaseCurrency: result.transaction.currency,
+      purchaseAmount: result.transaction.amount,
+      grossAmountUsd: result.transaction.grossAmountUsd,
+      netProceedsUsd: result.netProceedsUsd
     }
   }, 'session:updated');
 

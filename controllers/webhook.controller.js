@@ -7,6 +7,7 @@ import User from '../models/user.model.js';
 import { findCreditPackByRevenueCatProduct } from '../services/credit.service.js';
 import { applyPaymentWebhook } from '../services/payout.service.js';
 import { reverseIapTipByStoreTransactionId } from '../services/iapTip.service.js';
+import { createNotification } from '../services/notification.service.js';
 
 /**
  * Resolve which session an egress event belongs to.
@@ -102,9 +103,23 @@ export const revenueCatWebhook = async (req, res) => {
     const isRefund =
       ['REFUND', 'REFUNDED'].includes(type) ||
       (type === 'CANCELLATION' && ['CUSTOMER_SUPPORT', 'REFUND'].includes(String(event.cancel_reason || event.cancelReason || '').toUpperCase()));
-    if (isRefund && transactionId) {
-      const reversed = await reverseIapTipByStoreTransactionId(transactionId);
+    if (isRefund && (transactionId || originalTransactionId)) {
+      const reversed = await reverseIapTipByStoreTransactionId([
+        transactionId,
+        originalTransactionId
+      ]);
       if (reversed?.type === 'tip_fiat') {
+        if (reversed.$locals?.refundApplied) await createNotification({
+          recipient: reversed.advisor,
+          type: 'payment_update',
+          title: 'Tip refunded',
+          body: `A USD ${Number(reversed.netProceedsUsd || 0).toFixed(2)} tip was refunded and adjusted from your balance.`,
+          data: {
+            sessionId: reversed.session,
+            transactionId: reversed._id,
+            netProceedsUsd: reversed.netProceedsUsd
+          }
+        });
         return res.status(200).json({ ok: true, reversedTip: true });
       }
     }

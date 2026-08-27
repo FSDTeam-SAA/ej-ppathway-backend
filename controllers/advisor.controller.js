@@ -599,7 +599,6 @@ export const setOnlineMode = catchAsync(async (req, res) => {
 export const getDashboard = catchAsync(async (req, res) => {
   ensureAdvisor(req.user);
   const profile = await AdvisorProfile.findOne({ user: req.user._id }).lean();
-  const wallet = await Wallet.findOne({ user: req.user._id }).lean();
 
   const range = ['week', 'month'].includes(req.query.range) ? req.query.range : 'today';
   const startOfRange = new Date();
@@ -610,9 +609,33 @@ export const getDashboard = catchAsync(async (req, res) => {
     startOfRange.setDate(1);
   }
 
-  const rangeEarnings = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'advisor_earning', status: 'completed', createdAt: { $gte: startOfRange } } },
-    { $group: { _id: null, total: { $sum: '$amount' } } }
+  const [rangeActivity, totalActivity] = await Promise.all([
+    Session.aggregate([
+      {
+        $match: {
+          advisor: req.user._id,
+          status: 'completed'
+        }
+      },
+      { $addFields: { completionDate: { $ifNull: ['$endedAt', '$updatedAt'] } } },
+      { $match: { completionDate: { $gte: startOfRange } } },
+      {
+        $group: {
+          _id: null,
+          sessions: { $sum: 1 },
+          minutes: { $sum: { $ifNull: ['$durationMinutes', 0] } }
+        }
+      }
+    ]),
+    Session.aggregate([
+      { $match: { advisor: req.user._id, status: 'completed' } },
+      {
+        $group: {
+          _id: null,
+          minutes: { $sum: { $ifNull: ['$durationMinutes', 0] } }
+        }
+      }
+    ])
   ]);
 
   const activeSessions = await Session.countDocuments({ advisor: req.user._id, status: 'live' });
@@ -638,27 +661,36 @@ export const getDashboard = catchAsync(async (req, res) => {
     .limit(2)
     .populate('user', 'name profilePhoto').lean();
 
-  // weekly earnings curve
+  // Weekly completed-session minutes. Advisor-facing dashboard activity never
+  // exposes a monetary value for an individual session.
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const earningsCurve = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'advisor_earning', status: 'completed', createdAt: { $gte: weekAgo } } },
-    { $group: { _id: { $dayOfWeek: '$createdAt' }, total: { $sum: '$amount' } } },
+  const serviceActivityCurve = await Session.aggregate([
+    { $match: { advisor: req.user._id, status: 'completed' } },
+    { $addFields: { completionDate: { $ifNull: ['$endedAt', '$updatedAt'] } } },
+    { $match: { completionDate: { $gte: weekAgo } } },
+    {
+      $group: {
+        _id: { $dayOfWeek: '$completionDate' },
+        total: { $sum: { $ifNull: ['$durationMinutes', 0] } }
+      }
+    },
     { $sort: { _id: 1 } }
   ]);
 
   return sendResponse(res, {
     data: {
-      earningsToday: rangeEarnings[0]?.total || 0,
       dashboardRange: range,
+      completedSessionsInRange: rangeActivity[0]?.sessions || 0,
+      sessionMinutesInRange: Math.round(rangeActivity[0]?.minutes || 0),
+      totalSessionMinutes: Math.round(totalActivity[0]?.minutes || 0),
       activeSessions,
       pendingRequests,
       ratings: profile?.avgRating || 0,
       tier: profile?.tier === 'bronze' ? 'silver' : profile?.tier || 'silver',
-      walletBalance: wallet?.earningsBalance || 0,
       ongoing,
       upcoming,
       recentReviews,
-      earningsCurve,
+      serviceActivityCurve,
       stats: {
         avgRating: profile?.avgRating || 0,
         repeatClientRate: profile?.repeatClientRate || 0,

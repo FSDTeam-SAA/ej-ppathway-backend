@@ -49,6 +49,16 @@ const transactionSchema = new Schema(
     iapPlatform: { type: String, enum: ['ios', 'android', 'app_store', 'play_store', 'unknown'], default: undefined, index: true },
     storeTransactionId: { type: String, unique: true, index: true, sparse: true },
     revenueCatPurchaseId: { type: String, index: true, sparse: true },
+    // RevenueCat revenue breakdown. Store-tip advisor earnings use
+    // netProceedsUsd; amount/amountUsd retain the initiating purchase values.
+    localGrossAmount: { type: Number },
+    localCommissionAmount: { type: Number },
+    localTaxAmount: { type: Number },
+    localNetProceeds: { type: Number },
+    grossAmountUsd: { type: Number },
+    commissionAmountUsd: { type: Number },
+    taxAmountUsd: { type: Number },
+    netProceedsUsd: { type: Number },
 
     // Stripe links
     stripePaymentIntentId: { type: String, index: true, sparse: true },
@@ -77,6 +87,7 @@ const transactionSchema = new Schema(
 
     // Payout valuation (advisor earnings are held in credits; payouts move USD)
     payoutCredits: { type: Number },        // credits deducted from advisor earnings
+    payoutTipUsd: { type: Number },         // fiat-tip USD held for this payout
     payoutRateUsd: { type: Number },        // USD per credit used for this payout
 
     // Hyperwallet links

@@ -11,6 +11,12 @@ const walletSchema = new Schema(
     earningsBalance: { type: Number, default: 0 }, // for advisors
     pendingPayouts: { type: Number, default: 0 },  // pending payout requests
     totalEarned: { type: Number, default: 0 },
+    // Store tips never enter the credit ledger. RevenueCat's USD proceeds
+    // (after estimated store commission and taxes) are tracked separately.
+    tipEarningsBalanceUsd: { type: Number, default: 0 },
+    pendingTipPayoutUsd: { type: Number, default: 0 },
+    totalTipEarnedUsd: { type: Number, default: 0 },
+    totalTipWithdrawnUsd: { type: Number, default: 0 },
     totalSpent: { type: Number, default: 0 },
     totalWithdrawn: { type: Number, default: 0 },
     // Private idempotency ledger for consumable IAP credit fulfillment. Keeping

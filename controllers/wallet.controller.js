@@ -6,6 +6,7 @@ import { parsePagination, buildMeta } from '../utils/pagination.js';
 import stripe from '../config/stripe.js';
 import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
+import Session from '../models/session.model.js';
 import User from '../models/user.model.js';
 import UserSubscription from '../models/userSubscription.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
@@ -17,8 +18,6 @@ import { getHyperwalletWidgetScriptUrl } from '../config/hyperwallet.js';
 import { createHyperwalletAuthenticationToken } from '../services/hyperwallet.service.js';
 import { creditUsageSummary, findCreditPack } from '../services/credit.service.js';
 import {
-  getPayoutConfig,
-  creditsToUsd,
   ensureHyperwalletUser,
   removePayoutMethod,
   syncPayoutMethodFromHyperwallet
@@ -38,14 +37,28 @@ const publicPayoutAccount = (advisor) => {
 };
 
 const round2 = (n) => Math.round(n * 100) / 100;
-const advisorEarningAmountExpr = {
-  $cond: [
-    { $eq: ['$type', 'advisor_tip_fiat'] },
-    { $ifNull: ['$payoutCredits', '$amount'] },
-    '$amount'
-  ]
-};
 const recentDate = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+const historyRangeStart = (range) => {
+  if (range === 'today') {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+  if (range === 'week') return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  if (range === 'month') return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  return null;
+};
+
+const applyHistoryRange = (filter, range, field = 'createdAt') => {
+  const start = historyRangeStart(range);
+  if (start) filter[field] = { $gte: start };
+  return filter;
+};
+
+const tipAmountUsdExpr = {
+  $ifNull: ['$netProceedsUsd', { $ifNull: ['$amountUsd', '$amount'] }]
+};
 const topupRedirectBase = (kind) => {
   if (kind === 'success') {
     return (
@@ -432,9 +445,38 @@ export const getMyPayoutAccount = catchAsync(async (req, res) => {
   const advisor = await User.findById(req.user._id).select(
     'name email dateOfBirth country state city hyperwallet'
   );
-  const cfg = await getPayoutConfig();
-  const wallet = await Wallet.findOne({ user: req.user._id }).select('earningsBalance pendingPayouts').lean();
-  const available = Math.round(wallet?.earningsBalance || 0);
+  const [sessionSummary, tipSummary, payoutSummary] = await Promise.all([
+    Session.aggregate([
+      { $match: { advisor: req.user._id, status: 'completed' } },
+      {
+        $group: {
+          _id: null,
+          totalMinutes: { $sum: { $ifNull: ['$durationMinutes', 0] } },
+          completedSessions: { $sum: 1 }
+        }
+      }
+    ]),
+    Transaction.aggregate([
+      {
+        $match: {
+          advisor: req.user._id,
+          type: 'advisor_tip_fiat',
+          status: 'completed'
+        }
+      },
+      { $group: { _id: null, totalUsd: { $sum: tipAmountUsdExpr }, count: { $sum: 1 } } }
+    ]),
+    Transaction.aggregate([
+      {
+        $match: {
+          advisor: req.user._id,
+          type: 'advisor_payout',
+          withdrawalStatus: 'paid'
+        }
+      },
+      { $group: { _id: null, totalUsd: { $sum: { $ifNull: ['$amountUsd', '$amount'] } } } }
+    ])
+  ]);
   return sendResponse(res, {
     data: {
       account: publicPayoutAccount(advisor),
@@ -444,8 +486,13 @@ export const getMyPayoutAccount = catchAsync(async (req, res) => {
         state: advisor.state,
         city: advisor.city
       },
-      config: { payoutCreditUsdRate: cfg.payoutCreditUsdRate, payoutCurrency: cfg.payoutCurrency, minPayoutCredits: cfg.minPayoutCredits },
-      balance: { availableCredits: available, availableUsd: creditsToUsd(available, cfg) }
+      summary: {
+        totalSessionMinutes: Math.round(sessionSummary[0]?.totalMinutes || 0),
+        completedSessions: sessionSummary[0]?.completedSessions || 0,
+        totalTipEarnedUsd: round2(tipSummary[0]?.totalUsd || 0),
+        totalTips: tipSummary[0]?.count || 0,
+        totalPaidUsd: round2(payoutSummary[0]?.totalUsd || 0)
+      }
     }
   });
 });
@@ -489,78 +536,113 @@ export const removeMyPayoutMethod = catchAsync(async (req, res) => {
 
 export const myEarningsOverview = catchAsync(async (req, res) => {
   if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
-
-  const wallet = await Wallet.findOneAndUpdate(
-    { user: req.user._id },
-    { $setOnInsert: { user: req.user._id } },
-    { returnDocument: 'after', upsert: true }
-  );
-
-  const startDay = new Date(); startDay.setHours(0,0,0,0);
-  const advisorEarningTypes = ['advisor_earning', 'advisor_tip', 'advisor_tip_fiat'];
-  const todayEarn = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: { $in: advisorEarningTypes }, status: 'completed', createdAt: { $gte: startDay } } },
-    { $group: { _id: null, t: { $sum: advisorEarningAmountExpr } } }
-  ]);
-  const todayWithdraw = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'advisor_payout', createdAt: { $gte: startDay } } },
-    { $group: { _id: null, t: { $sum: '$amount' } } }
-  ]);
-
-  // weekly revenue curve
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const curve = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: { $in: advisorEarningTypes }, status: 'completed', createdAt: { $gte: weekAgo } } },
-    { $group: { _id: { $dayOfWeek: '$createdAt' }, total: { $sum: advisorEarningAmountExpr } } },
-    { $sort: { _id: 1 } }
-  ]);
-
-  const totalEarnings = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: { $in: advisorEarningTypes }, status: 'completed' } },
-    { $group: { _id: null, t: { $sum: advisorEarningAmountExpr } } }
-  ]);
-  const totalWithdraw = await Transaction.aggregate([
-    { $match: { advisor: req.user._id, type: 'advisor_payout', withdrawalStatus: 'paid' } },
-    { $group: { _id: null, t: { $sum: '$amount' } } }
+  const startDay = new Date();
+  startDay.setHours(0, 0, 0, 0);
+  const [sessions, tips, payouts] = await Promise.all([
+    Session.aggregate([
+      { $match: { advisor: req.user._id, status: 'completed' } },
+      {
+        $group: {
+          _id: null,
+          totalMinutes: { $sum: { $ifNull: ['$durationMinutes', 0] } },
+          todayMinutes: {
+            $sum: {
+              $cond: [
+                { $gte: [{ $ifNull: ['$endedAt', '$updatedAt'] }, startDay] },
+                { $ifNull: ['$durationMinutes', 0] },
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]),
+    Transaction.aggregate([
+      { $match: { advisor: req.user._id, type: 'advisor_tip_fiat', status: 'completed' } },
+      { $group: { _id: null, totalUsd: { $sum: tipAmountUsdExpr } } }
+    ]),
+    Transaction.aggregate([
+      { $match: { advisor: req.user._id, type: 'advisor_payout', withdrawalStatus: 'paid' } },
+      { $group: { _id: null, totalUsd: { $sum: { $ifNull: ['$amountUsd', '$amount'] } } } }
+    ])
   ]);
 
   return sendResponse(res, {
     data: {
-      wallet,
-      todayEarnings: todayEarn[0]?.t || 0,
-      todayWithdrawals: todayWithdraw[0]?.t || 0,
-      revenueCurve: curve,
-      grossEarnings: totalEarnings[0]?.t || 0,
-      platformFee: 0,
-      netEarnings: round2((totalEarnings[0]?.t || 0)),
-      totalWithdrawn: totalWithdraw[0]?.t || 0
+      todaySessionMinutes: Math.round(sessions[0]?.todayMinutes || 0),
+      totalSessionMinutes: Math.round(sessions[0]?.totalMinutes || 0),
+      totalTipEarnedUsd: round2(tips[0]?.totalUsd || 0),
+      totalPaidUsd: round2(payouts[0]?.totalUsd || 0)
     }
   });
 });
 
-export const myEarningsHistory = catchAsync(async (req, res) => {
+export const mySessionHistory = catchAsync(async (req, res) => {
+  if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
   const { skip, limit, page } = parsePagination(req.query);
-  const filter = { advisor: req.user._id, type: { $in: ['advisor_earning', 'advisor_tip', 'advisor_tip_fiat'] } };
-  if (req.query.range === 'today') {
-    const start = new Date(); start.setHours(0,0,0,0);
-    filter.createdAt = { $gte: start };
-  } else if (req.query.range === 'week') {
-    filter.createdAt = { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
-  } else if (req.query.range === 'month') {
-    filter.createdAt = { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) };
+  const filter = { advisor: req.user._id, status: 'completed' };
+  const rangeStart = historyRangeStart(req.query.range);
+  if (rangeStart) {
+    filter.$or = [
+      { endedAt: { $gte: rangeStart } },
+      { endedAt: null, updatedAt: { $gte: rangeStart } }
+    ];
   }
-  const total = await Transaction.countDocuments(filter);
-  const items = await Transaction.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit)
+  const total = await Session.countDocuments(filter);
+  const items = await Session.find(filter)
+    .select('sessionCode user type status scheduledFor durationMinutes actualDurationSec startedAt endedAt createdAt updatedAt')
+    .sort({ endedAt: -1, updatedAt: -1 })
+    .skip(skip)
+    .limit(limit)
     .populate('user', 'name profilePhoto')
-    .populate('session', 'sessionCode type durationMinutes').lean();
+    .lean();
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
 
-export const myWithdrawalsHistory = catchAsync(async (req, res) => {
+export const myTipsHistory = catchAsync(async (req, res) => {
+  if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
   const { skip, limit, page } = parsePagination(req.query);
-  const filter = { advisor: req.user._id, type: 'advisor_payout' };
+  const filter = applyHistoryRange(
+    { advisor: req.user._id, type: 'advisor_tip_fiat', status: 'completed' },
+    req.query.range
+  );
   const total = await Transaction.countDocuments(filter);
-  const items = await Transaction.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+  const items = await Transaction.find(filter)
+    .select('type status user session amount amountUsd netProceedsUsd currency createdAt')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate('user', 'name profilePhoto')
+    .populate('session', 'sessionCode type')
+    .lean();
+  const data = items.map((item) => ({
+    _id: item._id,
+    type: item.type,
+    status: item.status,
+    user: item.user,
+    session: item.session,
+    displayAmountUsd: round2(item.netProceedsUsd ?? item.amountUsd ?? item.amount),
+    currency: 'usd',
+    createdAt: item.createdAt
+  }));
+  return sendResponse(res, { data, meta: buildMeta({ page, limit, total }) });
+});
+
+// Keep the legacy route safe for older advisor dashboard builds. It now exposes
+// only tip history and never returns per-session earning amounts.
+export const myEarningsHistory = myTipsHistory;
+
+export const myWithdrawalsHistory = catchAsync(async (req, res) => {
+  if (req.user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
+  const { skip, limit, page } = parsePagination(req.query);
+  const filter = { advisor: req.user._id, type: 'advisor_payout', withdrawalStatus: 'paid' };
+  const total = await Transaction.countDocuments(filter);
+  const items = await Transaction.find(filter)
+    .select('type status amount amountUsd currency description withdrawalStatus withdrawalMethod withdrawalPaidAt createdAt')
+    .sort({ withdrawalPaidAt: -1, createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
 

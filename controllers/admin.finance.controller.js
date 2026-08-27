@@ -23,7 +23,7 @@ const round2 = (n) => Math.round((n || 0) * 100) / 100;
 const advisorEarningAmountExpr = {
   $cond: [
     { $eq: ['$type', 'advisor_tip_fiat'] },
-    { $ifNull: ['$payoutCredits', '$amount'] },
+    { $ifNull: ['$netProceedsUsd', { $ifNull: ['$amountUsd', '$amount'] }] },
     '$amount'
   ]
 };
@@ -90,7 +90,7 @@ export const overview = catchAsync(async (req, res) => {
   // Payout metrics by withdrawal status
   const payoutAgg = await Transaction.aggregate([
     { $match: { type: 'advisor_payout' } },
-    { $group: { _id: '$withdrawalStatus', amount: { $sum: '$amount' }, count: { $sum: 1 } } }
+    { $group: { _id: '$withdrawalStatus', amount: { $sum: '$amountUsd' }, count: { $sum: 1 } } }
   ]);
   const pay = (k) => payoutAgg.find((p) => p._id === k) || { amount: 0, count: 0 };
 
@@ -185,7 +185,7 @@ export const advisorEarnings = catchAsync(async (req, res) => {
           $sum: {
             $cond: [
               { $and: [{ $eq: ['$type', 'advisor_payout'] }, { $eq: ['$withdrawalStatus', 'paid'] }] },
-              '$amount',
+              '$amountUsd',
               0
             ]
           }
@@ -238,7 +238,7 @@ export const exportReport = catchAsync(async (req, res) => {
         $group: {
           _id: '$advisor',
           gross: { $sum: { $cond: [{ $in: ['$type', ADVISOR_TYPES] }, advisorEarningAmountExpr, 0] } },
-          paid: { $sum: { $cond: [{ $and: [{ $eq: ['$type', 'advisor_payout'] }, { $eq: ['$withdrawalStatus', 'paid'] }] }, '$amount', 0] } }
+          paid: { $sum: { $cond: [{ $and: [{ $eq: ['$type', 'advisor_payout'] }, { $eq: ['$withdrawalStatus', 'paid'] }] }, '$amountUsd', 0] } }
         }
       },
       { $sort: { gross: -1 } }
@@ -254,7 +254,7 @@ export const exportReport = catchAsync(async (req, res) => {
     const txs = await Transaction.find({ type: 'advisor_payout' })
       .populate('advisor', 'name email').sort({ createdAt: -1 }).limit(5000).lean();
     headers = ['Payout ID', 'Advisor', 'Email', 'Amount', 'Status', 'Method', 'Date'];
-    rows = txs.map((t) => [t.txCode || t._id, t.advisor?.name || '', t.advisor?.email || '', t.amount, t.withdrawalStatus || '', t.withdrawalMethod || '', new Date(t.createdAt).toISOString()]);
+    rows = txs.map((t) => [t.txCode || t._id, t.advisor?.name || '', t.advisor?.email || '', t.amountUsd, t.withdrawalStatus || '', t.withdrawalMethod || '', new Date(t.createdAt).toISOString()]);
   } else {
     // transactions (default), respects type/status query filters
     const filter = {};
@@ -406,7 +406,7 @@ export const rejectPayout = catchAsync(async (req, res) => {
   await logAdminActivity({
     adminId: req.user?._id,
     action: 'payout.reject',
-    description: `Rejected advisor payout ${tx.txCode || tx._id} of ${updated.payoutCredits ?? updated.amount} credits`,
+    description: `Rejected advisor payout ${tx.txCode || tx._id} of USD ${Number(updated.amountUsd || 0).toFixed(2)}`,
     targetType: 'payout',
     targetUser: tx.advisor
   });
