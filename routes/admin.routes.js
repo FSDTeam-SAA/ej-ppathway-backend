@@ -83,6 +83,7 @@ import {
   updatePayoutSettings,
   listPayoutAccounts,
   getAdvisorPayoutAccount,
+  listAdvisorPaymentSessions,
   setupAdvisorAccount,
   createAdvisorDropInToken,
   syncAdvisorDropInMethod,
@@ -232,6 +233,7 @@ router.patch('/payouts/config', updatePayoutSettings);
 router.get('/payouts/stats', payoutStats);
 router.get('/payouts/accounts', listPayoutAccounts);
 router.get('/payouts/accounts/:advisorId', getAdvisorPayoutAccount);
+router.get('/payouts/accounts/:advisorId/sessions', listAdvisorPaymentSessions);
 router.post('/payouts/accounts/:advisorId/setup', setupAdvisorAccount);
 router.post('/payouts/accounts/:advisorId/drop-in-token', createAdvisorDropInToken);
 router.post('/payouts/accounts/:advisorId/sync-method', syncAdvisorDropInMethod);

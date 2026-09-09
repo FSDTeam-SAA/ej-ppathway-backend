@@ -623,7 +623,7 @@ export const getDashboard = catchAsync(async (req, res) => {
         $group: {
           _id: null,
           sessions: { $sum: 1 },
-          minutes: { $sum: { $ifNull: ['$durationMinutes', 0] } }
+          minutes: { $sum: { $divide: [{ $ifNull: ['$actualDurationSec', 0] }, 60] } }
         }
       }
     ]),
@@ -632,14 +632,14 @@ export const getDashboard = catchAsync(async (req, res) => {
       {
         $group: {
           _id: null,
-          minutes: { $sum: { $ifNull: ['$durationMinutes', 0] } }
+          minutes: { $sum: { $divide: [{ $ifNull: ['$actualDurationSec', 0] }, 60] } }
         }
       }
     ])
   ]);
 
   const activeSessions = await Session.countDocuments({ advisor: req.user._id, status: 'live' });
-  const pendingRequests = await Session.countDocuments({ advisor: req.user._id, status: 'pending' });
+  const pendingRequests = await Session.countDocuments({ advisor: req.user._id, status: { $in: ['pending', 'consent', 'waiting'] } });
 
   // ongoing session
   const ongoing = await Session.findOne({ advisor: req.user._id, status: 'live' })
@@ -648,7 +648,7 @@ export const getDashboard = catchAsync(async (req, res) => {
   // upcoming bookings
   const upcoming = await Session.find({
     advisor: req.user._id,
-    status: 'pending',
+    status: { $in: ['pending', 'consent', 'waiting'] },
     scheduledFor: { $gte: new Date() }
   })
     .populate('user', 'name profilePhoto')
@@ -671,7 +671,7 @@ export const getDashboard = catchAsync(async (req, res) => {
     {
       $group: {
         _id: { $dayOfWeek: '$completionDate' },
-        total: { $sum: { $ifNull: ['$durationMinutes', 0] } }
+        total: { $sum: { $divide: [{ $ifNull: ['$actualDurationSec', 0] }, 60] } }
       }
     },
     { $sort: { _id: 1 } }

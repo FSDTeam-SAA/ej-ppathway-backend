@@ -60,7 +60,7 @@ export const creditAdvisor = async ({ advisorId, amount }) => {
 };
 
 /**
- * Settle a session: compute used minutes, charge user, credit the advisor.
+ * Settle user credits and record actual work. Admin prices advisor payments separately.
  */
 export const settleSession = async (session) => {
   if (!session.startedAt || !session.endedAt) return session;
@@ -111,22 +111,8 @@ export const settleSession = async (session) => {
     });
   }
 
-  const finalCharge = session.chargedAmount;
-  const advisorPayout = round2(finalCharge);
-  session.advisorPayout = advisorPayout;
-
-  if (advisorPayout > 0) {
-    await creditAdvisor({ advisorId: session.advisor, amount: advisorPayout });
-    await Transaction.create({
-      type: 'advisor_earning',
-      status: 'completed',
-      user: session.user,
-      advisor: session.advisor,
-      session: session._id,
-      amount: advisorPayout,
-      description: `Earnings from session ${session.sessionCode}`
-    });
-  }
+  // Session work is paid only when an admin assigns a USD payout.
+  session.advisorPayout = 0;
 
   // update advisor stats
   await AdvisorProfile.findOneAndUpdate(
@@ -135,8 +121,6 @@ export const settleSession = async (session) => {
       $inc: {
         totalSessions: 1,
         completedSessions: 1,
-        grossEarnings: finalCharge,
-        netEarnings: advisorPayout,
         totalProphecy: 1
       }
     }

@@ -1,4 +1,5 @@
 import { StatusCodes } from 'http-status-codes';
+import { REVENUE_TYPES, CREDIT_SPEND_TYPES, moneyUsdExpr } from '../utils/transactionReporting.js';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
 import sendResponse from '../utils/sendResponse.js';
@@ -151,11 +152,18 @@ export const listUsers = catchAsync(async (req, res) => {
   }));
 
   // pending booking sessions (admin dashboard widget)
-  const pendingBookings = await Session.countDocuments({ status: 'pending' });
+  const matchingIds = await User.find(filter).distinct('_id');
+  const [pendingBookings, cashSummary] = await Promise.all([
+    Session.countDocuments({ user: { $in: matchingIds }, status: { $in: ['pending', 'consent', 'waiting'] } }),
+    Transaction.aggregate([
+      { $match: { user: { $in: matchingIds }, type: { $in: REVENUE_TYPES }, status: 'completed' } },
+      { $group: { _id: null, total: { $sum: moneyUsdExpr } } }
+    ])
+  ]);
 
   return sendResponse(res, {
     data,
-    meta: { ...buildMeta({ page, limit, total }), pendingBookings }
+    meta: { ...buildMeta({ page, limit, total }), pendingBookings, totalRevenueUsd: cashSummary[0]?.total || 0 }
   });
 });
 
@@ -166,7 +174,7 @@ export const getUserDetails = catchAsync(async (req, res) => {
   const wallet = await Wallet.findOne({ user: user._id });
   const sessionsCount = await Session.countDocuments({ user: user._id });
   const totalSpentAgg = await Transaction.aggregate([
-    { $match: { user: user._id, status: 'completed', type: { $in: ['session_charge','credit_pack_purchase','wallet_topup','tip','subscription','unlock_recording','unlock_transcript'] } } },
+    { $match: { user: user._id, status: 'completed', type: { $in: CREDIT_SPEND_TYPES } } },
     { $group: { _id: null, t: { $sum: '$amount' } } }
   ]);
   const sub = await UserSubscription.findOne({ user: user._id, status: 'active' }).populate('plan');
@@ -185,7 +193,8 @@ export const getUserDetails = catchAsync(async (req, res) => {
     .sort({ createdAt: -1 })
     .limit(20)
     .lean();
-  const refunds = recentTransactions.filter((t) => ['session_refund', 'subscription_refund'].includes(t.type));
+  const refunds = await Transaction.find({ user: user._id, type: { $in: ['session_refund', 'subscription_refund'] } })
+    .sort({ createdAt: -1 }).limit(20).lean();
   const adminActivity = await AdminActivity.find({ targetUser: user._id })
     .populate('admin', 'name email')
     .sort({ createdAt: -1 })

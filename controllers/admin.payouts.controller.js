@@ -1,3 +1,6 @@
+import Session from '../models/session.model.js';
+import { servicePaymentSummaries, serviceSummary } from '../services/payoutReporting.service.js';
+import { createAdminPricedPayout } from '../services/sessionPayout.service.js';
 import { StatusCodes } from 'http-status-codes';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
@@ -8,6 +11,11 @@ import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import { getPlatformSettings } from '../models/platformSetting.model.js';
 import { logAdminActivity } from '../services/activity.service.js';
+import {
+  ADVISOR_TIP_TYPES,
+  advisorTipBreakdownGroup,
+  normalizeTipBreakdownSummary
+} from '../utils/advisorTip.js';
 import { getHyperwalletWidgetScriptUrl } from '../config/hyperwallet.js';
 import {
   createHyperwalletAuthenticationToken,
@@ -15,12 +23,10 @@ import {
 } from '../services/hyperwallet.service.js';
 import {
   getPayoutConfig,
-  creditsToUsd,
   ensureHyperwalletUser,
   removePayoutMethod,
   syncPayoutMethodFromHyperwallet,
   hasPayoutMethod,
-  createPayoutRequest,
   executePayout,
   retryPayout,
   syncPayout,
@@ -28,7 +34,7 @@ import {
 } from '../services/payout.service.js';
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-const roundCredits = (n) => Math.round(Number(n) || 0);
+const roundCredits = round2;
 
 const publicAccount = (advisor) => {
   const hw = advisor.hyperwallet || {};
@@ -124,21 +130,39 @@ export const listPayoutAccounts = catchAsync(async (req, res) => {
     .lean();
 
   const ids = advisors.map((a) => a._id);
-  const wallets = await Wallet.find({ user: { $in: ids } })
-    .select('user earningsBalance pendingPayouts totalWithdrawn totalEarned tipEarningsBalanceUsd pendingTipPayoutUsd totalTipWithdrawnUsd totalTipEarnedUsd')
-    .lean();
+  const [wallets, tipBreakdowns] = await Promise.all([
+    Wallet.find({ user: { $in: ids } })
+      .select('user earningsBalance pendingPayouts totalWithdrawn totalEarned tipEarningsBalanceUsd pendingTipPayoutUsd totalTipWithdrawnUsd totalTipEarnedUsd')
+      .lean(),
+    Transaction.aggregate([
+      {
+        $match: {
+          advisor: { $in: ids },
+          type: { $in: ADVISOR_TIP_TYPES },
+          status: 'completed'
+        }
+      },
+      { $group: { _id: '$advisor', ...advisorTipBreakdownGroup } }
+    ])
+  ]);
+  const workMap = await servicePaymentSummaries(ids);
   const wMap = new Map(wallets.map((w) => [String(w.user), w]));
+  const tipMap = new Map(
+    tipBreakdowns.map((item) => [String(item._id), normalizeTipBreakdownSummary(item)])
+  );
 
   const data = advisors.map((a) => {
     const w = wMap.get(String(a._id)) || {};
+    const work = serviceSummary(workMap, a._id);
     const available = roundCredits(w.earningsBalance || 0);
     const pending = roundCredits(w.pendingPayouts || 0);
     const tipAvailableUsd = round2(w.tipEarningsBalanceUsd || 0);
     const pendingTipUsd = round2(w.pendingTipPayoutUsd || 0);
-    const serviceAvailableUsd = creditsToUsd(available, cfg);
-    const servicePendingUsd = creditsToUsd(pending, cfg);
+    const serviceAvailableUsd = 0;
+    const servicePendingUsd = work.pendingServiceUsd;
     return {
       advisor: { _id: a._id, name: a.name, email: a.email, profilePhoto: a.profilePhoto, country: a.country },
+      work,
       account: publicAccount(a),
       availableCredits: available,
       serviceAvailableUsd,
@@ -151,7 +175,8 @@ export const listPayoutAccounts = catchAsync(async (req, res) => {
       totalWithdrawnCredits: roundCredits(w.totalWithdrawn || 0),
       totalEarnedCredits: roundCredits(w.totalEarned || 0),
       totalTipEarnedUsd: round2(w.totalTipEarnedUsd || 0),
-      totalTipWithdrawnUsd: round2(w.totalTipWithdrawnUsd || 0)
+      totalTipWithdrawnUsd: round2(w.totalTipWithdrawnUsd || 0),
+      tipBreakdown: tipMap.get(String(a._id)) || normalizeTipBreakdownSummary()
     };
   });
 
@@ -165,12 +190,27 @@ export const getAdvisorPayoutAccount = catchAsync(async (req, res) => {
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
 
   const cfg = await getPayoutConfig();
-  const wallet = await Wallet.findOne({ user: advisor._id })
-    .select('earningsBalance pendingPayouts totalWithdrawn totalEarned tipEarningsBalanceUsd pendingTipPayoutUsd totalTipWithdrawnUsd totalTipEarnedUsd').lean();
+  const [wallet, tipBreakdownRows] = await Promise.all([
+    Wallet.findOne({ user: advisor._id })
+      .select('earningsBalance pendingPayouts totalWithdrawn totalEarned tipEarningsBalanceUsd pendingTipPayoutUsd totalTipWithdrawnUsd totalTipEarnedUsd')
+      .lean(),
+    Transaction.aggregate([
+      {
+        $match: {
+          advisor: advisor._id,
+          type: { $in: ADVISOR_TIP_TYPES },
+          status: 'completed'
+        }
+      },
+      { $group: { _id: null, ...advisorTipBreakdownGroup } }
+    ])
+  ]);
+  const tipBreakdown = normalizeTipBreakdownSummary(tipBreakdownRows[0]);
+  const work = serviceSummary(await servicePaymentSummaries([advisor._id]), advisor._id);
   const available = roundCredits(wallet?.earningsBalance || 0);
   const pendingCredits = roundCredits(wallet?.pendingPayouts || 0);
-  const serviceAvailableUsd = creditsToUsd(available, cfg);
-  const servicePendingUsd = creditsToUsd(pendingCredits, cfg);
+  const serviceAvailableUsd = 0; // Unpriced work is time, not a credit-to-USD balance.
+  const servicePendingUsd = work.pendingServiceUsd;
   const tipAvailableUsd = round2(wallet?.tipEarningsBalanceUsd || 0);
   const pendingTipUsd = round2(wallet?.pendingTipPayoutUsd || 0);
 
@@ -209,6 +249,7 @@ export const getAdvisorPayoutAccount = catchAsync(async (req, res) => {
       },
       account: publicAccount(advisor),
       transferMethods,
+      work,
       balance: {
         availableCredits: available,
         serviceAvailableUsd,
@@ -220,12 +261,24 @@ export const getAdvisorPayoutAccount = catchAsync(async (req, res) => {
         pendingUsd: round2(servicePendingUsd + pendingTipUsd),
         totalWithdrawnCredits: roundCredits(wallet?.totalWithdrawn || 0),
         totalTipEarnedUsd: round2(wallet?.totalTipEarnedUsd || 0),
-        totalTipWithdrawnUsd: round2(wallet?.totalTipWithdrawnUsd || 0)
+        totalTipWithdrawnUsd: round2(wallet?.totalTipWithdrawnUsd || 0),
+        tipBreakdown
       },
       config: cfg,
       recentPayouts: recent
     }
   });
+});
+
+export const listAdvisorPaymentSessions = catchAsync(async (req, res) => {
+  const { skip, limit, page } = parsePagination(req.query);
+  const filter = { advisor: req.params.advisorId, status: 'completed', servicePayout: null, actualDurationSec: { $gt: 0 } };
+  const [items, total] = await Promise.all([
+    Session.find(filter).select('sessionCode user type actualDurationSec endedAt').populate('user', 'name')
+      .sort({ endedAt: 1, _id: 1 }).skip(skip).limit(limit).lean(),
+    Session.countDocuments(filter)
+  ]);
+  return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
 
 // POST /admin/payouts/accounts/:advisorId/setup  — create the Hyperwallet user
@@ -280,15 +333,15 @@ export const removeAdvisorMethod = catchAsync(async (req, res) => {
 /* Initiating + managing payouts                                              */
 /* -------------------------------------------------------------------------- */
 
-// POST /admin/payouts  — admin initiates a payout to an advisor (based on credits)
+// POST /admin/payouts — explicit USD payment for selected work and/or net tips.
 export const createPayout = catchAsync(async (req, res) => {
   const { advisorId, note } = req.body;
-  const process = req.body.process !== false; // default: send immediately
+  const process = req.body.process === true; // queue unless sending is explicit
   const advisor = await User.findOne({ _id: advisorId, role: 'advisor' });
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
 
   const cfg = await getPayoutConfig();
-  const amountUsd = round2(req.body.amountUsd);
+  const amountUsd = round2(Number(req.body.serviceAmountUsd || 0) + Number(req.body.tipAmountUsd || 0));
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Provide a positive amountUsd value');
   }
@@ -297,13 +350,17 @@ export const createPayout = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Advisor has no payout method. Add a bank/PayPal method first, or create without processing.');
   }
 
-  const tx = await createPayoutRequest({
+  const tx = await createAdminPricedPayout({
     advisor,
-    amountUsd,
+    serviceAmountUsd: req.body.serviceAmountUsd,
+    tipAmountUsd: req.body.tipAmountUsd,
+    sessionIds: req.body.sessionIds,
+    requestId: req.body.requestId,
     initiatedBy: req.user?._id,
-    note,
-    autoProcess: process && cfg.hyperwalletEnabled
+    note
   });
+
+  if (process && cfg.hyperwalletEnabled && tx.withdrawalStatus === 'requested') await executePayout(tx, advisor);
 
   await logAdminActivity({
     adminId: req.user?._id,
@@ -357,8 +414,8 @@ export const syncPayoutCtrl = catchAsync(async (req, res) => {
 // POST /admin/payouts/:id/mark-paid  — manual out-of-band completion (fallback)
 export const markPayoutPaid = catchAsync(async (req, res) => {
   const tx = await loadPayout(req.params.id);
-  if (!['requested', 'approved', 'processing'].includes(tx.withdrawalStatus)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only pending/processing payouts can be marked paid');
+  if (!['requested', 'approved'].includes(tx.withdrawalStatus)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only unsent payouts can be marked paid manually');
   }
   const updated = await markPaidManually(tx, req.user?._id);
   await logAdminActivity({
@@ -413,6 +470,8 @@ export const payoutStats = catchAsync(async (_req, res) => {
     }
   ]);
   const payableCredits = roundCredits(walletAgg[0]?.earnings || 0);
+  const workMap = await servicePaymentSummaries();
+  const unpaidSeconds = [...workMap.values()].reduce((sum, row) => sum + (row.unpaidSeconds || 0), 0);
 
   return sendResponse(res, {
     data: {
@@ -424,9 +483,10 @@ export const payoutStats = catchAsync(async (_req, res) => {
       rejected: byStatus.rejected || empty,
       payable: {
         credits: payableCredits,
+        unpaidSeconds,
         tipUsd: round2(walletAgg[0]?.tipUsd || 0),
         usd: round2(
-          Math.max(0, creditsToUsd(payableCredits, cfg) + (walletAgg[0]?.tipUsd || 0))
+          Math.max(0, walletAgg[0]?.tipUsd || 0)
         ),
         pendingCredits: roundCredits(walletAgg[0]?.pending || 0),
         pendingTipUsd: round2(walletAgg[0]?.pendingTipUsd || 0)

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import Session from '../models/session.model.js';
 import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import User from '../models/user.model.js';
@@ -142,10 +143,11 @@ const payoutSources = (tx) => ({
   credits: roundCredits(
     tx.payoutCredits ?? (typeof tx.payoutTipUsd === 'number' ? 0 : tx.amount)
   ),
-  tipUsd: round2(tx.payoutTipUsd || 0)
+  tipUsd: round2(tx.payoutTipUsd || 0),
+  serviceUsd: round2(tx.payoutServiceUsd || 0)
 });
 
-const holdPayoutSources = async (advisorId, { credits, tipUsd }, dbSession) => {
+const holdPayoutSources = async (advisorId, { credits, tipUsd, serviceUsd }, dbSession) => {
   const c = roundCredits(credits);
   const t = round2(tipUsd);
   const filter = { user: advisorId };
@@ -160,7 +162,7 @@ const holdPayoutSources = async (advisorId, { credits, tipUsd }, dbSession) => {
     inc.tipEarningsBalanceUsd = -t;
     inc.pendingTipPayoutUsd = t;
   }
-  if (!Object.keys(inc).length) return null;
+  if (!Object.keys(inc).length) return serviceUsd > 0 ? { serviceOnly: true } : null;
   return Wallet.findOneAndUpdate(
     filter,
     { $inc: inc },
@@ -197,103 +199,6 @@ export const allocatePayout = (wallet, requestedUsd, cfg) => {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Create a payout request: hold the advisor's credits and open a pending
- * advisor_payout transaction. Used by both the admin (initiate) and advisor
- * (self withdraw) flows. Does NOT contact Hyperwallet yet.
- *
- * @returns {Promise<Transaction>}
- */
-export const createPayoutRequest = async ({ advisor, amountUsd, initiatedBy, note, autoProcess = false }) => {
-  const cfg = await getPayoutConfig();
-  const requestedUsd = round2(amountUsd);
-  const minimumUsd = creditsToUsd(cfg.minPayoutCredits, cfg);
-  if (!Number.isFinite(requestedUsd) || requestedUsd <= 0) {
-    throw Object.assign(new Error('Enter a valid USD payout amount'), { statusCode: 400 });
-  }
-  if (requestedUsd < minimumUsd) {
-    throw Object.assign(new Error(`Minimum payout is USD ${minimumUsd.toFixed(2)}`), { statusCode: 400 });
-  }
-
-  const dbSession = await mongoose.startSession();
-  let tx;
-  try {
-    await dbSession.withTransaction(async () => {
-      const wallet = await Wallet.findOne({ user: advisor._id }).session(dbSession);
-      const allocation = allocatePayout(wallet, requestedUsd, cfg);
-      if (!allocation) {
-        throw Object.assign(
-          new Error('Insufficient balance or invalid USD amount for the current service-credit rate'),
-          { statusCode: 402 }
-        );
-      }
-
-      const held = await Wallet.findOneAndUpdate(
-        {
-          user: advisor._id,
-          ...(allocation.credits > 0
-            ? { earningsBalance: { $gte: allocation.credits } }
-            : {}),
-          ...(allocation.tipUsd > 0
-            ? { tipEarningsBalanceUsd: { $gte: allocation.tipUsd } }
-            : {})
-        },
-        {
-          $inc: {
-            ...(allocation.credits > 0
-              ? { earningsBalance: -allocation.credits, pendingPayouts: allocation.credits }
-              : {}),
-            ...(allocation.tipUsd > 0
-              ? {
-                  tipEarningsBalanceUsd: -allocation.tipUsd,
-                  pendingTipPayoutUsd: allocation.tipUsd
-                }
-              : {})
-          }
-        },
-        { returnDocument: 'after', session: dbSession }
-      );
-      if (!held) throw Object.assign(new Error('Insufficient earnings balance'), { statusCode: 402 });
-
-      const methodType = advisor.hyperwallet?.transferMethodType;
-      [tx] = await Transaction.create(
-        [{
-          type: 'advisor_payout',
-          status: 'pending',
-          provider: 'hyperwallet',
-          advisor: advisor._id,
-          amount: allocation.amountUsd,
-          currency: 'usd',
-          amountUsd: allocation.amountUsd,
-          payoutCredits: allocation.credits,
-          payoutTipUsd: allocation.tipUsd,
-          payoutRateUsd: cfg.payoutCreditUsdRate,
-          description: note || 'Advisor payout',
-          withdrawalMethod: methodType
-            ? `hyperwallet_${methodType === 'paypal' ? 'paypal' : 'bank'}`
-            : 'hyperwallet',
-          withdrawalStatus: 'requested',
-          withdrawalRequestedAt: new Date(),
-          hyperwalletUserToken: advisor.hyperwallet?.userToken,
-          metadata: {
-            payoutSourceVersion: 2,
-            serviceCredits: allocation.credits,
-            serviceAmountUsd: creditsToUsd(allocation.credits, cfg),
-            tipAmountUsd: allocation.tipUsd,
-            initiatedBy: initiatedBy ? String(initiatedBy) : undefined
-          }
-        }],
-        { session: dbSession }
-      );
-    });
-  } finally {
-    await dbSession.endSession();
-  }
-
-  if (autoProcess) return executePayout(tx, advisor);
-  return tx;
-};
-
-/**
  * Send an existing (held) payout to Hyperwallet. Transitions requested/approved
  * → processing, then applies the immediately-returned status (sandbox can return
  * COMPLETED synchronously).
@@ -303,10 +208,10 @@ export const executePayout = async (tx, advisorArg) => {
     throw Object.assign(new Error('Hyperwallet is not configured'), { statusCode: 503 });
   }
   const cfg = await getPayoutConfig();
-  if (!cfg.hyperwalletEnabled) {
+  if (!cfg.hyperwalletEnabled || cfg.provider === 'manual') {
     throw Object.assign(new Error('Hyperwallet payouts are disabled in settings'), { statusCode: 400 });
   }
-  if (!HELD_STATUSES.includes(tx.withdrawalStatus)) {
+  if (!['requested', 'approved'].includes(tx.withdrawalStatus)) {
     throw Object.assign(new Error(`Payout is not in a sendable state (${tx.withdrawalStatus})`), { statusCode: 400 });
   }
 
@@ -322,8 +227,14 @@ export const executePayout = async (tx, advisorArg) => {
     ? tx.amountUsd
     : round2(creditsToUsd(sources.credits, cfg) + sources.tipUsd);
 
-  // Mark processing before the network call so retries are idempotent.
-  tx.withdrawalStatus = 'processing';
+  // Claim atomically: simultaneous admin clicks cannot send the same payout twice.
+  const claimed = await Transaction.findOneAndUpdate(
+    { _id: tx._id, withdrawalStatus: { $in: ['requested', 'approved'] } },
+    { $set: { withdrawalStatus: 'processing' } },
+    { returnDocument: 'after' }
+  );
+  if (!claimed) throw Object.assign(new Error('Payout state changed. Refresh before continuing.'), { statusCode: 409 });
+  tx = claimed;
   tx.withdrawalProcessedAt = new Date();
   tx.provider = 'hyperwallet';
   tx.payoutCredits = sources.credits;
@@ -344,9 +255,12 @@ export const executePayout = async (tx, advisorArg) => {
       notes: tx.description || `Payout ${tx.txCode || tx._id}`
     });
   } catch (err) {
-    // Could not even create the payment — return the held funds.
-    await finalizeFailed(tx, err.message || 'Hyperwallet payment creation failed');
-    throw Object.assign(new Error(err.message || 'Hyperwallet payment failed'), { statusCode: 502 });
+    // A lost response does not prove money was not sent. Keep the hold until
+    // a provider webhook or reconciliation confirms a terminal outcome.
+    await Transaction.updateOne({ _id: tx._id, withdrawalStatus: 'processing' }, {
+      $set: { withdrawalFailureReason: 'Provider confirmation pending. Reconcile this payment before retrying.' }
+    });
+    throw Object.assign(new Error('Provider confirmation pending. Funds remain held; reconcile before retrying.'), { statusCode: 502 });
   }
 
   tx.hyperwalletPaymentToken = payment.token;
@@ -360,20 +274,21 @@ export const executePayout = async (tx, advisorArg) => {
 };
 
 /** Idempotently finalize a held payout as paid. */
-export const finalizePaid = async (txOrId, rawStatus) => {
+export const finalizePaid = async (txOrId, rawStatus, adminId) => {
   const id = txOrId._id || txOrId;
   const dbSession = await mongoose.startSession();
   let result;
   try {
     await dbSession.withTransaction(async () => {
       const tx = await Transaction.findOneAndUpdate(
-        { _id: id, withdrawalStatus: { $in: HELD_STATUSES } },
+        { _id: id, withdrawalStatus: { $in: rawStatus === 'MANUAL' ? ['requested', 'approved'] : HELD_STATUSES } },
         {
           $set: {
             withdrawalStatus: 'paid',
             status: 'completed',
             withdrawalPaidAt: new Date(),
-            hyperwalletStatus: rawStatus || 'COMPLETED'
+            hyperwalletStatus: rawStatus || 'COMPLETED',
+            ...(rawStatus === 'MANUAL' ? { withdrawalMethod: 'manual', withdrawalApprovedBy: adminId } : {})
           }
         },
         { returnDocument: 'after', session: dbSession }
@@ -477,6 +392,9 @@ export const rejectPayout = async (tx, reason, adminId) => {
       if (!updated) {
         throw Object.assign(new Error('Payout is not in a rejectable state'), { statusCode: 400 });
       }
+      if (updated.payoutServiceUsd > 0) {
+        await Session.updateMany({ servicePayout: updated._id }, { $unset: { servicePayout: 1 } }, { session: dbSession });
+      }
       const sources = payoutSources(updated);
       await Wallet.updateOne(
         { user: updated.advisor },
@@ -505,12 +423,8 @@ export const rejectPayout = async (tx, reason, adminId) => {
  * out-of-band transfers). Same wallet movement as a real completion.
  */
 export const markPaidManually = async (tx, adminId) => {
-  const paid = await finalizePaid(tx, 'MANUAL');
-  if (paid && String(paid.withdrawalMethod || '').startsWith('hyperwallet')) {
-    paid.withdrawalMethod = 'manual';
-    paid.withdrawalApprovedBy = adminId || paid.withdrawalApprovedBy;
-    await paid.save();
-  }
+  const paid = await finalizePaid(tx, 'MANUAL', adminId);
+  if (paid?.withdrawalStatus !== 'paid') throw Object.assign(new Error('Only unsent payouts can be marked paid manually'), { statusCode: 409 });
   return paid;
 };
 
@@ -555,7 +469,7 @@ export const retryPayout = async (tx) => {
  * Safe to call repeatedly (finalizers are idempotent).
  */
 export const syncPayout = async (tx) => {
-  if (!tx.hyperwalletPaymentToken) return tx;
+  if (!tx.hyperwalletPaymentToken) throw Object.assign(new Error('Provider payment token not received yet. Await the webhook or reconcile with the payout provider using this transaction ID.'), { statusCode: 409 });
   if (!['processing', 'requested', 'approved'].includes(tx.withdrawalStatus)) return tx;
   const payment = await getPayment(tx.hyperwalletPaymentToken);
   const mapped = mapPaymentStatus(payment.status);

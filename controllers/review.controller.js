@@ -45,21 +45,30 @@ export const submitReview = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You can only review after a session ends');
   }
 
-  const r = await Review.findOneAndUpdate(
-    { user: req.user._id, session: session._id },
-    {
-      $set: {
-        user: req.user._id,
-        advisor: session.advisor,
-        session: session._id,
-        rating: Math.max(1, Math.min(5, Number(rating) || 5)),
-        breakdown: breakdown || {},
-        comment: comment || '',
-        sessionType: session.type
-      }
-    },
-    { upsert: true, returnDocument: 'after' }
-  );
+  const existing = await Review.exists({ session: session._id });
+  if (existing) {
+    throw new ApiError(StatusCodes.CONFLICT, 'You have already reviewed this session');
+  }
+
+  let r;
+  try {
+    r = await Review.create({
+      user: req.user._id,
+      advisor: session.advisor,
+      session: session._id,
+      rating: Math.max(1, Math.min(5, Number(rating) || 5)),
+      breakdown: breakdown || {},
+      comment: comment || '',
+      sessionType: session.type
+    });
+  } catch (error) {
+    // The unique session index also closes the race between two simultaneous
+    // submissions after the existence check above.
+    if (error?.code === 11000) {
+      throw new ApiError(StatusCodes.CONFLICT, 'You have already reviewed this session');
+    }
+    throw error;
+  }
 
   session.review = r._id;
   await session.save();

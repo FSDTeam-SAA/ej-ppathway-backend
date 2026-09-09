@@ -6,6 +6,23 @@ import {
   revenueBreakdown,
   verifyRevenueCatTipPurchase
 } from '../services/iapTip.service.js';
+import Transaction from '../models/transaction.model.js';
+
+test('missing proceeds are unknown, never interpreted as zero net earnings', () => {
+  const revenue = revenueBreakdown({ revenue_in_usd: { gross: 10, proceeds: null } }, ['revenue_in_usd']);
+  assert.equal(revenue.proceeds, null);
+  assert.equal(revenue.commission, null);
+});
+
+test('enforces one initiating IAP tip per session', () => {
+  const tipIndex = Transaction.schema.indexes().find(
+    ([, options]) => options.name === 'unique_iap_tip_per_session'
+  );
+
+  assert.ok(tipIndex);
+  assert.equal(tipIndex[1].unique, true);
+  assert.deepEqual(tipIndex[1].partialFilterExpression, { type: 'tip_fiat' });
+});
 
 test('uses RevenueCat proceeds instead of gross revenue for advisor tips', () => {
   const revenue = revenueBreakdown(

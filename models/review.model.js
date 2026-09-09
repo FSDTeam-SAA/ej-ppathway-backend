@@ -6,7 +6,7 @@ const reviewSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     advisor: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    session: { type: Schema.Types.ObjectId, ref: 'Session', index: true },
+    session: { type: Schema.Types.ObjectId, ref: 'Session' },
 
     rating: { type: Number, min: 1, max: 5, required: true },
     breakdown: {
@@ -32,6 +32,13 @@ const reviewSchema = new Schema(
     isFeaturedTestimonial: { type: Boolean, default: false, index: true }
   },
   { timestamps: true }
+);
+
+// A real session can be reviewed only once. Sparse keeps admin showcase
+// reviews, which do not have a session, outside this constraint.
+reviewSchema.index(
+  { session: 1 },
+  { name: 'unique_review_per_session', unique: true, sparse: true }
 );
 
 const Review = mongoose.model('Review', reviewSchema);

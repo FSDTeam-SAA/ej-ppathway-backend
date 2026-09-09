@@ -788,6 +788,7 @@ export const myUserSessions = catchAsync(async (req, res) => {
   const total = await Session.countDocuments(filter);
   const docs = await Session.find(filter)
     .populate('advisor', 'name profilePhoto')
+    .populate('review', 'rating comment')
     .sort({ scheduledFor: -1, createdAt: -1 })
     .skip(skip).limit(limit);
   const reconciled = await reconcileTimedOutSessions(docs);
@@ -869,7 +870,8 @@ export const advisorBookingsCalendar = catchAsync(async (req, res) => {
 export const getSession = catchAsync(async (req, res) => {
   const sessionDoc = await Session.findById(req.params.id)
     .populate('user', 'name profilePhoto')
-    .populate('advisor', 'name profilePhoto');
+    .populate('advisor', 'name profilePhoto')
+    .populate('review', 'rating comment');
   if (!sessionDoc) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   const isUser = String(sessionDoc.user?._id || sessionDoc.user) === String(req.user._id);
   const isAdvisor = String(sessionDoc.advisor?._id || sessionDoc.advisor) === String(req.user._id);
@@ -877,8 +879,20 @@ export const getSession = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Forbidden');
   }
   const session = await reconcileTimedOutSession(sessionDoc);
+  const responseData = isUser ? sessionForUserResponse(session) : session.toObject();
+  if (isUser) {
+    const hasRecordedTip = await Transaction.exists({
+      session: session._id,
+      user: req.user._id,
+      type: { $in: ['tip', 'tip_fiat'] },
+      status: { $in: ['completed', 'refunded'] }
+    });
+    if (hasRecordedTip) {
+      responseData.tipCount = Math.max(1, Number(responseData.tipCount || 0));
+    }
+  }
   return sendResponse(res, {
-    data: isUser ? sessionForUserResponse(session) : session.toObject()
+    data: responseData
   });
 });
 

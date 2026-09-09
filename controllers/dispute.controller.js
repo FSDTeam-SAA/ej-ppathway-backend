@@ -200,10 +200,11 @@ export const adminResolveDispute = catchAsync(async (req, res) => {
       description: `Dispute refund for session ${session.sessionCode}`
     });
 
-    // Reverse advisor earnings proportional
+    // Only reverse legacy credit earnings. New session payments are explicitly
+    // priced by admin and are not derived from the user's credit refund.
     const advisorWallet = await Wallet.findOne({ user: session.advisor });
     if (advisorWallet) {
-      const reverse = Math.min(advisorWallet.earningsBalance, round2(session.advisorPayout || amount));
+      const reverse = Math.min(advisorWallet.earningsBalance, round2(session.advisorPayout ?? 0));
       if (reverse > 0) {
         advisorWallet.earningsBalance = round2(advisorWallet.earningsBalance - reverse);
         await advisorWallet.save();

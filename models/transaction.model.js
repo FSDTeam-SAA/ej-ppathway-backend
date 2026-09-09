@@ -90,6 +90,12 @@ const transactionSchema = new Schema(
     payoutTipUsd: { type: Number },         // fiat-tip USD held for this payout
     payoutRateUsd: { type: Number },        // USD per credit used for this payout
 
+    // Admin-priced session work is independent of user credit charges.
+    payoutServiceUsd: { type: Number },
+    payoutSessionIds: [{ type: Schema.Types.ObjectId, ref: 'Session' }],
+    payoutSessionSeconds: { type: Number },
+    payoutRequestId: { type: String, unique: true, sparse: true },
+
     // Hyperwallet links
     hyperwalletUserToken: { type: String, index: true, sparse: true },
     hyperwalletPaymentToken: { type: String, index: true, sparse: true },
@@ -105,6 +111,17 @@ transactionSchema.pre('save', function () {
     this.txCode = 'TXN-' + Math.floor(1000 + Math.random() * 9000) + Date.now().toString().slice(-4);
   }
 });
+
+// A store purchase can create both a user and an advisor transaction, so this
+// constraint targets only the initiating user-side IAP tip transaction.
+transactionSchema.index(
+  { session: 1, type: 1 },
+  {
+    name: 'unique_iap_tip_per_session',
+    unique: true,
+    partialFilterExpression: { type: 'tip_fiat' }
+  }
+);
 
 const Transaction = mongoose.model('Transaction', transactionSchema);
 export default Transaction;

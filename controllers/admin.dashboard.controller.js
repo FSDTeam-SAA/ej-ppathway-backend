@@ -1,4 +1,5 @@
 import catchAsync from '../utils/catchAsync.js';
+import { REVENUE_TYPES, moneyUsdExpr } from '../utils/transactionReporting.js';
 import sendResponse from '../utils/sendResponse.js';
 import User from '../models/user.model.js';
 import UserSubscription from '../models/userSubscription.model.js';
@@ -9,7 +10,6 @@ import AdvisorApplication from '../models/advisorApplication.model.js';
 
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
 
-const REVENUE_TYPES = ['credit_pack_purchase', 'wallet_topup', 'subscription', 'unlock_recording', 'unlock_transcript', 'promotion_purchase'];
 const REFUND_TYPES = ['session_refund', 'subscription_refund'];
 
 // Start of the selected period (defaults to "today").
@@ -17,29 +17,29 @@ const periodStart = (period) => {
   const now = new Date();
   const d = new Date(now);
   if (period === 'week') {
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - d.getDay()); // Sunday
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay()); // Sunday
     return d;
   }
-  if (period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1);
-  if (period === 'year') return new Date(now.getFullYear(), 0, 1);
-  d.setHours(0, 0, 0, 0); // day
+  if (period === 'month') return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  if (period === 'year') return new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+  d.setUTCHours(0, 0, 0, 0); // day
   return d;
 };
 
 const bounds = () => {
   const now = new Date();
-  const today = new Date(now); today.setHours(0, 0, 0, 0);
-  const week = new Date(today); week.setDate(today.getDate() - today.getDay());
-  const month = new Date(now.getFullYear(), now.getMonth(), 1);
-  const year = new Date(now.getFullYear(), 0, 1);
+  const today = new Date(now); today.setUTCHours(0, 0, 0, 0);
+  const week = new Date(today); week.setUTCDate(today.getUTCDate() - today.getUTCDay());
+  const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const year = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
   return { today, week, month, year };
 };
 
 const sumRevenue = async (types, since) => {
   const agg = await Transaction.aggregate([
     { $match: { status: 'completed', type: { $in: types }, ...(since ? { createdAt: { $gte: since } } : {}) } },
-    { $group: { _id: null, t: { $sum: '$amount' }, c: { $sum: 1 } } }
+    { $group: { _id: null, t: { $sum: moneyUsdExpr }, c: { $sum: 1 } } }
   ]);
   return { amount: round2(agg[0]?.t || 0), count: agg[0]?.c || 0 };
 };
@@ -79,6 +79,13 @@ export const dashboardOverview = catchAsync(async (req, res) => {
     sumRevenue(REFUND_TYPES, week),
     sumRevenue(REFUND_TYPES, month),
     sumRevenue(REFUND_TYPES, year)
+  ]);
+  const [creditRefunds, cashRefunds] = await Promise.all([
+    Transaction.aggregate([
+      { $match: { type: 'session_refund', status: 'completed', createdAt: { $gte: year } } },
+      { $group: { _id: null, amount: { $sum: '$amount' } } }
+    ]),
+    sumRevenue(['subscription_refund'], year)
   ]);
 
   // ---- Service categories → Chat / Voice Call / Video Call (within period) ----
@@ -124,7 +131,7 @@ export const dashboardOverview = catchAsync(async (req, res) => {
   // ---- Revenue trend (this year, monthly) ----
   const revMonthAgg = await Transaction.aggregate([
     { $match: { status: 'completed', type: { $in: REVENUE_TYPES }, createdAt: { $gte: year } } },
-    { $group: { _id: { m: { $month: '$createdAt' } }, total: { $sum: '$amount' } } }
+    { $group: { _id: { m: { $month: '$createdAt' } }, total: { $sum: moneyUsdExpr } } }
   ]);
   const revenueByMonth = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, total: 0 }));
   revMonthAgg.forEach((r) => { revenueByMonth[r._id.m - 1].total = round2(r.total); });
@@ -149,7 +156,8 @@ export const dashboardOverview = catchAsync(async (req, res) => {
         week: refWeek.count,
         month: refMonth.count,
         year: refYear.count,
-        amountYear: refYear.amount
+        amountYear: cashRefunds.amount,
+        creditsYear: creditRefunds[0]?.amount || 0
       },
       serviceCategories,
       advisorPerformance: {

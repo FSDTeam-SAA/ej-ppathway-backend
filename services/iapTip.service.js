@@ -38,6 +38,7 @@ const revenueCatApiKey = () =>
   '';
 
 const optionalMoney = (value) => {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? round2(number) : null;
 };
@@ -173,7 +174,7 @@ export const verifyRevenueCatTipPurchase = async ({
 
   const apiKey = revenueCatApiKey();
   const projectId = process.env.REVENUECAT_PROJECT_ID;
-  const allowUnverified = process.env.IAP_TIP_ALLOW_UNVERIFIED === 'true';
+  const allowUnverified = process.env.IAP_TIP_ALLOW_UNVERIFIED === 'true' && process.env.NODE_ENV !== 'production';
   const configuredAmountUsd = DEFAULT_TIP_AMOUNTS_USD.get(productId);
 
   if (!apiKey || !projectId) {
@@ -253,7 +254,9 @@ export const verifyRevenueCatTipPurchase = async ({
     !Number.isFinite(usdRevenue?.gross) ||
     usdRevenue.gross <= 0 ||
     !Number.isFinite(usdRevenue?.proceeds) ||
-    usdRevenue.proceeds < 0
+    usdRevenue.proceeds < 0 ||
+    localRevenue.proceeds > localRevenue.gross ||
+    usdRevenue.proceeds > usdRevenue.gross
   ) {
     throw Object.assign(new Error('RevenueCat net proceeds are not available yet'), {
       statusCode: 409,
@@ -312,6 +315,16 @@ export const recordIapTip = async ({ userId, sessionId, body }) => {
   });
   if (existing) return { duplicate: true, transaction: existing, session };
 
+  const previousSessionTip = await Transaction.exists({
+    session: session._id,
+    user: userId,
+    type: { $in: ['tip', 'tip_fiat'] },
+    status: { $in: ['completed', 'refunded'] }
+  });
+  if (previousSessionTip) {
+    throw Object.assign(new Error('You have already tipped this session'), { statusCode: 409 });
+  }
+
   const verified = await verifyRevenueCatTipPurchase({
     productId,
     storeTransactionId,
@@ -353,6 +366,16 @@ export const recordIapTip = async ({ userId, sessionId, body }) => {
       }
       if (currentSession.status !== 'completed') {
         throw Object.assign(new Error('Tips are available after a completed session'), { statusCode: 409 });
+      }
+
+      const previousTip = await Transaction.exists({
+        session: currentSession._id,
+        user: userId,
+        type: { $in: ['tip', 'tip_fiat'] },
+        status: { $in: ['completed', 'refunded'] }
+      }).session(dbSession);
+      if (previousTip) {
+        throw Object.assign(new Error('You have already tipped this session'), { statusCode: 409 });
       }
 
       const duplicate = await Transaction.findOne({ storeTransactionId }).session(dbSession);
