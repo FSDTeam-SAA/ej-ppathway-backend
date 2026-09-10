@@ -25,7 +25,7 @@ const configuredTipProductIds = () => {
   return configured.length ? configured : [...DEFAULT_TIP_AMOUNTS_USD.keys()];
 };
 
-const isAllowedTipProduct = (productId) => {
+export const isAllowedTipProduct = (productId) => {
   const id = String(productId || '').trim();
   if (!id) return false;
   return configuredTipProductIds().includes(id);
@@ -73,9 +73,94 @@ const purchaseProductIds = (purchase) =>
     .filter(Boolean);
 
 const purchaseCustomerIds = (purchase) =>
-  [purchase?.customer_id, purchase?.original_customer_id, purchase?.app_user_id, purchase?.appUserId]
+  [purchase?.app_user_id, purchase?.appUserId]
     .map((value) => String(value || '').trim())
     .filter(Boolean);
+
+const fetchRevenueCatResource = async ({ url, apiKey, resource, fetchImpl = fetch }) => {
+  let response;
+  let payload = null;
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      }
+    });
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+  } catch (error) {
+    throw Object.assign(new Error(`RevenueCat ${resource} lookup failed`), {
+      statusCode: 502,
+      cause: error
+    });
+  }
+
+  if (!response.ok) {
+    const permissionHint = response.status === 401 || response.status === 403
+      ? ' Check the RevenueCat V2 secret-key permissions.'
+      : '';
+    throw Object.assign(new Error(`RevenueCat ${resource} lookup failed.${permissionHint}`), {
+      statusCode: response.status === 404 ? 400 : 502,
+      details: payload
+    });
+  }
+  return payload;
+};
+
+const resolvePurchaseStoreProductIds = async ({ purchase, projectId, apiKey }) => {
+  const identifiers = purchaseProductIds(purchase);
+  const internalProductId = String(purchase?.product_id || '').trim();
+  if (!internalProductId || identifiers.some((id) => id !== internalProductId)) {
+    return identifiers;
+  }
+
+  const url = new URL(
+    `https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/products/${encodeURIComponent(internalProductId)}`
+  );
+  const product = await fetchRevenueCatResource({
+    url,
+    apiKey,
+    resource: 'product'
+  });
+  return [
+    ...identifiers,
+    product?.store_identifier,
+    product?.store_product_identifier
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+};
+
+const purchaseBelongsToAppUser = async ({ purchase, appUserId, projectId, apiKey }) => {
+  if (!appUserId) return true;
+  const expected = String(appUserId);
+  if (purchaseCustomerIds(purchase).includes(expected)) return true;
+
+  const revenueCatCustomerId = String(
+    purchase?.customer_id || purchase?.original_customer_id || ''
+  ).trim();
+  if (!revenueCatCustomerId) return false;
+
+  // RevenueCat API v2 purchase.customer_id is an internal customer ID, not
+  // the app's custom App User ID. Resolve its aliases before comparing it to
+  // our authenticated Mongo user ID.
+  const url = new URL(
+    `https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/customers/${encodeURIComponent(revenueCatCustomerId)}/aliases`
+  );
+  const payload = await fetchRevenueCatResource({
+    url,
+    apiKey,
+    resource: 'customer aliases'
+  });
+  const aliases = Array.isArray(payload?.items)
+    ? payload.items.map((item) => String(item?.id || '').trim()).filter(Boolean)
+    : [];
+  return aliases.includes(expected);
+};
 
 const purchaseItems = (payload) => {
   if (Array.isArray(payload)) return payload;
@@ -222,13 +307,22 @@ export const verifyRevenueCatTipPurchase = async ({
 
   const purchase = await lookupRevenueCatPurchase({ url, apiKey });
 
-  const productMatches = purchaseProductIds(purchase).includes(String(productId));
-  if (purchaseProductIds(purchase).length && !productMatches) {
+  const purchaseProducts = await resolvePurchaseStoreProductIds({
+    purchase,
+    projectId,
+    apiKey
+  });
+  if (!purchaseProducts.includes(String(productId))) {
     throw Object.assign(new Error('Purchase product does not match tip product'), { statusCode: 400 });
   }
 
-  const customerIds = purchaseCustomerIds(purchase);
-  if (customerIds.length && appUserId && !customerIds.includes(String(appUserId))) {
+  const belongsToUser = await purchaseBelongsToAppUser({
+    purchase,
+    appUserId,
+    projectId,
+    apiKey
+  });
+  if (!belongsToUser) {
     throw Object.assign(new Error('Purchase does not belong to this user'), { statusCode: 403 });
   }
 

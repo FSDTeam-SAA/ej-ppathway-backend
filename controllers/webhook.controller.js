@@ -6,7 +6,7 @@ import Wallet from '../models/wallet.model.js';
 import User from '../models/user.model.js';
 import { findCreditPackByRevenueCatProduct } from '../services/credit.service.js';
 import { applyPaymentWebhook } from '../services/payout.service.js';
-import { reverseIapTipByStoreTransactionId } from '../services/iapTip.service.js';
+import { isAllowedTipProduct, reverseIapTipByStoreTransactionId } from '../services/iapTip.service.js';
 import { createNotification } from '../services/notification.service.js';
 
 /**
@@ -143,6 +143,19 @@ export const revenueCatWebhook = async (req, res) => {
       ]
     });
     if (existing) return res.status(200).json({ ok: true, duplicate: true });
+
+    // The app attaches an advisor tip to a completed session through the
+    // authenticated /sessions/:id/tip/iap endpoint. The RevenueCat event has
+    // no session ID, so acknowledge known tip products here instead of
+    // misclassifying them as unknown credit packs. Refund events above remain
+    // authoritative for reversing a tip after it has been recorded.
+    if (isAllowedTipProduct(productId)) {
+      return res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: 'Tip awaits authenticated session confirmation'
+      });
+    }
 
     const pack = await findCreditPackByRevenueCatProduct(productId);
     if (!pack) return res.status(200).json({ ok: false, skipped: true, message: 'Unknown product id' });

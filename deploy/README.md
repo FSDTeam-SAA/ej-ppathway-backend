@@ -82,7 +82,8 @@ IAP_TIP_ALLOW_UNVERIFIED=false
 ```
 
 The RevenueCat V2 secret key must have
-`customer_information:purchases:read` permission. Configure RevenueCat's
+`customer_information:purchases:read`, `customer_information:customers:read`,
+and `project_configuration:products:read` permissions. Configure RevenueCat's
 webhook URL as
 `https://ejpathwayapi.duckdns.org/api/v1/webhooks/revenuecat` and use the same
 authorization secret in RevenueCat and `REVENUECAT_WEBHOOK_SECRET`.

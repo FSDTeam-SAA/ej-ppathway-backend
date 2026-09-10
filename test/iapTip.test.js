@@ -86,7 +86,7 @@ test('verified tips return local purchase details and net USD proceeds', async (
     json: async () => ({
       items: [{
         id: 'purchase-10',
-        customer_id: 'user-10',
+        app_user_id: 'user-10',
         product_store_identifier: 'tip_10',
         store: 'play_store',
         revenue_in_local_currency: {
@@ -120,6 +120,94 @@ test('verified tips return local purchase details and net USD proceeds', async (
     assert.equal(verified.localNetProceeds, 1000);
     assert.equal(verified.grossAmountUsd, 10);
     assert.equal(verified.netProceedsUsd, 8.25);
+  } finally {
+    globalThis.fetch = previous.fetch;
+    for (const [key, value] of Object.entries({
+      REVENUECAT_SECRET_API_KEY: previous.secretApiKey,
+      REVENUECAT_PROJECT_ID: previous.projectId,
+      IAP_TIP_ALLOW_UNVERIFIED: previous.allowUnverified
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('resolves RevenueCat v2 internal product and customer IDs before verifying a tip', async () => {
+  const previous = {
+    secretApiKey: process.env.REVENUECAT_SECRET_API_KEY,
+    projectId: process.env.REVENUECAT_PROJECT_ID,
+    allowUnverified: process.env.IAP_TIP_ALLOW_UNVERIFIED,
+    fetch: globalThis.fetch
+  };
+  process.env.REVENUECAT_SECRET_API_KEY = 'test-secret';
+  process.env.REVENUECAT_PROJECT_ID = 'test-project';
+  process.env.IAP_TIP_ALLOW_UNVERIFIED = 'false';
+
+  const requestedPaths = [];
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    requestedPaths.push(parsed.pathname);
+    if (parsed.pathname.endsWith('/purchases')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [{
+            id: 'purchase-v2',
+            customer_id: 'cust_rc_internal',
+            product_id: 'prod_rc_internal',
+            store: 'app_store',
+            revenue_in_local_currency: {
+              currency: 'GBP',
+              gross: 5,
+              commission: 1.5,
+              tax: 0,
+              proceeds: 3.5
+            },
+            revenue_in_usd: {
+              currency: 'USD',
+              gross: 6.5,
+              commission: 1.95,
+              tax: 0,
+              proceeds: 4.55
+            }
+          }]
+        })
+      };
+    }
+    if (parsed.pathname.endsWith('/products/prod_rc_internal')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'prod_rc_internal', store_identifier: 'tip_5' })
+      };
+    }
+    if (parsed.pathname.endsWith('/customers/cust_rc_internal/aliases')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [{ id: 'mongo-user-5' }, { id: '$RCAnonymous:old' }] })
+      };
+    }
+    throw new Error(`Unexpected RevenueCat URL: ${url}`);
+  };
+
+  try {
+    const verified = await verifyRevenueCatTipPurchase({
+      productId: 'tip_5',
+      storeTransactionId: 'apple-transaction-5',
+      appUserId: 'mongo-user-5',
+      platform: 'ios'
+    });
+
+    assert.equal(verified.productId, 'tip_5');
+    assert.equal(verified.netProceedsUsd, 4.55);
+    assert.deepEqual(requestedPaths, [
+      '/v2/projects/test-project/purchases',
+      '/v2/projects/test-project/products/prod_rc_internal',
+      '/v2/projects/test-project/customers/cust_rc_internal/aliases'
+    ]);
   } finally {
     globalThis.fetch = previous.fetch;
     for (const [key, value] of Object.entries({
