@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Transaction from '../models/transaction.model.js';
 import Wallet from '../models/wallet.model.js';
 import Session from '../models/session.model.js';
+import RevenueCatIapReceipt from '../models/revenueCatIapReceipt.model.js';
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -162,6 +163,70 @@ const purchaseBelongsToAppUser = async ({ purchase, appUserId, projectId, apiKey
   return aliases.includes(expected);
 };
 
+const lookupWebhookTipReceipt = ({ storeTransactionId }) =>
+  RevenueCatIapReceipt.findOne({
+    $or: [
+      { transactionId: String(storeTransactionId) },
+      { originalTransactionId: String(storeTransactionId) }
+    ]
+  }).lean();
+
+const verifiedTipFromWebhookReceipt = ({ receipt, productId, storeTransactionId, appUserId, platform }) => {
+  if (!receipt) return null;
+  if (receipt.productId !== productId) {
+    throw Object.assign(new Error('Purchase product does not match tip product'), { statusCode: 400 });
+  }
+  const customerIds = [receipt.appUserId, ...(receipt.aliases || [])]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  if (appUserId && !customerIds.includes(String(appUserId))) {
+    throw Object.assign(new Error('Purchase does not belong to this user'), { statusCode: 403 });
+  }
+  if (receipt.refunded) {
+    throw Object.assign(new Error('Purchase has been refunded'), { statusCode: 409 });
+  }
+
+  const localGross = optionalMoney(receipt.priceInPurchasedCurrency);
+  const grossUsd = optionalMoney(receipt.priceUsd);
+  const commission = Number(receipt.commissionPercentage);
+  const tax = Number(receipt.taxPercentage);
+  if (
+    !receipt.currency ||
+    !Number.isFinite(localGross) ||
+    localGross <= 0 ||
+    !Number.isFinite(grossUsd) ||
+    grossUsd <= 0 ||
+    !Number.isFinite(commission) ||
+    commission < 0 ||
+    !Number.isFinite(tax) ||
+    tax < 0 ||
+    commission + tax > 1
+  ) {
+    return null;
+  }
+
+  const proceedsRate = 1 - commission - tax;
+  return {
+    verified: true,
+    productId,
+    storeTransactionId: receipt.transactionId || storeTransactionId,
+    revenueCatPurchaseId: receipt.eventId,
+    amount: localGross,
+    currency: String(receipt.currency).toLowerCase(),
+    amountUsd: grossUsd,
+    localGrossAmount: localGross,
+    localCommissionAmount: round2(localGross * commission),
+    localTaxAmount: round2(localGross * tax),
+    localNetProceeds: round2(localGross * proceedsRate),
+    grossAmountUsd: grossUsd,
+    commissionAmountUsd: round2(grossUsd * commission),
+    taxAmountUsd: round2(grossUsd * tax),
+    netProceedsUsd: round2(grossUsd * proceedsRate),
+    platform: receipt.store || platform || 'unknown',
+    raw: null
+  };
+};
+
 const purchaseItems = (payload) => {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.items)) return payload.items;
@@ -251,7 +316,8 @@ export const verifyRevenueCatTipPurchase = async ({
   fallbackAmount,
   fallbackCurrency,
   fallbackAmountUsd,
-  platform
+  platform,
+  receiptLookup = lookupWebhookTipReceipt
 }) => {
   if (!isAllowedTipProduct(productId)) {
     throw Object.assign(new Error('Unknown tip product'), { statusCode: 400 });
@@ -301,6 +367,16 @@ export const verifyRevenueCatTipPurchase = async ({
   if (!storeTransactionId) {
     throw Object.assign(new Error('storeTransactionId is required'), { statusCode: 400 });
   }
+
+  const receipt = await receiptLookup({ storeTransactionId });
+  const webhookVerified = verifiedTipFromWebhookReceipt({
+    receipt,
+    productId,
+    storeTransactionId,
+    appUserId,
+    platform
+  });
+  if (webhookVerified) return webhookVerified;
 
   const url = new URL(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/purchases`);
   url.searchParams.set('store_purchase_identifier', storeTransactionId);

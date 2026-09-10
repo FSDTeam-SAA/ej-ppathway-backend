@@ -112,7 +112,8 @@ test('verified tips return local purchase details and net USD proceeds', async (
       productId: 'tip_10',
       storeTransactionId: 'store-10',
       appUserId: 'user-10',
-      platform: 'android'
+      platform: 'android',
+      receiptLookup: async () => null
     });
 
     assert.equal(verified.currency, 'bdt');
@@ -198,7 +199,8 @@ test('resolves RevenueCat v2 internal product and customer IDs before verifying 
       productId: 'tip_5',
       storeTransactionId: 'apple-transaction-5',
       appUserId: 'mongo-user-5',
-      platform: 'ios'
+      platform: 'ios',
+      receiptLookup: async () => null
     });
 
     assert.equal(verified.productId, 'tip_5');
@@ -210,6 +212,54 @@ test('resolves RevenueCat v2 internal product and customer IDs before verifying 
     ]);
   } finally {
     globalThis.fetch = previous.fetch;
+    for (const [key, value] of Object.entries({
+      REVENUECAT_SECRET_API_KEY: previous.secretApiKey,
+      REVENUECAT_PROJECT_ID: previous.projectId,
+      IAP_TIP_ALLOW_UNVERIFIED: previous.allowUnverified
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('uses an authenticated webhook receipt when RevenueCat purchase search is not yet available', async () => {
+  const previous = {
+    secretApiKey: process.env.REVENUECAT_SECRET_API_KEY,
+    projectId: process.env.REVENUECAT_PROJECT_ID,
+    allowUnverified: process.env.IAP_TIP_ALLOW_UNVERIFIED
+  };
+  process.env.REVENUECAT_SECRET_API_KEY = 'test-secret';
+  process.env.REVENUECAT_PROJECT_ID = 'test-project';
+  process.env.IAP_TIP_ALLOW_UNVERIFIED = 'false';
+
+  try {
+    const verified = await verifyRevenueCatTipPurchase({
+      productId: 'tip_20',
+      storeTransactionId: 'apple-original-20',
+      appUserId: 'mongo-user-20',
+      platform: 'ios',
+      receiptLookup: async () => ({
+        eventId: 'rc-event-20',
+        productId: 'tip_20',
+        transactionId: 'apple-transaction-20',
+        originalTransactionId: 'apple-original-20',
+        appUserId: '$RCAnonymous:old',
+        aliases: ['mongo-user-20'],
+        store: 'APP_STORE',
+        currency: 'GBP',
+        priceInPurchasedCurrency: 20,
+        priceUsd: 25,
+        commissionPercentage: 0.3,
+        taxPercentage: 0,
+        refunded: false
+      })
+    });
+
+    assert.equal(verified.storeTransactionId, 'apple-transaction-20');
+    assert.equal(verified.localNetProceeds, 14);
+    assert.equal(verified.netProceedsUsd, 17.5);
+  } finally {
     for (const [key, value] of Object.entries({
       REVENUECAT_SECRET_API_KEY: previous.secretApiKey,
       REVENUECAT_PROJECT_ID: previous.projectId,
@@ -261,7 +311,8 @@ test('accepts fixed tip tiers and derives USD from the product ID in development
         fallbackAmount: 1,
         fallbackCurrency: 'usd',
         fallbackAmountUsd: 1,
-        platform: 'ios'
+        platform: 'ios',
+        receiptLookup: async () => null
       }),
       /Unknown tip product/
     );

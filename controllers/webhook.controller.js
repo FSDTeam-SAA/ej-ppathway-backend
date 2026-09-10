@@ -4,6 +4,7 @@ import Session from '../models/session.model.js';
 import Transaction from '../models/transaction.model.js';
 import Wallet from '../models/wallet.model.js';
 import User from '../models/user.model.js';
+import RevenueCatIapReceipt from '../models/revenueCatIapReceipt.model.js';
 import { findCreditPackByRevenueCatProduct } from '../services/credit.service.js';
 import { applyPaymentWebhook } from '../services/payout.service.js';
 import { isAllowedTipProduct, reverseIapTipByStoreTransactionId } from '../services/iapTip.service.js';
@@ -104,6 +105,15 @@ export const revenueCatWebhook = async (req, res) => {
       ['REFUND', 'REFUNDED'].includes(type) ||
       (type === 'CANCELLATION' && ['CUSTOMER_SUPPORT', 'REFUND'].includes(String(event.cancel_reason || event.cancelReason || '').toUpperCase()));
     if (isRefund && (transactionId || originalTransactionId)) {
+      await RevenueCatIapReceipt.updateMany(
+        {
+          $or: [
+            { transactionId: { $in: [transactionId, originalTransactionId].filter(Boolean).map(String) } },
+            { originalTransactionId: { $in: [transactionId, originalTransactionId].filter(Boolean).map(String) } }
+          ]
+        },
+        { $set: { refunded: true, refundedAt: new Date() } }
+      );
       const reversed = await reverseIapTipByStoreTransactionId([
         transactionId,
         originalTransactionId
@@ -150,10 +160,32 @@ export const revenueCatWebhook = async (req, res) => {
     // misclassifying them as unknown credit packs. Refund events above remain
     // authoritative for reversing a tip after it has been recorded.
     if (isAllowedTipProduct(productId)) {
+      await RevenueCatIapReceipt.findOneAndUpdate(
+        { transactionId: String(transactionId) },
+        {
+          $set: {
+            eventId: event.id ? String(event.id) : undefined,
+            eventType: type,
+            productId: String(productId),
+            originalTransactionId: originalTransactionId ? String(originalTransactionId) : undefined,
+            appUserId: String(appUserId),
+            aliases: Array.isArray(event.aliases) ? event.aliases.map(String) : [],
+            environment: event.environment,
+            store: event.store,
+            currency: event.currency,
+            priceInPurchasedCurrency: event.price_in_purchased_currency ?? event.priceInPurchasedCurrency,
+            priceUsd: event.price,
+            commissionPercentage: event.commission_percentage ?? event.commissionPercentage,
+            taxPercentage: event.tax_percentage ?? event.taxPercentage,
+            purchasedAtMs: event.purchased_at_ms ?? event.purchasedAtMs,
+            refunded: false
+          }
+        },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
+      );
       return res.status(200).json({
         ok: true,
-        skipped: true,
-        reason: 'Tip awaits authenticated session confirmation'
+        pendingSessionConfirmation: true
       });
     }
 
