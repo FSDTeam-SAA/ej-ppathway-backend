@@ -10,6 +10,8 @@ const creditPackSchema = new Schema(
     bonusCredits: { type: Number, default: 0, min: 0 },
     priceUsd: { type: Number, required: true, min: 0 },
     revenueCatProductId: { type: String, default: '', trim: true },
+    appleProductId: { type: String, default: '', trim: true },
+    googleProductId: { type: String, default: '', trim: true },
     isActive: { type: Boolean, default: true },
     sortOrder: { type: Number, default: 0 }
   },
@@ -17,10 +19,8 @@ const creditPackSchema = new Schema(
 );
 
 const DEFAULT_CREDIT_PACKS = [
-  { id: 'credits_25', label: '25 Credits', credits: 25, bonusCredits: 0, priceUsd: 19, revenueCatProductId: 'credits_25', isActive: true, sortOrder: 1 },
-  { id: 'credits_50', label: '50 Credits', credits: 50, bonusCredits: 0, priceUsd: 35, revenueCatProductId: 'credits_50', isActive: true, sortOrder: 2 },
-  { id: 'credits_100', label: '100 Credits', credits: 100, bonusCredits: 0, priceUsd: 59, revenueCatProductId: 'credits_100', isActive: true, sortOrder: 3 },
-  { id: 'credits_200', label: '200 Credits', credits: 200, bonusCredits: 0, priceUsd: 99, revenueCatProductId: 'credits_200', isActive: true, sortOrder: 4 }
+  { id: 'credits_50', label: '50 Credits', credits: 50, bonusCredits: 0, priceUsd: 35, revenueCatProductId: 'credits_50', appleProductId: 'credits_50', googleProductId: 'credits_50', isActive: true, sortOrder: 1 },
+  { id: 'credits_100', label: '100 Credits', credits: 100, bonusCredits: 0, priceUsd: 59, revenueCatProductId: 'credits_100', appleProductId: 'credits_100', googleProductId: 'credits_100', isActive: true, sortOrder: 2 }
 ];
 
 const DEFAULT_CREDIT_USAGE = {
@@ -185,15 +185,27 @@ export const getPlatformSettings = async () => {
   if (!s.creditBannerSubtitle) s.creditBannerSubtitle = DEFAULT_CREDIT_BANNER_SUBTITLE;
   if (typeof s.creditExpirationDays !== 'number') s.creditExpirationDays = DEFAULT_CREDIT_EXPIRATION_DAYS;
   if (!Array.isArray(s.creditPacks)) s.creditPacks = DEFAULT_CREDIT_PACKS;
-  if (Number(s.creditPackCatalogVersion || 0) < 1) {
-    const has25CreditPack = s.creditPacks.some((pack) => (
-      String(pack.id || '').trim() === 'credits_25' ||
-      String(pack.revenueCatProductId || '').trim() === 'credits_25'
-    ));
-    if (!has25CreditPack) {
-      s.creditPacks.push({ ...DEFAULT_CREDIT_PACKS[0] });
+  if (Number(s.creditPackCatalogVersion || 0) < 2) {
+    const selectedIds = new Set(DEFAULT_CREDIT_PACKS.map((pack) => pack.id));
+    for (const pack of s.creditPacks) {
+      const identifiers = [pack.id, pack.revenueCatProductId, pack.appleProductId, pack.googleProductId]
+        .map((value) => String(value || '').trim());
+      const selectedId = identifiers.find((value) => selectedIds.has(value));
+      pack.isActive = Boolean(selectedId);
+      if (selectedId) {
+        pack.revenueCatProductId ||= selectedId;
+        pack.appleProductId ||= selectedId;
+        pack.googleProductId ||= selectedId;
+      }
     }
-    s.creditPackCatalogVersion = 1;
+    for (const defaultPack of DEFAULT_CREDIT_PACKS) {
+      const exists = s.creditPacks.some((pack) => (
+        String(pack.id || '').trim() === defaultPack.id ||
+        String(pack.revenueCatProductId || '').trim() === defaultPack.id
+      ));
+      if (!exists) s.creditPacks.push({ ...defaultPack });
+    }
+    s.creditPackCatalogVersion = 2;
     await s.save();
   }
   if (!s.creditUsage) s.creditUsage = DEFAULT_CREDIT_USAGE;

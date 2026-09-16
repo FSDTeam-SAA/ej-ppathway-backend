@@ -69,6 +69,10 @@ import {
 import {
   getCreditManagementSummary,
   getCreditSettings,
+  getCreditStoreSyncStatus,
+  syncCreditPackPriceToStores,
+  getStorePriceSyncs,
+  checkStorePriceSyncNow,
   createPromotionPlan,
   deletePromotionPlan,
   getSignupFreeCredits,
@@ -247,6 +251,10 @@ router.post('/payouts/:id/mark-paid', markPayoutPaid);
 // Platform settings - signup free credits
 router.get('/credits/summary', getCreditManagementSummary);
 router.get('/settings/credits', getCreditSettings);
+router.get('/settings/credits/store-sync-status', getCreditStoreSyncStatus);
+router.get('/settings/credits/store-price-syncs', getStorePriceSyncs);
+router.post('/settings/credits/store-price-syncs/:syncId/check-now', checkStorePriceSyncNow);
+router.post('/settings/credits/:packId/store-price-sync', syncCreditPackPriceToStores);
 router.patch('/settings/credits', updateCreditSettings);
 router.get('/settings/signup-credits', getSignupFreeCredits);
 router.patch('/settings/signup-credits', updateSignupFreeCredits);

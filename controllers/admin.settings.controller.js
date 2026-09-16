@@ -6,6 +6,12 @@ import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import { DEFAULT_PROMOTION_PLANS, getPlatformSettings } from '../models/platformSetting.model.js';
 import { creditUsageSummary } from '../services/credit.service.js';
+import { getStorePricingConfiguration } from '../services/storePricing.service.js';
+import {
+  listStorePriceSyncs,
+  runStorePriceSyncCheckNow,
+  startCoordinatedStorePriceSync
+} from '../services/storePriceSync.service.js';
 
 const bannerPayload = (settings) => ({
   creditBannerTitle: settings.creditBannerTitle || 'Prophetic Guidance',
@@ -82,7 +88,7 @@ const normalizePacks = (packs = []) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'At least one credit pack is required');
   }
 
-  return packs.map((pack, index) => {
+  const normalized = packs.map((pack, index) => {
     const credits = Number(pack.credits);
     const bonusCredits = Number(pack.bonusCredits || 0);
     const priceUsd = Number(pack.priceUsd);
@@ -98,10 +104,21 @@ const normalizePacks = (packs = []) => {
       bonusCredits,
       priceUsd,
       revenueCatProductId: String(pack.revenueCatProductId || id).trim(),
+      appleProductId: String(pack.appleProductId || pack.revenueCatProductId || id).trim(),
+      googleProductId: String(pack.googleProductId || pack.revenueCatProductId || id).trim(),
       isActive: pack.isActive !== false,
       sortOrder: Number(pack.sortOrder ?? index + 1)
     };
   });
+
+  const duplicate = (values) => values.find((value, index) => value && values.indexOf(value) !== index);
+  const duplicateId = duplicate(normalized.map((pack) => pack.id));
+  if (duplicateId) throw new ApiError(StatusCodes.CONFLICT, `Duplicate credit pack ID: ${duplicateId}`);
+  const duplicateAppleId = duplicate(normalized.map((pack) => pack.appleProductId));
+  if (duplicateAppleId) throw new ApiError(StatusCodes.CONFLICT, `Duplicate Apple product ID: ${duplicateAppleId}`);
+  const duplicateGoogleId = duplicate(normalized.map((pack) => pack.googleProductId));
+  if (duplicateGoogleId) throw new ApiError(StatusCodes.CONFLICT, `Duplicate Google product ID: ${duplicateGoogleId}`);
+  return normalized;
 };
 
 const normalizeUsageBlocks = (blocks = []) => {
@@ -231,6 +248,52 @@ export const getCreditSettings = catchAsync(async (_req, res) => {
       creditUsageBlocks: creditUsage.usageBlocks
     }
   });
+});
+
+// GET /api/v1/admin/settings/credits/store-sync-status
+export const getCreditStoreSyncStatus = catchAsync(async (_req, res) => {
+  return sendResponse(res, { data: getStorePricingConfiguration() });
+});
+
+// POST /api/v1/admin/settings/credits/:packId/store-price-sync
+export const syncCreditPackPriceToStores = catchAsync(async (req, res) => {
+  const settings = await getPlatformSettings();
+  const packId = String(req.params.packId || '').trim();
+  const pack = settings.creditPacks.find((item) => item.id === packId);
+  if (!pack) throw new ApiError(StatusCodes.NOT_FOUND, 'Credit pack not found');
+  if (pack.isActive === false) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only active credit packs can be synced to stores');
+  }
+  if (!String(pack.appleProductId || '').trim() || !String(pack.googleProductId || '').trim()) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Apple and Google product IDs are required before syncing');
+  }
+
+  const targetPriceUsd = Number(req.body?.targetPriceUsd ?? pack.priceUsd);
+  if (!Number.isFinite(targetPriceUsd) || targetPriceUsd <= 0) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'targetPriceUsd must be greater than 0');
+  }
+  const { sync, created } = await startCoordinatedStorePriceSync({
+    pack: pack.toObject ? pack.toObject() : pack,
+    targetPriceUsd,
+    requestedBy: req.user?._id
+  });
+  return sendResponse(res, {
+    statusCode: created ? StatusCodes.ACCEPTED : StatusCodes.OK,
+    message: created ? 'Coordinated store price update started' : 'A coordinated update is already running for this pack',
+    data: sync
+  });
+});
+
+// GET /api/v1/admin/settings/credits/store-price-syncs
+export const getStorePriceSyncs = catchAsync(async (_req, res) => {
+  return sendResponse(res, { data: await listStorePriceSyncs() });
+});
+
+// POST /api/v1/admin/settings/credits/store-price-syncs/:syncId/check-now
+export const checkStorePriceSyncNow = catchAsync(async (req, res) => {
+  const sync = await runStorePriceSyncCheckNow(req.params.syncId);
+  if (!sync) throw new ApiError(StatusCodes.NOT_FOUND, 'Store price sync not found');
+  return sendResponse(res, { message: 'Store price check queued', data: sync });
 });
 
 // PATCH /api/v1/admin/settings/credits

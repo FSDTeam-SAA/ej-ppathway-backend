@@ -22,6 +22,8 @@ const normalizePack = (pack, index = 0) => ({
   bonusCredits: Number(pack.bonusCredits || 0),
   priceUsd: Number(pack.priceUsd || 0),
   revenueCatProductId: String(pack.revenueCatProductId || pack.id || '').trim(),
+  appleProductId: String(pack.appleProductId || pack.revenueCatProductId || pack.id || '').trim(),
+  googleProductId: String(pack.googleProductId || pack.revenueCatProductId || pack.id || '').trim(),
   isActive: pack.isActive !== false,
   sortOrder: Number(pack.sortOrder ?? index + 1),
   totalCredits: Number(pack.credits || 0) + Number(pack.bonusCredits || 0)
@@ -151,7 +153,12 @@ export const findCreditPackByRevenueCatProduct = async (productId) => {
   const id = String(productId || '').trim();
   if (!id) return null;
   const packs = await listCreditPacks();
-  return packs.find((pack) => pack.revenueCatProductId === id || pack.id === id) || null;
+  return packs.find((pack) => (
+    pack.revenueCatProductId === id ||
+    pack.appleProductId === id ||
+    pack.googleProductId === id ||
+    pack.id === id
+  )) || null;
 };
 
 export const getAdvisorCreditRate = async (profile, type) => {
