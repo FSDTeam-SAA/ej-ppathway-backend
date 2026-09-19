@@ -45,6 +45,11 @@ const finalizeSync = async (sync) => {
     pack.priceUsd = sync.targetPriceUsd;
     await settings.save();
   }
+  const tipPack = settings.tipPacks?.find((item) => item.id === sync.packId);
+  if (tipPack) {
+    tipPack.amountUsd = sync.targetPriceUsd;
+    await settings.save();
+  }
   const now = new Date();
   sync.status = 'completed';
   sync.active = false;

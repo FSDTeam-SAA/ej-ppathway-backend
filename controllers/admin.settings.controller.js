@@ -121,6 +121,40 @@ const normalizePacks = (packs = []) => {
   return normalized;
 };
 
+const normalizeTipPacks = (packs = []) => {
+  if (!Array.isArray(packs)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Tip packs must be an array');
+  }
+
+  const normalized = packs.map((pack, index) => {
+    const amountUsd = Number(pack.amountUsd);
+    const id = String(pack.id || `tip_${amountUsd || index + 1}`).trim();
+    const label = String(pack.label || `Advisor Tip ${amountUsd} USD`).trim();
+    if (!id || !label || !Number.isFinite(amountUsd) || amountUsd <= 0) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Each tip pack needs id, label, and positive amountUsd');
+    }
+    return {
+      id,
+      label,
+      amountUsd,
+      revenueCatProductId: String(pack.revenueCatProductId || id).trim(),
+      appleProductId: String(pack.appleProductId || pack.revenueCatProductId || id).trim(),
+      googleProductId: String(pack.googleProductId || pack.revenueCatProductId || id).trim(),
+      isActive: pack.isActive !== false,
+      sortOrder: Number(pack.sortOrder ?? index + 1)
+    };
+  });
+
+  const duplicate = (values) => values.find((value, index) => value && values.indexOf(value) !== index);
+  const duplicateId = duplicate(normalized.map((pack) => pack.id));
+  if (duplicateId) throw new ApiError(StatusCodes.CONFLICT, `Duplicate tip pack ID: ${duplicateId}`);
+  const duplicateAppleId = duplicate(normalized.map((pack) => pack.appleProductId));
+  if (duplicateAppleId) throw new ApiError(StatusCodes.CONFLICT, `Duplicate Apple product ID for tip: ${duplicateAppleId}`);
+  const duplicateGoogleId = duplicate(normalized.map((pack) => pack.googleProductId));
+  if (duplicateGoogleId) throw new ApiError(StatusCodes.CONFLICT, `Duplicate Google product ID for tip: ${duplicateGoogleId}`);
+  return normalized;
+};
+
 const normalizeUsageBlocks = (blocks = []) => {
   if (!Array.isArray(blocks) || blocks.length === 0) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'At least one credit usage block is required');
@@ -244,6 +278,7 @@ export const getCreditSettings = catchAsync(async (_req, res) => {
       advisorCreditPricing: creditUsage.advisorCreditPricing,
       ...bannerPayload(settings),
       creditPacks: creditUsage.packs,
+      tipPacks: creditUsage.tipPacks,
       creditUsage: creditUsage.addOns,
       creditUsageBlocks: creditUsage.usageBlocks
     }
@@ -259,21 +294,25 @@ export const getCreditStoreSyncStatus = catchAsync(async (_req, res) => {
 export const syncCreditPackPriceToStores = catchAsync(async (req, res) => {
   const settings = await getPlatformSettings();
   const packId = String(req.params.packId || '').trim();
-  const pack = settings.creditPacks.find((item) => item.id === packId);
-  if (!pack) throw new ApiError(StatusCodes.NOT_FOUND, 'Credit pack not found');
+  const pack = settings.creditPacks.find((item) => item.id === packId)
+    || settings.tipPacks.find((item) => item.id === packId);
+  if (!pack) throw new ApiError(StatusCodes.NOT_FOUND, 'Package not found');
   if (pack.isActive === false) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only active credit packs can be synced to stores');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only active packages can be synced to stores');
   }
   if (!String(pack.appleProductId || '').trim() || !String(pack.googleProductId || '').trim()) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Apple and Google product IDs are required before syncing');
   }
 
-  const targetPriceUsd = Number(req.body?.targetPriceUsd ?? pack.priceUsd);
+  const currentPrice = Number(pack.priceUsd ?? pack.amountUsd ?? 0);
+  const targetPriceUsd = Number(req.body?.targetPriceUsd ?? currentPrice);
   if (!Number.isFinite(targetPriceUsd) || targetPriceUsd <= 0) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'targetPriceUsd must be greater than 0');
   }
+  const packPayload = pack.toObject ? pack.toObject() : { ...pack };
+  packPayload.priceUsd = currentPrice;
   const { sync, created } = await startCoordinatedStorePriceSync({
-    pack: pack.toObject ? pack.toObject() : pack,
+    pack: packPayload,
     targetPriceUsd,
     requestedBy: req.user?._id
   });
@@ -348,6 +387,10 @@ export const updateCreditSettings = catchAsync(async (req, res) => {
     settings.creditPacks = normalizePacks(req.body.creditPacks);
   }
 
+  if (typeof req.body.tipPacks !== 'undefined') {
+    settings.tipPacks = normalizeTipPacks(req.body.tipPacks);
+  }
+
   if (typeof req.body.creditUsageBlocks !== 'undefined') {
     settings.creditUsageBlocks = normalizeUsageBlocks(req.body.creditUsageBlocks);
     const recording = settings.creditUsageBlocks.find((block) => block.id === 'session_recording');
@@ -400,6 +443,7 @@ export const updateCreditSettings = catchAsync(async (req, res) => {
       advisorCreditPricing: creditUsage.advisorCreditPricing,
       ...bannerPayload(settings),
       creditPacks: creditUsage.packs,
+      tipPacks: creditUsage.tipPacks,
       creditUsage: creditUsage.addOns,
       creditUsageBlocks: creditUsage.usageBlocks
     }

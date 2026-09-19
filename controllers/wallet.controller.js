@@ -17,7 +17,7 @@ import { createPaypalOrder, capturePaypalOrder } from '../services/paypal.servic
 import { isPaypalConfigured } from '../config/paypal.js';
 import { getHyperwalletWidgetScriptUrl } from '../config/hyperwallet.js';
 import { createHyperwalletAuthenticationToken } from '../services/hyperwallet.service.js';
-import { creditUsageSummary, findCreditPack } from '../services/credit.service.js';
+import { creditUsageSummary, findCreditPack, listTipPacks } from '../services/credit.service.js';
 import {
   ADVISOR_TIP_TYPES,
   advisorTipBreakdown,
@@ -144,6 +144,11 @@ const syncRecentPendingTopupsForUser = async (userId) => {
 // ===== User wallet =====
 export const getCreditPacks = catchAsync(async (_req, res) => {
   return sendResponse(res, { data: await creditUsageSummary() });
+});
+
+export const getTipPacks = catchAsync(async (_req, res) => {
+  const tipPacks = await listTipPacks();
+  return sendResponse(res, { data: { tipPacks } });
 });
 
 export const getMyWallet = catchAsync(async (req, res) => {

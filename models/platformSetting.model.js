@@ -23,6 +23,27 @@ const DEFAULT_CREDIT_PACKS = [
   { id: 'credits_100', label: '100 Credits', credits: 100, bonusCredits: 0, priceUsd: 59, revenueCatProductId: 'credits_100', appleProductId: 'credits_100', googleProductId: 'credits_100', isActive: true, sortOrder: 2 }
 ];
 
+const tipPackSchema = new Schema(
+  {
+    id: { type: String, required: true, trim: true },
+    label: { type: String, required: true, trim: true },
+    amountUsd: { type: Number, required: true, min: 0.01 },
+    revenueCatProductId: { type: String, default: '', trim: true },
+    appleProductId: { type: String, default: '', trim: true },
+    googleProductId: { type: String, default: '', trim: true },
+    isActive: { type: Boolean, default: true },
+    sortOrder: { type: Number, default: 0 }
+  },
+  { _id: false }
+);
+
+const DEFAULT_TIP_PACKS = [
+  { id: 'tip_5', label: 'Advisor Tip 5 USD', amountUsd: 5, revenueCatProductId: 'tip_5', appleProductId: 'tip_5', googleProductId: 'tip_5', isActive: true, sortOrder: 1 },
+  { id: 'tip_10', label: 'Advisor Tip 10 USD', amountUsd: 10, revenueCatProductId: 'tip_10', appleProductId: 'tip_10', googleProductId: 'tip_10', isActive: true, sortOrder: 2 },
+  { id: 'tip_20', label: 'Advisor Tip 20 USD', amountUsd: 20, revenueCatProductId: 'tip_20', appleProductId: 'tip_20', googleProductId: 'tip_20', isActive: true, sortOrder: 3 },
+  { id: 'tip_50', label: 'Advisor Tip 50 USD', amountUsd: 50, revenueCatProductId: 'tip_50', appleProductId: 'tip_50', googleProductId: 'tip_50', isActive: true, sortOrder: 4 }
+];
+
 const DEFAULT_CREDIT_USAGE = {
   chatTranscript: 5,
   videoRecording: 5,
@@ -142,6 +163,7 @@ const platformSettingSchema = new Schema(
     // without the application silently recreating them on every read.
     creditPackCatalogVersion: { type: Number, default: 0, min: 0 },
     creditPacks: { type: [creditPackSchema], default: () => DEFAULT_CREDIT_PACKS },
+    tipPacks: { type: [tipPackSchema], default: () => DEFAULT_TIP_PACKS },
     creditUsage: {
       chatTranscript: { type: Number, default: DEFAULT_CREDIT_USAGE.chatTranscript, min: 0 },
       videoRecording: { type: Number, default: DEFAULT_CREDIT_USAGE.videoRecording, min: 0 },
@@ -220,6 +242,9 @@ export const getPlatformSettings = async () => {
   if (!Array.isArray(s.creditUsageBlocks)) {
     s.creditUsageBlocks = DEFAULT_CREDIT_USAGE_BLOCKS;
   }
+  if (!Array.isArray(s.tipPacks) || s.tipPacks.length === 0) {
+    s.tipPacks = DEFAULT_TIP_PACKS;
+  }
   if (!s.payout) s.payout = {};
   if (typeof s.payout.payoutCreditUsdRate !== 'number') s.payout.payoutCreditUsdRate = s.creditUsdRate ?? DEFAULT_CREDIT_USD_RATE;
   if (!s.payout.payoutCurrency) s.payout.payoutCurrency = 'USD';
@@ -231,6 +256,7 @@ export const getPlatformSettings = async () => {
 
 export {
   DEFAULT_CREDIT_PACKS,
+  DEFAULT_TIP_PACKS,
   DEFAULT_CREDIT_USAGE,
   DEFAULT_CREDIT_USAGE_BLOCKS,
   DEFAULT_CREDIT_EXPIRATION_DAYS,

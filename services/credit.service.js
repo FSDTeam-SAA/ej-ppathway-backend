@@ -1,6 +1,7 @@
 import {
   DEFAULT_ADVISOR_CREDIT_PRICING,
   DEFAULT_CREDIT_PACKS,
+  DEFAULT_TIP_PACKS,
   DEFAULT_CREDIT_EXPIRATION_DAYS,
   DEFAULT_CREDIT_USAGE,
   DEFAULT_CREDIT_USAGE_BLOCKS,
@@ -45,6 +46,30 @@ export const listCreditPacks = async ({ includeInactive = false } = {}) => {
     .map(normalizePack)
     .filter((pack) => includeInactive || pack.isActive)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.credits - b.credits);
+};
+
+const normalizeTipPack = (pack, index = 0) => {
+  const amountUsd = Number(pack.amountUsd || 0);
+  const id = String(pack.id || `tip_${amountUsd || index + 1}`).trim();
+  const label = String(pack.label || `Advisor Tip ${amountUsd} USD`).trim();
+  return {
+    id,
+    label,
+    amountUsd,
+    revenueCatProductId: String(pack.revenueCatProductId || id).trim(),
+    appleProductId: String(pack.appleProductId || id).trim(),
+    googleProductId: String(pack.googleProductId || id).trim(),
+    isActive: pack.isActive !== false,
+    sortOrder: Number(pack.sortOrder ?? index + 1)
+  };
+};
+
+export const listTipPacks = async ({ includeInactive = false } = {}) => {
+  const settings = await getPlatformSettings();
+  return (settings.tipPacks || DEFAULT_TIP_PACKS)
+    .map(normalizeTipPack)
+    .filter((pack) => includeInactive || pack.isActive)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.amountUsd - b.amountUsd);
 };
 
 export const getCreditUsage = async () => {
@@ -204,6 +229,7 @@ export const calculateSessionCredits = async ({ profile, type, durationMinutes }
 
 export const creditUsageSummary = async () => ({
   packs: await listCreditPacks(),
+  tipPacks: await listTipPacks(),
   creditUsdRate: await getCreditUsdRate(),
   advisorCreditPricing: await getAdvisorCreditPricing(),
   customPurchasesEnabled: true,

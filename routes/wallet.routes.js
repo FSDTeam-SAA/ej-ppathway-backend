@@ -4,6 +4,7 @@ import { getPublicCreditBanner } from '../controllers/admin.settings.controller.
 import {
   getMyWallet,
   getCreditPacks,
+  getTipPacks,
   getMyTransactions,
   createTopupCheckout,
   getTopupStatus,
@@ -35,6 +36,7 @@ router.get('/paypal/success', paypalTopupSuccess);
 router.get('/paypal/cancel', paypalTopupCancel);
 router.get('/credit-banner', getPublicCreditBanner);
 router.get('/credit-packs', getCreditPacks);
+router.get('/tip-packs', getTipPacks);
 
 router.use(auth());
 

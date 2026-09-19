@@ -3,6 +3,7 @@ import Transaction from '../models/transaction.model.js';
 import Wallet from '../models/wallet.model.js';
 import Session from '../models/session.model.js';
 import RevenueCatIapReceipt from '../models/revenueCatIapReceipt.model.js';
+import { listTipPacks } from './credit.service.js';
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -26,10 +27,19 @@ const configuredTipProductIds = () => {
   return configured.length ? configured : [...DEFAULT_TIP_AMOUNTS_USD.keys()];
 };
 
-export const isAllowedTipProduct = (productId) => {
+export const isAllowedTipProduct = async (productId) => {
   const id = String(productId || '').trim();
   if (!id) return false;
-  return configuredTipProductIds().includes(id);
+  if (configuredTipProductIds().includes(id)) return true;
+  try {
+    const packs = await listTipPacks();
+    const allowed = new Set(
+      packs.flatMap((pack) => [pack.id, pack.revenueCatProductId, pack.appleProductId, pack.googleProductId]).filter(Boolean)
+    );
+    return allowed.has(id);
+  } catch {
+    return false;
+  }
 };
 
 const revenueCatApiKey = () =>
@@ -319,14 +329,23 @@ export const verifyRevenueCatTipPurchase = async ({
   platform,
   receiptLookup = lookupWebhookTipReceipt
 }) => {
-  if (!isAllowedTipProduct(productId)) {
+  if (!(await isAllowedTipProduct(productId))) {
     throw Object.assign(new Error('Unknown tip product'), { statusCode: 400 });
   }
 
   const apiKey = revenueCatApiKey();
   const projectId = process.env.REVENUECAT_PROJECT_ID;
   const allowUnverified = process.env.IAP_TIP_ALLOW_UNVERIFIED === 'true' && process.env.NODE_ENV !== 'production';
-  const configuredAmountUsd = DEFAULT_TIP_AMOUNTS_USD.get(productId);
+  let configuredAmountUsd = DEFAULT_TIP_AMOUNTS_USD.get(productId);
+  if (!configuredAmountUsd) {
+    try {
+      const packs = await listTipPacks();
+      const found = packs.find((p) => [p.id, p.revenueCatProductId, p.appleProductId, p.googleProductId].includes(productId));
+      if (found) configuredAmountUsd = found.amountUsd;
+    } catch {
+      // fallback
+    }
+  }
 
   if (!apiKey || !projectId) {
     if (!allowUnverified) {

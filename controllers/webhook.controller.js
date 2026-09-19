@@ -159,7 +159,7 @@ export const revenueCatWebhook = async (req, res) => {
     // no session ID, so acknowledge known tip products here instead of
     // misclassifying them as unknown credit packs. Refund events above remain
     // authoritative for reversing a tip after it has been recorded.
-    if (isAllowedTipProduct(productId)) {
+    if (await isAllowedTipProduct(productId)) {
       await RevenueCatIapReceipt.findOneAndUpdate(
         { transactionId: String(transactionId) },
         {
