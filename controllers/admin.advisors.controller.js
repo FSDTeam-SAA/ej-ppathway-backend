@@ -898,6 +898,7 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   } = req.body;
 
   const userPatch = {};
+  if (req.body.profilePhoto === "") userPatch.profilePhoto = "";
   if (name !== undefined) userPatch.name = name;
   if (phoneNumber !== undefined) userPatch.phone = phoneNumber;
   if (country !== undefined) {
@@ -911,6 +912,9 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   if (Object.keys(userPatch).length) await User.findByIdAndUpdate(user._id, userPatch);
 
   const profPatch = {};
+  for (const field of ["audioMessageUrl", "introVideoUrl"]) {
+    if (req.body[field] === "") profPatch[field] = "";
+  }
   if (professionalTitle !== undefined) profPatch.professionalTitle = professionalTitle;
   if (bio !== undefined) profPatch.bio = bio;
   if (detailedDescription !== undefined) profPatch.detailedDescription = detailedDescription;
@@ -957,6 +961,13 @@ export const updateAdvisor = catchAsync(async (req, res) => {
     });
   }
 
+  const applicationPatch = {};
+  for (const field of ["bio", "audioMessageUrl", "introVideoUrl"]) {
+    if (profPatch[field] !== undefined) applicationPatch[field] = profPatch[field];
+  }
+  if (Object.keys(applicationPatch).length) {
+    await AdvisorApplication.updateOne({ user: user._id }, { $set: applicationPatch });
+  }
   const updatedUser = await User.findById(user._id);
   return sendResponse(res, { message: 'Advisor updated', data: { user: updatedUser, profile } });
 });

@@ -536,6 +536,13 @@ export const updateMyProfile = catchAsync(async (req, res) => {
     { returnDocument: 'after', upsert: true }
   );
   const user = await User.findByIdAndUpdate(req.user._id, userUpdate, { returnDocument: 'after' });
+  const applicationPatch = {};
+  for (const field of ['bio', 'audioMessageUrl', 'introVideoUrl']) {
+    if (profileUpdate[field] !== undefined) applicationPatch[field] = profileUpdate[field];
+  }
+  if (Object.keys(applicationPatch).length) {
+    await AdvisorApplication.updateOne({ user: req.user._id }, { $set: applicationPatch });
+  }
 
   if (requiresAdminReview) {
     await markProfilePendingReview(req.user._id);
