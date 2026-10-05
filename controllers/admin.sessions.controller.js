@@ -94,7 +94,10 @@ export const listSessions = catchAsync(async (req, res) => {
     .populate('user', 'name profilePhoto')
     .populate('advisor', 'name profilePhoto')
     .sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
-  const advisorIds = [...new Set(items.map((s) => String(s.advisor?._id || s.advisor)).filter(Boolean))];
+  const advisorIds = [...new Set(items
+    .map((s) => s.advisor?._id || s.advisor)
+    .filter((id) => mongoose.isObjectIdOrHexString(id))
+    .map((id) => String(id)))];
   const profiles = advisorIds.length
     ? await AdvisorProfile.find({ user: { $in: advisorIds } }).select('user tier').lean()
     : [];
