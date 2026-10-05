@@ -324,6 +324,19 @@ export const listTransactions = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = await transactionFilter(req);
 
+  // Group linked IAP earnings into the payment row before counting/pagination.
+  // Explicit type and ID lookups retain access to the individual ledger entries.
+  const groupTips = req.query.groupTips === 'true' && !req.query.type && !req.query.id;
+  if (groupTips) {
+    const linked = await Transaction.aggregate([
+      { $match: { type: 'advisor_tip_fiat', sourceTransaction: { $ne: null } } },
+      { $lookup: { from: Transaction.collection.name, localField: 'sourceTransaction', foreignField: '_id', as: 'payment' } },
+      { $match: { 'payment.type': 'tip_fiat' } },
+      { $project: { _id: 1 } }
+    ]);
+    filter._id = { $nin: linked.map((item) => item._id) };
+  }
+
   const total = await Transaction.countDocuments(filter);
   const items = await Transaction.find(filter)
     .populate('user', 'name profilePhoto email')
@@ -331,9 +344,21 @@ export const listTransactions = catchAsync(async (req, res) => {
     .populate('plan', 'name')
     .populate('session', 'sessionCode type')
     .sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+  const paymentIds = items.filter((item) => item.type === 'tip_fiat').map((item) => item._id);
+  const earnings = paymentIds.length
+    ? await Transaction.find({ type: 'advisor_tip_fiat', sourceTransaction: { $in: paymentIds } }).lean()
+    : [];
+  const earningsMap = new Map(earnings.map((item) => [String(item.sourceTransaction), item]));
   return sendResponse(res, { data: items.map((item) => ({
     ...item, ...transactionDisplay(item),
-    ...(ADVISOR_TIP_TYPES.includes(item.type) ? { tipBreakdown: advisorTipBreakdown(item) } : {})
+    ...(ADVISOR_TIP_TYPES.includes(item.type) ? { tipBreakdown: advisorTipBreakdown(item) } : {}),
+    ...(earningsMap.has(String(item._id)) ? {
+      tipBreakdown: advisorTipBreakdown(earningsMap.get(String(item._id))),
+      linkedAdvisorTransaction: {
+        _id: earningsMap.get(String(item._id))._id,
+        txCode: earningsMap.get(String(item._id)).txCode
+      }
+    } : {})
   })), meta: buildMeta({ page, limit, total }) });
 });
 
