@@ -19,6 +19,7 @@ import { createNotification, broadcastSocket } from '../services/notification.se
 import { calculateSessionCredits, getCreditUsage } from '../services/credit.service.js';
 import { fetchObjectStorage, parseObjectStorageUrl } from '../services/upload.service.js';
 import { recordIapTip } from '../services/iapTip.service.js';
+import { requireTimezone } from '../utils/timezone.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const UNSTARTED_TIMEOUT_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'];
@@ -29,16 +30,8 @@ const SLOT_BASE_MINUTES = 5;
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const SESSION_ASSET_STATUSES = ['completed', 'flagged', 'disputed'];
 
-// Some legacy Bangladesh advisor accounts kept the model's default `UTC`
-// value even though their schedule was entered in Bangladesh local time.
-// Resolve that known bad default without changing legitimate configured zones.
 export const resolveAdvisorTimezone = (user) => {
-  const configured = String(user?.timezone || '').trim();
-  const country = String(user?.country || '').trim().toUpperCase();
-  if ((!configured || configured === 'UTC') && country === 'BD') {
-    return 'Asia/Dhaka';
-  }
-  return configured || 'UTC';
+  return requireTimezone(user?.timezone || 'UTC', 'Advisor timezone');
 };
 
 const safeDownloadName = (value, fallback) => {
@@ -277,7 +270,7 @@ const dateAvailabilitySlots = (day) => {
     .filter((slot) => slot.fromMinutes !== null && slot.toMinutes !== null);
 };
 
-const matchingAvailabilitySlot = (profile, date, timezone) => {
+export const matchingAvailabilitySlot = (profile, date, timezone) => {
   const parts = zonedParts(date, timezone);
   const dateKey = localDateKey(parts);
   const currentDay = dateAvailabilityEntry(profile?.dateAvailability, dateKey);
@@ -291,8 +284,9 @@ const matchingAvailabilitySlot = (profile, date, timezone) => {
     return null;
   }
 
-  const prevDate = new Date(date.getTime() - 24 * 60 * 60 * 1000);
-  const prevKey = localDateKey(zonedParts(prevDate, timezone));
+  // Subtract a calendar day, not 24 elapsed hours (DST days can be 23/25 hours).
+  const prevDate = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) - 1));
+  const prevKey = prevDate.toISOString().slice(0, 10);
   const previousDay = dateAvailabilityEntry(profile?.dateAvailability, prevKey);
   if (dateOverrideActive(previousDay) && previousDay.unavailable !== true) {
     const minuteOfDay = parts.hour * 60 + parts.minute;
@@ -302,7 +296,23 @@ const matchingAvailabilitySlot = (profile, date, timezone) => {
     if (previousSlot) return { date: prevKey, ...previousSlot };
   }
 
-  return matchingScheduleSlot(profile?.weeklySchedule, date, timezone);
+  const weekly = matchingScheduleSlot(profile?.weeklySchedule, date, timezone);
+  if (!weekly) return null;
+  const anchorDate = weekly.weekday === parts.weekday ? dateKey : prevKey;
+  // A previous-day override replaces that day's recurring overnight window too.
+  if (anchorDate === prevKey && dateOverrideActive(previousDay)) return null;
+  return { ...weekly, date: anchorDate };
+};
+
+export const intervalFitsAvailability = (profile, start, durationMinutes, timezone) => {
+  const first = matchingAvailabilitySlot(profile, start, timezone);
+  if (!first) return false;
+  // Check every minute so closures, midnight and DST transitions cannot be skipped.
+  for (let minute = 0; minute < durationMinutes; minute++) {
+    const slot = matchingAvailabilitySlot(profile, new Date(start.getTime() + minute * 60_000), timezone);
+    if (!slot || slot.date !== first.date || slot.from !== first.from || slot.to !== first.to) return false;
+  }
+  return true;
 };
 
 const availabilityForDate = (profile, dateKey, weekday) => {
@@ -325,8 +335,10 @@ const availabilityForDate = (profile, dateKey, weekday) => {
   };
 };
 
+const timezoneFormatters = new Map();
 const zonedParts = (date, timezone = 'UTC') => {
-  let formatter;
+  let formatter = timezoneFormatters.get(timezone);
+  if (!formatter) {
   try {
     formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone || 'UTC',
@@ -349,6 +361,8 @@ const zonedParts = (date, timezone = 'UTC') => {
       minute: '2-digit',
       hourCycle: 'h23'
     });
+  }
+  timezoneFormatters.set(timezone, formatter);
   }
   const parts = formatter.formatToParts(date);
   const get = (type) => parts.find((part) => part.type === type)?.value;
@@ -411,6 +425,7 @@ const parseOffsetMinutes = (value) => {
 };
 
 const viewerDateParts = (date, { timezone, offsetMinutes }) => {
+  if (timezone) return zonedParts(date, timezone);
   if (offsetMinutes !== null && offsetMinutes !== undefined) {
     return fixedOffsetParts(date, offsetMinutes);
   }
@@ -418,6 +433,7 @@ const viewerDateParts = (date, { timezone, offsetMinutes }) => {
 };
 
 const formatViewerTime = (date, { timezone, offsetMinutes }) => {
+  if (timezone) return formatTimeInZone(date, timezone);
   if (offsetMinutes !== null && offsetMinutes !== undefined) {
     return formatTimeWithOffset(date, offsetMinutes);
   }
@@ -466,7 +482,7 @@ const findBlockingBookings = async ({ advisorId, start, end, excludeSessionId, b
   });
 };
 
-const assertAdvisorSlotAvailable = async ({ advisorId, profile, start, durationMinutes, excludeSessionId }) => {
+const assertAdvisorSlotAvailable = async ({ advisorId, profile, start, durationMinutes, excludeSessionId, instantStart = false }) => {
   if (!start || Number.isNaN(start.getTime())) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid scheduled time');
   }
@@ -487,9 +503,11 @@ const assertAdvisorSlotAvailable = async ({ advisorId, profile, start, durationM
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Same-day booking is not available for this advisor');
   }
   const startSlot = matchingAvailabilitySlot(profile, start, timezone);
-  const endSlot = matchingAvailabilitySlot(profile, new Date(end.getTime() - 60 * 1000), timezone);
-  if (!startSlot || !endSlot || (startSlot.weekday || startSlot.date) !== (endSlot.weekday || endSlot.date) || startSlot.from !== endSlot.from || startSlot.to !== endSlot.to) {
+  if (!intervalFitsAvailability(profile, start, duration, timezone)) {
     throw new ApiError(StatusCodes.CONFLICT, 'Advisor is not available at this time');
+  }
+  if (!instantStart && (start.getUTCSeconds() !== 0 || start.getUTCMilliseconds() !== 0 || !isDurationAlignedStart(start, timezone, startSlot, duration))) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Please select an available booking slot');
   }
   const conflicts = await findBlockingBookings({ advisorId, start, end, excludeSessionId, bufferMinutes: settings.bufferMinutes });
   if (conflicts.length) {
@@ -525,6 +543,8 @@ const reserveSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }
   try {
     await SessionSlotLock.insertMany(docs, { ordered: true });
   } catch (error) {
+    // Ordered inserts may have acquired some locks before a concurrent conflict.
+    await SessionSlotLock.deleteMany({ session: sessionId });
     if (error?.code === 11000 || error?.writeErrors?.some((item) => item?.code === 11000)) {
       throw new ApiError(StatusCodes.CONFLICT, 'This time is already booked. Please choose another available slot.');
     }
@@ -534,7 +554,7 @@ const reserveSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }
 
 const releaseSlotLocks = (sessionId) => SessionSlotLock.deleteMany({ session: sessionId });
 
-export const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes }) => {
+export const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes, type }) => {
   const advisor = await User.findOne({ _id: advisorId, role: 'advisor' }).select('name timezone country status');
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone country');
@@ -542,15 +562,20 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
 
   const settings = availabilitySettings(profile);
   const duration = Math.max(1, Number(durationMinutes) || settings.defaultDurationMinutes);
+  if (!Number.isInteger(duration) || duration > 240 || duration % 5 !== 0) throw new ApiError(400, 'Duration must be a multiple of five minutes, up to 240 minutes');
   const viewer = {
-    timezone: viewerTimezone || resolveAdvisorTimezone(advisor),
+    timezone: viewerTimezone ? requireTimezone(viewerTimezone, 'Viewer timezone') : viewerOffsetMinutes != null ? null : resolveAdvisorTimezone(advisor),
     offsetMinutes: viewerOffsetMinutes
   };
   const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : localDateKey(viewerDateParts(new Date(), viewer));
+  const parsedDate = new Date(`${dateKey}T12:00:00Z`);
+  if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid availability date');
+  }
   const [year, month, day] = dateKey.split('-').map((part) => Number.parseInt(part, 10));
   const timezone = resolveAdvisorTimezone(advisor);
   const probeDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const weekday = zonedParts(probeDate, timezone).weekday;
+  const weekday = WEEKDAYS[probeDate.getUTCDay()];
   const { scheduleForDay, scheduleWindows } = availabilityForDate(profile, dateKey, weekday);
   const searchStart = new Date(Date.UTC(year, month - 1, day - 1, 0, 0, 0));
   const searchEnd = new Date(Date.UTC(year, month - 1, day + 2, 0, 0, 0));
@@ -561,7 +586,8 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
   const bookedDocs = await Session.find({
     advisor: advisorId,
     status: { $in: BOOKING_BLOCKING_STATUSES },
-    scheduledFor: { $gte: searchStart, $lt: searchEnd }
+    scheduledFor: { $lt: searchEnd },
+    $expr: { $gt: [{ $add: ['$scheduledFor', { $multiply: [{ $ifNull: ['$durationMinutes', 0] }, 60000] }] }, searchStart] }
   })
     .populate('user', 'name profilePhoto')
     .sort({ scheduledFor: 1 });
@@ -570,8 +596,8 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
     .map((session) => {
       const range = sessionRange(session);
       if (!range) return null;
-      const parts = viewerDateParts(range.start, viewer);
-      if (localDateKey(parts) !== dateKey) return null;
+      const overlapsViewerDay = localDateKey(viewerDateParts(range.start, viewer)) <= dateKey && localDateKey(viewerDateParts(new Date(range.end.getTime() - 1), viewer)) >= dateKey;
+      if (!overlapsViewerDay) return null;
       return {
         sessionId: String(session._id),
         start: range.start.toISOString(),
@@ -592,10 +618,11 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
     if (start < minStart || start > maxStart) continue;
     if (!settings.sameDayBooking && localDateKey(zonedParts(start, timezone)) === localDateKey(zonedParts(now, timezone))) continue;
     if (localDateKey(viewerDateParts(start, viewer)) !== dateKey) continue;
+    if (type && profile.sessionTypes?.[type] === false) continue;
     const startSlot = matchingAvailabilitySlot(profile, start, timezone);
-    const endSlot = matchingAvailabilitySlot(profile, new Date(end.getTime() - 60 * 1000), timezone);
-    if (!startSlot || !endSlot || (startSlot.weekday || startSlot.date) !== (endSlot.weekday || endSlot.date) || startSlot.from !== endSlot.from || startSlot.to !== endSlot.to) continue;
+    if (!startSlot) continue;
     if (!isDurationAlignedStart(start, timezone, startSlot, duration)) continue;
+    if (!intervalFitsAvailability(profile, start, duration, timezone)) continue;
     const overlaps = bookedDocs.some((session) => {
       const range = sessionRange(session);
       return range && rangesOverlap(
@@ -635,7 +662,7 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
     advisorId: String(advisor._id),
     advisorName: advisor.name,
     timezone,
-    displayTimezone: viewer.timezone,
+    displayTimezone: viewer.timezone || `UTC${viewer.offsetMinutes >= 0 ? '+' : ''}${viewer.offsetMinutes / 60}`,
     displayTimezoneOffsetMinutes: viewer.offsetMinutes,
     date: dateKey,
     durationMinutes: duration,
@@ -662,8 +689,9 @@ export const advisorAvailability = catchAsync(async (req, res) => {
     advisorId: req.params.advisorId,
     date: req.query.date,
     durationMinutes: req.query.durationMinutes,
-    viewerTimezone: req.query.timezone,
-    viewerOffsetMinutes: parseOffsetMinutes(req.query.timezoneOffsetMinutes)
+    viewerTimezone: req.query.viewerTimezone || req.query.timezone,
+    viewerOffsetMinutes: parseOffsetMinutes(req.query.timezoneOffsetMinutes),
+    type: req.query.type
   });
   return sendResponse(res, { data });
 });
@@ -685,12 +713,17 @@ export const createBooking = catchAsync(async (req, res) => {
   assertAdvisorSessionTypeEnabled(profile, type);
 
   const duration = Math.max(1, Number(durationMinutes) || 15);
+  if (!Number.isInteger(duration) || duration > 240 || duration % 5 !== 0) throw new ApiError(400, 'Duration must be a multiple of five minutes, up to 240 minutes');
+  if (!instantStart && (typeof scheduledFor !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(scheduledFor))) {
+    throw new ApiError(400, 'Booking time must include a UTC or timezone offset');
+  }
   const scheduledStart = instantStart ? new Date() : scheduledFor ? new Date(scheduledFor) : new Date();
   await assertAdvisorSlotAvailable({
     advisorId,
     profile,
     start: scheduledStart,
-    durationMinutes: duration
+    durationMinutes: duration,
+    instantStart: !!instantStart
   });
 
   const { ratePerMin, credits: estimatedCost } = await calculateSessionCredits({
@@ -730,6 +763,7 @@ export const createBooking = catchAsync(async (req, res) => {
     type,
     status: 'pending',
     scheduledFor: scheduledStart,
+    advisorTimezone: resolveAdvisorTimezone(advisor),
     durationMinutes: duration,
     instantStart: !!instantStart,
     ratePerMin,
@@ -1355,6 +1389,10 @@ export const rescheduleSession = catchAsync(async (req, res) => {
 
   const profile = await AdvisorProfile.findOne({ user: session.advisor }).populate('user', 'timezone country');
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
+  if (typeof newScheduledFor !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(newScheduledFor)) {
+    throw new ApiError(400, 'Booking time must include a UTC or timezone offset');
+  }
+  assertAdvisorSessionTypeEnabled(profile, session.type);
   const nextStart = new Date(newScheduledFor);
   await assertAdvisorSlotAvailable({
     advisorId: session.advisor,
@@ -1387,6 +1425,7 @@ export const rescheduleSession = catchAsync(async (req, res) => {
 
   session.rescheduledFrom = session.scheduledFor;
   session.scheduledFor = nextStart;
+  session.advisorTimezone = resolveAdvisorTimezone(profile.user);
   session.rescheduleReason = reason || '';
   session.rescheduledAt = new Date();
   await session.save();

@@ -16,6 +16,8 @@ import { getAdvisorCreditPricing, resolveAdvisorCreditPricing } from '../service
 import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { sendSessionAvailabilityChangedEmail } from '../services/email.service.js';
+import { requireTimezone } from '../utils/timezone.js';
+import { intervalFitsAvailability } from './session.controller.js';
 
 const ensureAdvisor = (user) => {
   if (user.role !== 'advisor') throw new ApiError(StatusCodes.FORBIDDEN, 'Advisors only');
@@ -224,10 +226,7 @@ const sessionStillFitsAvailability = (profile, session, timezone) => {
   if (!session?.scheduledFor) return true;
   const start = new Date(session.scheduledFor);
   const duration = Math.max(1, Number(session.durationMinutes) || 15);
-  const endProbe = new Date(start.getTime() + duration * 60 * 1000 - 60 * 1000);
-  const startSlot = matchingAvailabilitySlot(profile, start, timezone);
-  const endSlot = matchingAvailabilitySlot(profile, endProbe, timezone);
-  return !!startSlot && !!endSlot && startSlot.from === endSlot.from && startSlot.to === endSlot.to;
+  return intervalFitsAvailability(profile, start, duration, timezone);
 };
 
 const dateAvailabilityKeys = (value = {}) => {
@@ -466,6 +465,7 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   const userUpdate = {};
   for (const k of allowedProfile) if (typeof req.body[k] !== 'undefined') profileUpdate[k] = req.body[k];
   for (const k of allowedUser) if (typeof req.body[k] !== 'undefined') userUpdate[k] = req.body[k];
+  if (userUpdate.timezone !== undefined) userUpdate.timezone = requireTimezone(userUpdate.timezone);
 
   if (typeof profileUpdate.weeklySchedule !== 'undefined') {
     profileUpdate.weeklySchedule = normalizeWeeklySchedule(profileUpdate.weeklySchedule);
@@ -495,6 +495,7 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   const existingProfile = await AdvisorProfile.findOne({ user: req.user._id }).lean();
   const requiresAdminReview = false;
   const availabilityChanged =
+    (userUpdate.timezone !== undefined && userUpdate.timezone !== req.user.timezone) ||
     typeof profileUpdate.weeklySchedule !== 'undefined' ||
     typeof profileUpdate.dateAvailability !== 'undefined';
 

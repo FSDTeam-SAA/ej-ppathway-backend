@@ -1,5 +1,6 @@
 import { StatusCodes } from 'http-status-codes';
 import mongoose from 'mongoose';
+import { requireTimezone } from '../utils/timezone.js';
 import { Readable } from 'node:stream';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
@@ -908,7 +909,7 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   }
   if (state !== undefined) userPatch.state = state;
   if (city !== undefined) userPatch.city = city;
-  if (timezone !== undefined) userPatch.timezone = timezone;
+  if (timezone !== undefined) userPatch.timezone = requireTimezone(timezone);
   if (Object.keys(userPatch).length) await User.findByIdAndUpdate(user._id, userPatch);
 
   const profPatch = {};
@@ -1006,7 +1007,7 @@ export const addAdvisorManually = catchAsync(async (req, res) => {
     state: state || '',
     city: city || '',
     currency,
-    timezone: timezone || 'UTC',
+    timezone: requireTimezone(timezone || 'UTC'),
     language: languagesArr[0] || 'English'
   });
 

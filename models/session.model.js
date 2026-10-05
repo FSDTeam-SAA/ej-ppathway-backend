@@ -28,6 +28,7 @@ const sessionSchema = new Schema(
 
     // Booking timing
     scheduledFor: { type: Date, index: true },
+    advisorTimezone: { type: String }, // Zone snapshot; changing a profile never shifts this booking's UTC instant.
     durationMinutes: { type: Number, default: 15 },     // user-selected duration
     instantStart: { type: Boolean, default: false },
 

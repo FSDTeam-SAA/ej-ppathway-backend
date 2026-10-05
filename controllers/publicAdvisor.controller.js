@@ -255,8 +255,9 @@ export const getAdvisorAvailability = catchAsync(async (req, res) => {
     advisorId: req.params.advisorId,
     date: req.query.date,
     durationMinutes: req.query.durationMinutes,
-    viewerTimezone: req.query.timezone,
-    viewerOffsetMinutes: parseTimezoneOffsetMinutes(req.query.timezoneOffsetMinutes)
+    viewerTimezone: req.query.viewerTimezone || req.query.timezone,
+    viewerOffsetMinutes: parseTimezoneOffsetMinutes(req.query.timezoneOffsetMinutes),
+    type: req.query.type
   });
   return sendResponse(res, { data });
 });

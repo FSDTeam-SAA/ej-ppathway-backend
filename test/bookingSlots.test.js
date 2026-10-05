@@ -28,10 +28,10 @@ test('aligns available starts to the selected duration', () => {
   );
 });
 
-test('uses Bangladesh local time for legacy Bangladesh advisors left at UTC', () => {
+test('honors an explicit timezone without guessing from country', () => {
   assert.equal(
     resolveAdvisorTimezone({ country: 'BD', timezone: 'UTC' }),
-    'Asia/Dhaka'
+    'UTC'
   );
   assert.equal(
     resolveAdvisorTimezone({ country: 'US', timezone: 'America/Chicago' }),
