@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
+import { previewAvailabilityTimezone } from '../controllers/availabilityTimezone.controller.js';
 import { imageUpload, introMediaUpload } from '../middlewares/upload.js';
 import {
   getMyApplication,
@@ -27,6 +28,7 @@ router.post('/application/intro-video', introMediaUpload.single('video'), upload
 // Profile management
 router.get('/profile', getMyProfile);
 router.patch('/profile', updateMyProfile);
+router.post('/profile/availability-timezone-preview', previewAvailabilityTimezone);
 router.post('/profile/photo', imageUpload.single('photo'), uploadProfilePhoto);
 router.patch('/profile/online', setOnlineMode);
 

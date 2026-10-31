@@ -52,3 +52,20 @@ test('African schedules return viewer-local days, exact UTC slots, and adjacent 
   assert.equal(disabled.availableSlots.length, 0);
   await assert.rejects(buildAdvisorAvailability({ advisorId: 'advisor', date: '2026-02-30', durationMinutes: 5 }), /Invalid availability date/);
 });
+
+test('04:14 date overrides produce duration-aligned slots in both advisor and viewer zones', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-31T00:00Z') });
+  const advisor = { _id: 'advisor', timezone: 'America/Chicago', name: 'Advisor' };
+  const profile = { user: advisor, weeklySchedule: {}, dateAvailability: {
+    '2026-10-31': { slots: [{ from: '04:14', to: '05:14' }] }
+  }, sessionTypes: { chat: false, call: true, video: false } };
+  t.mock.method(User, 'findOne', () => ({ select: async () => advisor }));
+  t.mock.method(AdvisorProfile, 'findOne', () => ({ populate: async () => profile }));
+  t.mock.method(Session, 'find', () => ({ populate: () => ({ sort: async () => [] }) }));
+  for (const duration of [5, 10, 15, 30]) {
+    const result = await buildAdvisorAvailability({ advisorId: 'advisor', date: '2026-10-31', durationMinutes: duration, viewerTimezone: 'Africa/Lagos', type: 'call' });
+    assert.equal(result.availableSlots.length, 60 / duration);
+    assert.equal(result.availableSlots[0].start, '2026-10-31T09:14:00.000Z');
+    assert.equal(result.availableSlots[0].startLabel, '10:14 AM');
+  }
+});

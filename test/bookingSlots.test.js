@@ -45,13 +45,15 @@ test('keeps adjacent ten-minute booking locks separate', () => {
   const second = lockStartsForRange(new Date('2026-08-17T09:10:00.000Z'), 10)
     .map((value) => value.toISOString());
 
-  assert.deepEqual(first, [
-    '2026-08-17T09:00:00.000Z',
-    '2026-08-17T09:05:00.000Z'
-  ]);
-  assert.deepEqual(second, [
-    '2026-08-17T09:10:00.000Z',
-    '2026-08-17T09:15:00.000Z'
-  ]);
+  assert.equal(first.length, 10);
+  assert.equal(second.length, 10);
   assert.equal(first.some((value) => second.includes(value)), false);
+});
+
+test('minute locks allow adjacent off-grid bookings and still detect actual overlaps', () => {
+  const locks = (time) => lockStartsForRange(new Date(`2026-10-31T09:${time}:00Z`), 5).map(d => d.toISOString());
+  const first = locks('14');
+  assert.equal(first.length, 5);
+  assert.equal(first.some(s => locks('19').includes(s)), false);
+  assert.equal(first.some(s => locks('18').includes(s)), true);
 });

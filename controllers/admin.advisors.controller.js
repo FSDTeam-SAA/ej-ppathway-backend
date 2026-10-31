@@ -1,6 +1,8 @@
 import { StatusCodes } from 'http-status-codes';
 import mongoose from 'mongoose';
 import { requireTimezone } from '../utils/timezone.js';
+import { timezonePatch } from '../services/availabilityTimezone.service.js';
+import { saveAvailabilityTimezone } from '../services/saveAvailabilityTimezone.service.js';
 import { Readable } from 'node:stream';
 import catchAsync from '../utils/catchAsync.js';
 import ApiError from '../utils/ApiError.js';
@@ -910,7 +912,6 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   if (state !== undefined) userPatch.state = state;
   if (city !== undefined) userPatch.city = city;
   if (timezone !== undefined) userPatch.timezone = requireTimezone(timezone);
-  if (Object.keys(userPatch).length) await User.findByIdAndUpdate(user._id, userPatch);
 
   const profPatch = {};
   for (const field of ["audioMessageUrl", "introVideoUrl"]) {
@@ -934,6 +935,11 @@ export const updateAdvisor = catchAsync(async (req, res) => {
   }
   if (weeklySchedule && typeof weeklySchedule === 'object') profPatch.weeklySchedule = weeklySchedule;
   if (dateAvailability && typeof dateAvailability === 'object') profPatch.dateAvailability = dateAvailability;
+  if (timezone !== undefined && timezone !== (user.timezone || 'UTC')) {
+    const previous = await AdvisorProfile.findOne({ user: user._id }).lean();
+    Object.assign(profPatch, timezonePatch(previous || {}, profPatch,
+      user.timezone || 'UTC', requireTimezone(timezone), req.body.availabilityTimezone));
+  }
   if (pricing !== undefined) {
     profPatch.pricing = normalizeAdvisorPricing(pricing);
     profPatch.pricingOverrideEnabled = true;
@@ -943,13 +949,20 @@ export const updateAdvisor = catchAsync(async (req, res) => {
     if (!normalizedTier) throw new ApiError(StatusCodes.BAD_REQUEST, 'Tier must be Silver, Gold, or Platinum');
     profPatch.tier = normalizedTier;
   }
-  let profile = await AdvisorProfile.findOne({ user: user._id });
-  if (Object.keys(profPatch).length) {
-    profile = await AdvisorProfile.findOneAndUpdate(
-      { user: user._id },
-      profPatch,
-      { returnDocument: 'after', upsert: true, runValidators: true }
-    );
+  let profile;
+  if (timezone !== undefined && timezone !== (user.timezone || 'UTC')) {
+    ({ profile } = await saveAvailabilityTimezone({ userId: user._id,
+      previousTimezone: user.timezone || 'UTC', userPatch, profilePatch: profPatch }));
+  } else {
+    if (Object.keys(userPatch).length) await User.findByIdAndUpdate(user._id, userPatch);
+    profile = await AdvisorProfile.findOne({ user: user._id });
+    if (Object.keys(profPatch).length) {
+      profile = await AdvisorProfile.findOneAndUpdate(
+        { user: user._id },
+        profPatch,
+        { returnDocument: 'after', upsert: true, runValidators: true }
+      );
+    }
   }
 
   if (pricing !== undefined) {

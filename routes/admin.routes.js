@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { auth } from '../middlewares/auth.js';
+import { previewAvailabilityTimezone } from '../controllers/availabilityTimezone.controller.js';
 import { imageUpload, documentUpload } from '../middlewares/upload.js';
 
 import { dashboardOverview } from '../controllers/admin.dashboard.controller.js';
@@ -201,6 +202,7 @@ router.get('/advisors/:id', getAdvisor);
 router.post('/advisors', addAdvisorManually);
 router.patch('/advisors/:id/suspend', suspendAdvisor);
 router.patch('/advisors/:id', updateAdvisor);
+router.post('/advisors/:id/availability-timezone-preview', previewAvailabilityTimezone);
 router.patch('/advisors/:id/unsuspend', unsuspendAdvisor);
 router.patch('/advisors/:id/featured', setAdvisorFeaturedOnHome);
 router.delete('/advisors/:id', deleteAdvisor);

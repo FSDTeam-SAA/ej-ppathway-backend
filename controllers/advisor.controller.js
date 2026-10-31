@@ -17,6 +17,8 @@ import { getCountryCurrencyCode } from '../services/countryCurrency.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { sendSessionAvailabilityChangedEmail } from '../services/email.service.js';
 import { requireTimezone } from '../utils/timezone.js';
+import { timezonePatch } from '../services/availabilityTimezone.service.js';
+import { saveAvailabilityTimezone } from '../services/saveAvailabilityTimezone.service.js';
 import { intervalFitsAvailability } from './session.controller.js';
 
 const ensureAdvisor = (user) => {
@@ -493,6 +495,9 @@ export const updateMyProfile = catchAsync(async (req, res) => {
   }
 
   const existingProfile = await AdvisorProfile.findOne({ user: req.user._id }).lean();
+  const timezoneChanged = userUpdate.timezone !== undefined && userUpdate.timezone !== (req.user.timezone || 'UTC');
+  Object.assign(profileUpdate, timezonePatch(existingProfile || {}, profileUpdate,
+    req.user.timezone || 'UTC', userUpdate.timezone, req.body.availabilityTimezone));
   const requiresAdminReview = false;
   const availabilityChanged =
     (userUpdate.timezone !== undefined && userUpdate.timezone !== req.user.timezone) ||
@@ -511,7 +516,7 @@ export const updateMyProfile = catchAsync(async (req, res) => {
       : existingProfile?.dateAvailability
   };
 
-  if (availabilityChanged && existingProfile) {
+  if (availabilityChanged && existingProfile && !timezoneChanged) {
     assertStartedAvailabilityNotRemoved({
       existingProfile,
       nextProfile: nextProfileForAvailability,
@@ -519,24 +524,30 @@ export const updateMyProfile = catchAsync(async (req, res) => {
     });
   }
 
-  const profile = await AdvisorProfile.findOneAndUpdate(
-    { user: req.user._id },
-    {
-      $set: {
-        ...profileUpdate,
-        ...(requiresAdminReview
-          ? {
-              profileReviewStatus: 'pending_review',
-              profileSubmittedAt: new Date(),
-              profileRejectionReason: ''
-            }
-          : {})
+  let profile, user;
+  if (timezoneChanged) {
+    ({ profile, user } = await saveAvailabilityTimezone({ userId: req.user._id,
+      previousTimezone: req.user.timezone || 'UTC', userPatch: userUpdate, profilePatch: profileUpdate }));
+  } else {
+    profile = await AdvisorProfile.findOneAndUpdate(
+      { user: req.user._id },
+      {
+        $set: {
+          ...profileUpdate,
+          ...(requiresAdminReview
+            ? {
+                profileReviewStatus: 'pending_review',
+                profileSubmittedAt: new Date(),
+                profileRejectionReason: ''
+              }
+            : {})
+        },
+        $setOnInsert: { user: req.user._id }
       },
-      $setOnInsert: { user: req.user._id }
-    },
-    { returnDocument: 'after', upsert: true }
-  );
-  const user = await User.findByIdAndUpdate(req.user._id, userUpdate, { returnDocument: 'after' });
+      { returnDocument: 'after', upsert: true }
+    );
+    user = await User.findByIdAndUpdate(req.user._id, userUpdate, { returnDocument: 'after' });
+  }
   const applicationPatch = {};
   for (const field of ['bio', 'audioMessageUrl', 'introVideoUrl']) {
     if (profileUpdate[field] !== undefined) applicationPatch[field] = profileUpdate[field];
@@ -549,7 +560,9 @@ export const updateMyProfile = catchAsync(async (req, res) => {
     await markProfilePendingReview(req.user._id);
   }
 
-  const affectedSessions = availabilityChanged
+  // Changing timezone preserves existing bookings, including across future DST
+  // transitions. Only explicit schedule edits may initiate rescheduling.
+  const affectedSessions = availabilityChanged && !timezoneChanged
     ? await notifySessionsNeedingReschedule({
         req,
         advisor: user || req.user,

@@ -24,9 +24,9 @@ import { requireTimezone } from '../utils/timezone.js';
 const round2 = (n) => Math.round(n * 100) / 100;
 const UNSTARTED_TIMEOUT_STATUSES = ['pending', 'consent', 'waiting', 'scheduled'];
 const BOOKING_BLOCKING_STATUSES = ['pending', 'consent', 'waiting', 'scheduled', 'live', 'flagged', 'disputed'];
-// Supported mobile durations are all multiples of five minutes. Use that as
-// the base grid, then align the visible starts to the selected duration.
-const SLOT_BASE_MINUTES = 5;
+// Availability windows may start at any minute (e.g. 04:14). Enumerate and
+// lock minutes; the selected duration is aligned to the window's own start.
+const SLOT_BASE_MINUTES = 1;
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const SESSION_ASSET_STATUSES = ['completed', 'flagged', 'disputed'];
 
