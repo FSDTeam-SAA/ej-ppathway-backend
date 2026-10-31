@@ -8,9 +8,19 @@ import { enqueueJob, registerJobHandler } from './jobQueue.service.js';
 
 const fail = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 const key = () => (process.env.FLUTTERWAVE_SECRET_KEY || '').trim();
+const isTestMode = () => key().startsWith('FLWSECK_TEST-');
 const round2 = (n) => Math.round(n * 100) / 100;
 export const flutterwaveConfigured = () => Boolean(key() && process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim());
 export const flutterwaveEnabled = () => process.env.FLUTTERWAVE_ENABLED === 'true' && flutterwaveConfigured();
+
+export const isAllowedFlutterwaveCheckoutUrl = (value, { testMode = isTestMode() } = {}) => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return false;
+    return /(^|\.)flutterwave\.com$/.test(url.hostname) ||
+      (testMode && url.hostname === 'checkout-v2.dev-flutterwave.com');
+  } catch { return false; }
+};
 
 export const flutterwaveSecretMatches = (received) => {
   const expected = Buffer.from(process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim() || '');
@@ -214,7 +224,7 @@ export const createFlutterwaveCreditCheckout = async ({ user, packId, expectedAm
     description: `${pack.label} via Flutterwave`,
     metadata: { packId: pack.id, credits: pack.credits, bonusCredits: pack.bonusCredits,
       totalCredits, priceNgn: amount, pricingCountry: 'NG', ngnPerUsd: rate, referencePriceUsd: pack.priceUsd,
-      isTest: /TEST/i.test(key()) }
+      isTest: isTestMode() }
   });
   await enqueueJob('flutterwave_credit_reconcile', { txId: String(tx._id) }, { delayMs: 60000, maxAttempts: 300 });
   try {
@@ -225,11 +235,10 @@ export const createFlutterwaveCreditCheckout = async ({ user, packId, expectedAm
       customizations: { title: 'Prophetic Pathway Credits', description: `${totalCredits} credits` },
       meta: { transactionId: String(tx._id) }
     } });
-    const checkoutUrl = new URL(checkout?.link || '');
-    if (checkoutUrl.protocol !== 'https:' || !/(^|\.)flutterwave\.com$/.test(checkoutUrl.hostname)) {
+    if (!isAllowedFlutterwaveCheckoutUrl(checkout?.link)) {
       throw fail('Flutterwave returned an invalid checkout URL', 502);
     }
-    tx.flutterwaveCheckoutUrl = checkoutUrl.toString();
+    tx.flutterwaveCheckoutUrl = new URL(checkout.link).toString();
     await tx.save();
     return tx;
   } catch (error) {

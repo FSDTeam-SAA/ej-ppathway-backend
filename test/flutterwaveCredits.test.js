@@ -6,7 +6,7 @@ import Currency from '../models/currency.model.js';
 import Job from '../models/job.model.js';
 import Transaction from '../models/transaction.model.js';
 import Wallet from '../models/wallet.model.js';
-import { applyFlutterwaveCreditRefund, cancelFlutterwaveCheckout, createFlutterwaveCreditCheckout, flutterwaveSecretMatches,
+import { applyFlutterwaveCreditRefund, cancelFlutterwaveCheckout, createFlutterwaveCreditCheckout, flutterwaveSecretMatches, isAllowedFlutterwaveCheckoutUrl,
   fulfillFlutterwaveCredits, validateFlutterwavePayment } from '../services/flutterwave.service.js';
 import { flutterwaveWebhook, flutterwaveStatus } from '../controllers/flutterwave.controller.js';
 import { chargeUserWallet } from '../services/session.service.js';
@@ -18,6 +18,19 @@ const purchase = () => ({ _id: 'purchase', user: 'buyer', provider: 'flutterwave
   metadata: { packId: 'credits_50', credits: 50, bonusCredits: 5, totalCredits: 55, ngnPerUsd: 1000 } });
 const payment = () => ({ id: 123, status: 'successful', tx_ref: 'PP-CREDITS-ref',
   amount: 35000, currency: 'NGN', app_fee: 500, payment_type: 'card' });
+
+test('checkout URL validation accepts the real sandbox host only in test mode', () => {
+  const sandbox = 'https://checkout-v2.dev-flutterwave.com/v3/hosted/pay/fixture';
+  assert.equal(isAllowedFlutterwaveCheckoutUrl(sandbox, { testMode: true }), true);
+  assert.equal(isAllowedFlutterwaveCheckoutUrl(sandbox, { testMode: false }), false);
+  assert.equal(isAllowedFlutterwaveCheckoutUrl('https://checkout.flutterwave.com/v3/hosted/pay/fixture', { testMode: false }), true);
+  for (const url of ['http://checkout-v2.dev-flutterwave.com/pay',
+    'https://checkout-v2.dev-flutterwave.com.evil.test/pay', 'https://evil.dev-flutterwave.com/pay',
+    'https://checkout.flutterwave.com.evil.test/pay', 'https://user:pass@checkout.flutterwave.com/pay',
+    'https://checkout.flutterwave.com:444/pay']) {
+    assert.equal(isAllowedFlutterwaveCheckoutUrl(url, { testMode: true }), false);
+  }
+});
 
 function env(t) {
   for (const [name, value] of Object.entries({ FLUTTERWAVE_ENABLED: 'true',
@@ -60,7 +73,7 @@ test('checkout freezes admin Naira price, bonus and USD reporting rate; a retrie
     assert.equal(body.amount, 42000);
     assert.equal(body.currency, 'NGN');
     assert.equal(body.redirect_url, 'https://api.example.test/api/v1/wallet/flutterwave/return');
-    return { ok: true, json: async () => ({ status: 'success', data: { link: 'https://checkout.flutterwave.com/v3/hosted/pay/fixture' } }) };
+    return { ok: true, json: async () => ({ status: 'success', data: { link: 'https://checkout-v2.dev-flutterwave.com/v3/hosted/pay/fixture' } }) };
   });
   const request = { user: { _id: 'buyer', email: 'test@example.test', name: 'Buyer', country: 'GB' },
     packId: pack.id, expectedAmountNgn: 42000, requestId: 'request_1234567890' };
@@ -69,6 +82,8 @@ test('checkout freezes admin Naira price, bonus and USD reporting rate; a retrie
   assert.equal(result.country, 'GB'); // Currency does not replace customer country.
   assert.equal(result.metadata.totalCredits, 55);
   assert.equal(result.metadata.ngnPerUsd, 1200);
+  assert.equal(result.metadata.isTest, true);
+  assert.match(result.flutterwaveCheckoutUrl, /^https:\/\/checkout-v2\.dev-flutterwave\.com\//);
   assert.equal(queued[0].type, 'flutterwave_credit_reconcile');
   pack.credits = 500; pack.flutterwavePriceNgn = 99999;
   const retry = await createFlutterwaveCreditCheckout(request);
@@ -224,4 +239,55 @@ test('status lookup is scoped to the signed-in buyer; NGN revenue is displayed i
     });
   });
   assert.deepEqual(transactionDisplay(purchase()), { displayAmount: 35000, displayUnit: 'NGN' });
+});
+
+test('the app return verifies its transaction ID and duplicate checks credit the wallet only once', async (t) => {
+  env(t);
+  const db = ledger(t);
+  const id = new mongoose.Types.ObjectId().toString();
+  t.mock.method(Wallet, 'findOne', async () => ({ balance: db.state().balance }));
+  const provider = t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(url, 'https://api.flutterwave.com/v3/transactions/123/verify');
+    return { ok: true, json: async () => ({ status: 'success', data: payment() }) };
+  });
+  const check = () => new Promise((resolve, reject) => {
+    const res = { status() { return this; }, json: resolve };
+    flutterwaveStatus({ query: { txId: id, transactionId: '123' }, user: { _id: 'buyer' } }, res, reject);
+  });
+  const first = await check();
+  const second = await check();
+  assert.equal(first.data.status, 'completed');
+  assert.equal(first.data.reference, 'PP-CREDITS-ref');
+  assert.equal(second.data.walletBalance, 65);
+  assert.equal(db.state().balance, 65);
+  assert.equal(provider.mock.calls.length, 1);
+});
+
+test('a callback transaction belonging to another reference cannot fulfill the buyer purchase', async (t) => {
+  env(t);
+  const db = ledger(t);
+  const id = new mongoose.Types.ObjectId().toString();
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({
+    status: 'success', data: { ...payment(), tx_ref: 'another-reference' }
+  }) }));
+  await assert.rejects(new Promise((resolve, reject) => {
+    const res = { status() { return this; }, json: resolve };
+    flutterwaveStatus({ query: { txId: id, transactionId: '123', status: 'successful' },
+      user: { _id: 'buyer' } }, res, reject);
+  }), /does not match this credit purchase/i);
+  assert.equal(db.state().balance, 10);
+  assert.equal(db.state().tx.status, 'pending');
+});
+
+test('status rejects non-numeric callback transaction IDs without calling the provider', async (t) => {
+  env(t);
+  t.mock.method(Transaction, 'findOne', async () => purchase());
+  const provider = t.mock.method(globalThis, 'fetch', async () => { throw new Error('must not call'); });
+  await new Promise((resolve, reject) => {
+    flutterwaveStatus({ query: { txId: new mongoose.Types.ObjectId().toString(), transactionId: '../bad' },
+      user: { _id: 'buyer' } }, {}, (error) => {
+      try { assert.equal(error.statusCode, 400); resolve(); } catch (e) { reject(e); }
+    });
+  });
+  assert.equal(provider.mock.calls.length, 0);
 });

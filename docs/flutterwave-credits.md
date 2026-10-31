@@ -28,8 +28,13 @@ subscriptions, advisor earnings and Hyperwallet payouts retain their providers.
    staging `API_BASE_URL`. The flag `--dart-define=FLUTTERWAVE_CREDITS_ENABLED=false`
    disables it when testing only store purchases. A separate **Pay in Naira with Flutterwave**
    button appears below the existing store purchase flow on Buy Credits.
-   Checkout opens the hosted browser page; returning to the app checks status.
+   Checkout opens inside the app's WebView. Its navigation delegate intercepts
+   the matching Flutterwave return URL before loading it (including old test
+   links using localhost), closes checkout, and re-checks payment through the
+   authenticated backend. Callback `status=successful` alone never grants credits.
    Pending purchases can also be checked, continued or cancelled on this screen.
+   After adding the WebView native plugin, stop and rebuild the mobile app; hot
+   reload/restart alone does not register a new native plugin.
 7. External checkout is disabled by default in profile/release builds. Enable
    `--dart-define=FLUTTERWAVE_CREDITS_ENABLED=true` in store builds only for
    eligible storefronts/programs. The build flag is not
@@ -53,6 +58,9 @@ refund through the configured staging account and inspect both dashboards.
   jobs are visible in the existing job monitoring; status checks and webhook
   retries can still recover a later payment.
 - Pending/failed/cancelled attempts do not add credits or count as sales.
+  Test-mode hosted links may use `checkout-v2.dev-flutterwave.com`; backend and
+  app accept that exact HTTPS host only for test purchases. Live purchases
+  continue to use Flutterwave production domains.
   Cancelling disables the hosted link. A genuinely paid in-flight payment can
   still be fulfilled later; a browser `status=successful` is never trusted.
 - Verified provider refunds get separate `credit_pack_refund` receipts. Partial
@@ -78,6 +86,8 @@ refund through the configured staging account and inspect both dashboards.
 - `POST /api/v1/wallet/flutterwave/checkout` — `{packId, expectedAmountNgn, requestId}`
 - `GET /api/v1/wallet/flutterwave/pending`
 - `GET /api/v1/wallet/flutterwave/status?txId=...`
+  optionally accepts a numeric `transactionId` from the callback; ownership,
+  reference, currency and amount are still verified server-side.
 - `POST /api/v1/wallet/flutterwave/cancel` — `{txId}`
 - Public provider return: `GET /api/v1/wallet/flutterwave/return`
 - Charge/refund webhooks as configured above.

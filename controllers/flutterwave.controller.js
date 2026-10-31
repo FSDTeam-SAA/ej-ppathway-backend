@@ -10,6 +10,7 @@ import sendResponse from '../utils/sendResponse.js';
 const checkoutData = (tx) => ({ txId: String(tx._id), status:
   Number(tx.metadata?.refundedNgn || 0) >= tx.amount ? 'refunded' : tx.status,
   checkoutUrl: tx.flutterwaveCheckoutUrl, amount: tx.amount, currency: 'NGN',
+  isTest: tx.metadata?.isTest === true,
   totalCredits: tx.metadata.totalCredits, reference: tx.flutterwaveReference });
 
 export const flutterwaveCatalog = catchAsync(async (_req, res) => {
@@ -37,7 +38,9 @@ export const flutterwaveStatus = catchAsync(async (req, res) => {
   let tx = await Transaction.findOne({ _id: req.query.txId, user: req.user._id,
     provider: 'flutterwave', type: 'credit_pack_purchase' });
   if (!tx) throw new ApiError(404, 'Purchase not found');
-  tx = await syncFlutterwavePurchase(tx);
+  const transactionId = req.query.transactionId ? String(req.query.transactionId) : undefined;
+  if (transactionId && !/^\d+$/.test(transactionId)) throw new ApiError(400, 'Invalid Flutterwave transaction ID');
+  tx = await syncFlutterwavePurchase(tx, transactionId);
   const wallet = await Wallet.findOne({ user: req.user._id });
   return sendResponse(res, { data: { ...checkoutData(tx), walletBalance: wallet?.balance || 0 } });
 });
