@@ -30,7 +30,7 @@ const advisorEarningAmountExpr = () => ({ $switch: { branches: [
 // Money the platform collects from users.
 // Money owed to / earned by advisors.
 const ADVISOR_TYPES = ['advisor_payout', 'advisor_tip', 'advisor_tip_fiat'];
-const REFUND_TYPES = ['subscription_refund'];
+const REFUND_TYPES = ['subscription_refund', 'credit_pack_refund'];
 
 const periodBounds = () => {
   const now = new Date();
@@ -283,6 +283,9 @@ export const exportReport = catchAsync(async (req, res) => {
 export const deleteTransaction = catchAsync(async (req, res) => {
   const tx = await Transaction.findById(req.params.id);
   if (!tx) throw new ApiError(StatusCodes.NOT_FOUND, 'Transaction not found');
+  if (tx.provider === 'flutterwave') {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Payment receipts must be retained for reconciliation and duplicate-payment protection');
+  }
   if (tx.type === 'advisor_payout' && tx.withdrawalStatus === 'requested') {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Cannot delete a pending payout');
   }

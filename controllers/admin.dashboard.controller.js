@@ -10,7 +10,7 @@ import AdvisorApplication from '../models/advisorApplication.model.js';
 
 const round2 = (n) => Math.round((n || 0) * 100) / 100;
 
-const REFUND_TYPES = ['session_refund', 'subscription_refund'];
+const REFUND_TYPES = ['session_refund', 'subscription_refund', 'credit_pack_refund'];
 
 // Start of the selected period (defaults to "today").
 const periodStart = (period) => {
@@ -85,7 +85,7 @@ export const dashboardOverview = catchAsync(async (req, res) => {
       { $match: { type: 'session_refund', status: 'completed', createdAt: { $gte: year } } },
       { $group: { _id: null, amount: { $sum: '$amount' } } }
     ]),
-    sumRevenue(['subscription_refund'], year)
+    sumRevenue(['subscription_refund', 'credit_pack_refund'], year)
   ]);
 
   // ---- Service categories → Chat / Voice Call / Video Call (within period) ----

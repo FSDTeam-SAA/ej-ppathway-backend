@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import express from 'express';
+import { flutterwaveWebhook } from '../controllers/flutterwave.controller.js';
 import { livekitWebhook, revenueCatWebhook, hyperwalletWebhook } from '../controllers/webhook.controller.js';
 
 const router = Router();
+router.post('/flutterwave', express.json({ limit: '1mb' }), flutterwaveWebhook);
+router.post('/flutterwave/refunds', express.json({ limit: '1mb' }), flutterwaveWebhook);
 
 /**
  * LiveKit posts events as `application/webhook+json`. We need the raw body

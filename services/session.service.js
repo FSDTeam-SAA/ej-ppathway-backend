@@ -12,38 +12,42 @@ const roundCredits = (n) => Math.ceil(Number(n || 0));
  * Returns details on success, throws on insufficient.
  */
 export const chargeUserWallet = async ({ userId, amount }) => {
-  const wallet = await Wallet.findOne({ user: userId });
-  if (!wallet) throw new Error('Wallet not found');
-  let amt = roundCredits(amount);
-  let creditsUsed = 0;
-  let balanceUsed = 0;
-
-  if (wallet.freeCredits > 0) {
-    creditsUsed = Math.min(wallet.freeCredits, amt);
-    wallet.freeCredits = round2(wallet.freeCredits - creditsUsed);
-    amt = roundCredits(amt - creditsUsed);
-  }
-  if (amt > 0) {
-    if (wallet.balance < amt) {
+  const charge = roundCredits(amount);
+  if (!Number.isFinite(charge) || charge < 0) throw new Error('Invalid wallet charge');
+  // Compare-and-retry prevents a session charge from overwriting credits that
+  // arrive concurrently from a verified checkout/webhook.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const wallet = await Wallet.findOne({ user: userId });
+    if (!wallet) throw new Error('Wallet not found');
+    const creditsUsed = Math.min(Math.max(0, wallet.freeCredits), charge);
+    const balanceUsed = charge - creditsUsed;
+    if (balanceUsed > 0 && wallet.balance < balanceUsed) {
       throw Object.assign(new Error('Insufficient balance'), { code: 'INSUFFICIENT_FUNDS' });
     }
-    wallet.balance = round2(wallet.balance - amt);
-    balanceUsed = amt;
+    const updated = await Wallet.findOneAndUpdate(
+      { _id: wallet._id, balance: wallet.balance, freeCredits: wallet.freeCredits },
+      { $inc: { balance: -balanceUsed, freeCredits: -creditsUsed, totalSpent: charge } },
+      { returnDocument: 'after' }
+    );
+    if (updated) return { creditsUsed, balanceUsed };
   }
-  wallet.totalSpent = round2(wallet.totalSpent + creditsUsed + balanceUsed);
-  await wallet.save();
-  return { creditsUsed, balanceUsed };
+  throw Object.assign(new Error('Wallet is busy. Please try again.'), { statusCode: 409 });
 };
 
 /**
  * Refund to user wallet (refund goes back to purchased credits, not free credits).
  */
 export const refundToUserWallet = async ({ userId, amount }) => {
-  const wallet = await Wallet.findOne({ user: userId });
+  const refund = Number(amount);
+  if (!Number.isFinite(refund) || refund < 0) throw new Error('Invalid wallet refund');
+  const wallet = await Wallet.findOneAndUpdate({ user: userId }, [
+    { $set: {
+      balance: { $round: [{ $add: [{ $ifNull: ['$balance', 0] }, refund] }, 2] },
+      totalSpent: { $round: [{ $max: [0, { $subtract: [{ $ifNull: ['$totalSpent', 0] }, refund] }] }, 2] },
+      updatedAt: '$$NOW'
+    } }
+  ], { returnDocument: 'after' });
   if (!wallet) throw new Error('Wallet not found');
-  wallet.balance = round2(wallet.balance + Number(amount));
-  wallet.totalSpent = round2(Math.max(0, wallet.totalSpent - Number(amount)));
-  await wallet.save();
   return wallet;
 };
 

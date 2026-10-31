@@ -9,6 +9,8 @@ const creditPackSchema = new Schema(
     credits: { type: Number, required: true, min: 1 },
     bonusCredits: { type: Number, default: 0, min: 0 },
     priceUsd: { type: Number, required: true, min: 0 },
+    // Explicit NGN price for hosted checkout; zero keeps this pack IAP-only.
+    flutterwavePriceNgn: { type: Number, default: 0, min: 0 },
     revenueCatProductId: { type: String, default: '', trim: true },
     appleProductId: { type: String, default: '', trim: true },
     googleProductId: { type: String, default: '', trim: true },

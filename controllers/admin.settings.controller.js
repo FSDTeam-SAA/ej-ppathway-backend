@@ -92,6 +92,11 @@ const normalizePacks = (packs = []) => {
     const credits = Number(pack.credits);
     const bonusCredits = Number(pack.bonusCredits || 0);
     const priceUsd = Number(pack.priceUsd);
+    const flutterwavePriceNgn = Number(pack.flutterwavePriceNgn ?? 0);
+    if (!Number.isFinite(flutterwavePriceNgn) || flutterwavePriceNgn < 0 || !Number.isSafeInteger(Math.round(flutterwavePriceNgn * 100)) ||
+        Math.abs(flutterwavePriceNgn * 100 - Math.round(flutterwavePriceNgn * 100)) > 0.00001) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Flutterwave price must be non-negative NGN with at most two decimal places');
+    }
     const id = String(pack.id || `credits_${credits}`).trim();
     const label = String(pack.label || `${credits} Credits`).trim();
     if (!id || !label || !Number.isFinite(credits) || credits <= 0 || !Number.isFinite(bonusCredits) || bonusCredits < 0 || !Number.isFinite(priceUsd) || priceUsd < 0) {
@@ -103,6 +108,7 @@ const normalizePacks = (packs = []) => {
       credits,
       bonusCredits,
       priceUsd,
+      flutterwavePriceNgn,
       revenueCatProductId: String(pack.revenueCatProductId || id).trim(),
       appleProductId: String(pack.appleProductId || pack.revenueCatProductId || id).trim(),
       googleProductId: String(pack.googleProductId || pack.revenueCatProductId || id).trim(),
@@ -463,7 +469,8 @@ export const getCreditManagementSummary = catchAsync(async (_req, res) => {
     walletAgg,
     purchaseAgg,
     usageAgg,
-    expiredAgg
+    expiredAgg,
+    cashRefundAgg
   ] = await Promise.all([
     creditUsageSummary(),
     Wallet.aggregate([
@@ -480,6 +487,10 @@ export const getCreditManagementSummary = catchAsync(async (_req, res) => {
     Transaction.aggregate([
       { $match: { status: 'completed', type: 'credit_expiration' } },
       { $group: { _id: null, credits: { $sum: '$amount' }, count: { $sum: 1 } } }
+    ]),
+    Transaction.aggregate([
+      { $match: { status: 'completed', type: 'credit_pack_refund' } },
+      { $group: { _id: null, revenue: { $sum: '$amountUsd' }, credits: { $sum: '$metadata.totalCredits' } } }
     ])
   ]);
 
@@ -494,6 +505,8 @@ export const getCreditManagementSummary = catchAsync(async (_req, res) => {
         creditSalesRevenue: purchaseAgg[0]?.revenue || 0,
         creditPurchaseCount: purchaseAgg[0]?.count || 0,
         creditsSold: purchaseAgg[0]?.credits || 0,
+        creditRefundsUsd: cashRefundAgg[0]?.revenue || 0,
+        creditsRefunded: cashRefundAgg[0]?.credits || 0,
         expiredCredits: expiredAgg[0]?.credits || 0,
         expiredCount: expiredAgg[0]?.count || 0
       },

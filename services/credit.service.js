@@ -22,6 +22,7 @@ const normalizePack = (pack, index = 0) => ({
   credits: Number(pack.credits || 0),
   bonusCredits: Number(pack.bonusCredits || 0),
   priceUsd: Number(pack.priceUsd || 0),
+  flutterwavePriceNgn: Number(pack.flutterwavePriceNgn || 0),
   revenueCatProductId: String(pack.revenueCatProductId || pack.id || '').trim(),
   appleProductId: String(pack.appleProductId || pack.revenueCatProductId || pack.id || '').trim(),
   googleProductId: String(pack.googleProductId || pack.revenueCatProductId || pack.id || '').trim(),

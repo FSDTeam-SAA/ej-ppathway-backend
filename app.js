@@ -30,6 +30,7 @@ import uploadRoutes from './routes/upload.routes.js';
 import contactRoutes from './routes/contact.routes.js';
 import contractRoutes from './routes/contract.routes.js';
 import webhookRoutes from './routes/webhook.routes.js';
+import flutterwaveRoutes from './routes/flutterwave.routes.js';
 
 const app = express();
 
@@ -79,6 +80,7 @@ app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/advisors', publicAdvisorRoutes);     // public advisor browse/details
 app.use('/api/v1/advisor', advisorRoutes);            // logged-in advisor self
 app.use('/api/v1/sessions', sessionRoutes);
+app.use('/api/v1/wallet/flutterwave', flutterwaveRoutes);
 app.use('/api/v1/wallet', walletRoutes);
 app.use('/api/v1/subscriptions', subscriptionRoutes);
 app.use('/api/v1/currencies', currencyRoutes);
