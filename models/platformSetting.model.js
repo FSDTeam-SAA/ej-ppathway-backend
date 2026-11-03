@@ -30,6 +30,7 @@ const tipPackSchema = new Schema(
     id: { type: String, required: true, trim: true },
     label: { type: String, required: true, trim: true },
     amountUsd: { type: Number, required: true, min: 0.01 },
+    flutterwavePriceNgn: { type: Number, default: 0, min: 0 },
     revenueCatProductId: { type: String, default: '', trim: true },
     appleProductId: { type: String, default: '', trim: true },
     googleProductId: { type: String, default: '', trim: true },

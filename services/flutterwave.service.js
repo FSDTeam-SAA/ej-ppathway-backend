@@ -5,52 +5,13 @@ import Wallet from '../models/wallet.model.js';
 import Currency from '../models/currency.model.js';
 import { listCreditPacks } from './credit.service.js';
 import { enqueueJob, registerJobHandler } from './jobQueue.service.js';
+import { flutterwaveConfigured, flutterwaveEnabled, flutterwaveTestMode, flutterwaveRequest, flutterwaveSecretMatches, isAllowedFlutterwaveCheckoutUrl } from './flutterwaveProvider.service.js';
+export { flutterwaveConfigured, flutterwaveEnabled, flutterwaveRequest, flutterwaveSecretMatches, isAllowedFlutterwaveCheckoutUrl };
+import { fulfillFlutterwaveTip, applyFlutterwaveTipRefund, registerFlutterwaveTipJobs } from './flutterwaveTip.service.js';
 
 const fail = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
-const key = () => (process.env.FLUTTERWAVE_SECRET_KEY || '').trim();
-const isTestMode = () => key().startsWith('FLWSECK_TEST-');
+const isTestMode = flutterwaveTestMode;
 const round2 = (n) => Math.round(n * 100) / 100;
-export const flutterwaveConfigured = () => Boolean(key() && process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim());
-export const flutterwaveEnabled = () => process.env.FLUTTERWAVE_ENABLED === 'true' && flutterwaveConfigured();
-
-export const isAllowedFlutterwaveCheckoutUrl = (value, { testMode = isTestMode() } = {}) => {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return false;
-    return /(^|\.)flutterwave\.com$/.test(url.hostname) ||
-      (testMode && url.hostname === 'checkout-v2.dev-flutterwave.com');
-  } catch { return false; }
-};
-
-export const flutterwaveSecretMatches = (received) => {
-  const expected = Buffer.from(process.env.FLUTTERWAVE_WEBHOOK_SECRET?.trim() || '');
-  const actual = Buffer.from(String(received || ''));
-  return expected.length > 0 && expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
-};
-
-export const flutterwaveRequest = async (path, { body, allowNotFound = false, allowInactiveLink = false, fetchImpl = fetch } = {}) => {
-  if (!key()) throw fail('Flutterwave is not configured', 503);
-  let response;
-  try {
-    response = await fetchImpl(`https://api.flutterwave.com/v3${path}`, {
-      method: body ? 'POST' : 'GET',
-      headers: { Authorization: `Bearer ${key()}`, 'Content-Type': 'application/json' },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(20000)
-    });
-  } catch {
-    throw fail('Flutterwave is temporarily unavailable. Please try again.', 503);
-  }
-  const payload = await response.json().catch(() => null);
-  if (allowNotFound && [200, 400, 404].includes(response.status) && payload?.status !== 'success' &&
-      /no transaction|not found|does not exist/i.test(payload?.message || '')) return null;
-  if (allowInactiveLink && response.status === 400 && /link is currently inactive/i.test(payload?.message || '')) return true;
-  if (!response.ok || payload?.status !== 'success') {
-    // Do not return provider payloads (which may contain customer/card data).
-    throw fail('Flutterwave could not process this request. Please try again.', 502);
-  }
-  return payload.data;
-};
 
 export const validateFlutterwavePayment = (tx, payment) => {
   if (tx.provider !== 'flutterwave' || tx.type !== 'credit_pack_purchase' ||
@@ -111,6 +72,7 @@ export const syncFlutterwavePurchase = async (tx, transactionId) => {
     : `/transactions/verify_by_reference?tx_ref=${encodeURIComponent(tx.flutterwaveReference)}`,
   { allowNotFound: true });
   if (!payment) return tx;
+  if (tx.type === 'tip_checkout') return fulfillFlutterwaveTip(tx, payment);
   if (validateFlutterwavePayment(tx, payment)) return fulfillFlutterwaveCredits(tx, payment);
   // A failed card attempt does not close the hosted checkout. A subsequent
   // successful attempt can still fulfill this same reference.
@@ -148,6 +110,7 @@ export const applyFlutterwaveCreditRefund = async (refundId) => {
   }
   let tx = await Transaction.findOne({ provider: 'flutterwave', flutterwaveReference: String(payment?.tx_ref || '') });
   if (!tx) return;
+  if (tx.type === 'tip_checkout') return applyFlutterwaveTipRefund({ tx, payment, refund, refundId });
   // Handle a refund notification arriving before the payment notification.
   tx = await fulfillFlutterwaveCredits(tx, payment);
   if (tx?.status !== 'completed') throw fail('Original payment is not confirmed', 503);
@@ -249,6 +212,7 @@ export const createFlutterwaveCreditCheckout = async ({ user, packId, expectedAm
 };
 
 export const registerFlutterwaveJobHandlers = () => {
+  registerFlutterwaveTipJobs();
   registerJobHandler('flutterwave_credit_reconcile', async ({ txId }) => {
     const tx = await Transaction.findOne({ _id: txId, provider: 'flutterwave', type: 'credit_pack_purchase' });
     if (!tx || tx.status === 'refunded') return;

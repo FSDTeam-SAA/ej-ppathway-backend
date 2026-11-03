@@ -58,10 +58,12 @@ export const flutterwaveReturn = catchAsync(async (req, res) => {
   if (!tx) throw new ApiError(404, 'Purchase not found');
   // Callback query status is untrusted. The server always queries the provider.
   const result = await syncFlutterwavePurchase(tx, req.query.transaction_id ? String(req.query.transaction_id) : undefined);
+  const isTip = tx.type === 'tip_checkout';
   const message = result.status === 'completed'
-    ? 'Payment confirmed. Your credits have been added.'
+    ? result.metadata?.refundRequired ? 'This session already received a tip. The extra payment is being refunded.'
+      : isTip ? 'Payment confirmed. Your tip has been sent.' : 'Payment confirmed. Your credits have been added.'
     : 'Payment is not confirmed yet. Return to the app to check your purchase.';
-  res.type('html').send(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Credit purchase</title><body style="font-family:system-ui;max-width:34rem;margin:4rem auto;padding:1.5rem"><h1>Prophetic Pathway</h1><p>${message}</p><p>You can close this tab and return to Buy Credits in the app.</p></body></html>`);
+  res.type('html').send(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Payment</title><body style="font-family:system-ui;max-width:34rem;margin:4rem auto;padding:1.5rem"><h1>Prophetic Pathway</h1><p>${message}</p><p>You can close this tab and return to ${isTip ? 'Leave a Tip' : 'Buy Credits'} in the app.</p></body></html>`);
 });
 
 export const flutterwaveWebhook = async (req, res) => {
@@ -81,7 +83,7 @@ export const flutterwaveWebhook = async (req, res) => {
     await syncFlutterwavePurchase(tx, String(req.body.data.id));
     return res.status(200).json({ ok: true });
   } catch (error) {
-    console.error('Flutterwave credit webhook failed', error.message);
+    console.error('Flutterwave webhook failed', error.message);
     // Non-2xx asks Flutterwave to retry after network/database failures.
     return res.status(error.statusCode === 400 ? 400 : 503).json({ ok: false });
   }

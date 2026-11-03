@@ -12,7 +12,7 @@ export const moneyUsdExpr = { $ifNull: ['$amountUsd', {
 
 export const transactionDisplay = (tx) => {
   const credits = CREDIT_TYPES.includes(tx.type);
-  const usd = ['advisor_payout', 'advisor_tip_fiat'].includes(tx.type);
+  const usd = ['advisor_payout', 'advisor_tip_fiat', 'advisor_tip_refund'].includes(tx.type);
   return {
     displayAmount: usd ? (tx.netProceedsUsd ?? tx.amountUsd ?? tx.amount) : tx.amount,
     displayUnit: credits ? 'credits' : usd ? 'USD' : (tx.currency || 'usd').toUpperCase()

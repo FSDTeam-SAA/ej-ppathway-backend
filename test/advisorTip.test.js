@@ -9,7 +9,7 @@ import {
 } from '../utils/advisorTip.js';
 
 test('advisor tip filters include legacy and fiat transactions', () => {
-  assert.deepEqual(ADVISOR_TIP_TYPES, ['advisor_tip', 'advisor_tip_fiat']);
+  assert.deepEqual(ADVISOR_TIP_TYPES, ['advisor_tip', 'advisor_tip_fiat', 'advisor_tip_refund']);
 });
 
 test('legacy tip amount uses the migration USD conversion rate', () => {

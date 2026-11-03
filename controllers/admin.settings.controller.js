@@ -6,6 +6,7 @@ import Wallet from '../models/wallet.model.js';
 import Transaction from '../models/transaction.model.js';
 import { DEFAULT_PROMOTION_PLANS, getPlatformSettings } from '../models/platformSetting.model.js';
 import { creditUsageSummary } from '../services/credit.service.js';
+import { syncUsageBlockPrices, updatedCreditUsage } from '../services/creditUsagePricing.service.js';
 import { getStorePricingConfiguration } from '../services/storePricing.service.js';
 import {
   listStorePriceSyncs,
@@ -127,7 +128,7 @@ const normalizePacks = (packs = []) => {
   return normalized;
 };
 
-const normalizeTipPacks = (packs = []) => {
+const normalizeTipPacks = (packs = [], existingPacks = []) => {
   if (!Array.isArray(packs)) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Tip packs must be an array');
   }
@@ -135,6 +136,12 @@ const normalizeTipPacks = (packs = []) => {
   const normalized = packs.map((pack, index) => {
     const amountUsd = Number(pack.amountUsd);
     const id = String(pack.id || `tip_${amountUsd || index + 1}`).trim();
+    // Older admin clients only submit IAP fields; preserve an existing NGN price.
+    const flutterwavePriceNgn = Number(pack.flutterwavePriceNgn ?? existingPacks.find(item => item.id === id)?.flutterwavePriceNgn ?? 0);
+    if (!Number.isFinite(flutterwavePriceNgn) || flutterwavePriceNgn < 0 || !Number.isSafeInteger(Math.round(flutterwavePriceNgn * 100)) ||
+        Math.abs(flutterwavePriceNgn * 100 - Math.round(flutterwavePriceNgn * 100)) > 0.00001) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Flutterwave tip price must be non-negative NGN with at most two decimal places');
+    }
     const label = String(pack.label || `Advisor Tip ${amountUsd} USD`).trim();
     if (!id || !label || !Number.isFinite(amountUsd) || amountUsd <= 0) {
       throw new ApiError(StatusCodes.BAD_REQUEST, 'Each tip pack needs id, label, and positive amountUsd');
@@ -143,6 +150,7 @@ const normalizeTipPacks = (packs = []) => {
       id,
       label,
       amountUsd,
+      flutterwavePriceNgn,
       revenueCatProductId: String(pack.revenueCatProductId || id).trim(),
       appleProductId: String(pack.appleProductId || pack.revenueCatProductId || id).trim(),
       googleProductId: String(pack.googleProductId || pack.revenueCatProductId || id).trim(),
@@ -394,51 +402,27 @@ export const updateCreditSettings = catchAsync(async (req, res) => {
   }
 
   if (typeof req.body.tipPacks !== 'undefined') {
-    settings.tipPacks = normalizeTipPacks(req.body.tipPacks);
+    settings.tipPacks = normalizeTipPacks(req.body.tipPacks, settings.tipPacks);
   }
 
   if (typeof req.body.creditUsageBlocks !== 'undefined') {
     settings.creditUsageBlocks = normalizeUsageBlocks(req.body.creditUsageBlocks);
-    const recording = settings.creditUsageBlocks.find((block) => block.id === 'session_recording');
-    const videoRecording = settings.creditUsageBlocks.find((block) => block.id === 'video_recording');
-    const audioRecording = settings.creditUsageBlocks.find((block) => block.id === 'audio_recording');
-    const transcript = settings.creditUsageBlocks.find((block) => block.id === 'chat_transcript');
-    if (recording) settings.creditUsage.sessionRecording = Number(recording.credits || 0);
-    if (videoRecording) settings.creditUsage.videoRecording = Number(videoRecording.credits || 0);
-    if (audioRecording) settings.creditUsage.audioRecording = Number(audioRecording.credits || 0);
-    if (!recording && (videoRecording || audioRecording)) {
-      settings.creditUsage.sessionRecording = Math.max(
-        Number(videoRecording?.credits || 0),
-        Number(audioRecording?.credits || 0)
-      );
-    }
-    if (transcript) settings.creditUsage.chatTranscript = Number(transcript.credits || 0);
   }
 
-  if (req.body.creditUsage && typeof req.body.creditUsage === 'object') {
-    const transcript = Number(req.body.creditUsage.chatTranscript);
-    const legacyRecording = Number(req.body.creditUsage.sessionRecording);
-    const videoRecording = Number(req.body.creditUsage.videoRecording ?? legacyRecording);
-    const audioRecording = Number(req.body.creditUsage.audioRecording ?? legacyRecording);
-    if (
-      !Number.isFinite(transcript) ||
-      transcript < 0 ||
-      !Number.isFinite(videoRecording) ||
-      videoRecording < 0 ||
-      !Number.isFinite(audioRecording) ||
-      audioRecording < 0
-    ) {
-      throw new ApiError(StatusCodes.BAD_REQUEST, 'Credit usage values must be non-negative numbers');
+  if (req.body.creditUsageBlocks !== undefined || req.body.creditUsage !== undefined) {
+    if (req.body.creditUsage !== undefined &&
+        (!req.body.creditUsage || typeof req.body.creditUsage !== 'object' || Array.isArray(req.body.creditUsage))) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'creditUsage must be an object');
     }
-    settings.creditUsage.chatTranscript = transcript;
-    settings.creditUsage.videoRecording = videoRecording;
-    settings.creditUsage.audioRecording = audioRecording;
-    settings.creditUsage.sessionRecording = Number.isFinite(legacyRecording) && legacyRecording >= 0
-      ? legacyRecording
-      : Math.max(videoRecording, audioRecording);
+    settings.creditUsage = updatedCreditUsage(settings.creditUsage, {
+      blocks: req.body.creditUsageBlocks !== undefined ? settings.creditUsageBlocks : undefined,
+      patch: req.body.creditUsage
+    });
+    settings.creditUsageBlocks = syncUsageBlockPrices(settings.creditUsageBlocks, settings.creditUsage);
   }
 
   await settings.save();
+  req.app?.get('io')?.emit('credits:updated');
   const creditUsage = await creditUsageSummary();
   return sendResponse(res, {
     message: 'Credit settings updated',

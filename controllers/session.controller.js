@@ -17,6 +17,7 @@ import { settleSession, chargeUserWallet, refundToUserWallet } from '../services
 import { resolveRecordingUrl } from '../services/recording.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
 import { calculateSessionCredits, getCreditUsage } from '../services/credit.service.js';
+import { recordingUnlockPrice, sessionUnlockPrices } from '../services/creditUsagePricing.service.js';
 import { fetchObjectStorage, parseObjectStorageUrl } from '../services/upload.service.js';
 import { recordIapTip } from '../services/iapTip.service.js';
 import { requireTimezone } from '../utils/timezone.js';
@@ -87,8 +88,9 @@ const canManageRecording = (user) => {
   return permissions.includes('*') || permissions.includes('recordings.download');
 };
 
-const sessionForUserResponse = (session) => {
+const sessionForUserResponse = (session, usage) => {
   const value = typeof session?.toObject === 'function' ? session.toObject() : { ...session };
+  Object.assign(value, sessionUnlockPrices(value, usage));
   value.recordingAvailable = !!value.recordingUrl &&
     !['starting', 'recording', 'failed'].includes(value.recordingStatus);
   delete value.egressId;
@@ -826,7 +828,8 @@ export const myUserSessions = catchAsync(async (req, res) => {
     .sort({ scheduledFor: -1, createdAt: -1 })
     .skip(skip).limit(limit);
   const reconciled = await reconcileTimedOutSessions(docs);
-  const items = reconciled.map(sessionForUserResponse);
+  const usage = await getCreditUsage();
+  const items = reconciled.map((session) => sessionForUserResponse(session, usage));
 
   return sendResponse(res, { data: items, meta: buildMeta({ page, limit, total }) });
 });
@@ -913,7 +916,7 @@ export const getSession = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Forbidden');
   }
   const session = await reconcileTimedOutSession(sessionDoc);
-  const responseData = isUser ? sessionForUserResponse(session) : session.toObject();
+  const responseData = isUser ? sessionForUserResponse(session, await getCreditUsage()) : session.toObject();
   if (isUser) {
     const hasRecordedTip = await Transaction.exists({
       session: session._id,
@@ -1523,13 +1526,22 @@ export const unlockSessionAsset = catchAsync(async (req, res) => {
   let amount = 0;
   const usage = await getCreditUsage();
   if (asset === 'recording') {
-    const defaultRecordingCharge = session.type === 'video'
-      ? usage.videoRecording ?? usage.sessionRecording
-      : usage.audioRecording ?? usage.sessionRecording;
-    amount = session.unlockChargeRecording || defaultRecordingCharge;
+    amount = recordingUnlockPrice(session.type, usage);
   }
-  else if (asset === 'transcript') amount = session.unlockChargeTranscript || usage.chatTranscript;
+  else if (asset === 'transcript') amount = Math.ceil(usage.chatTranscript);
   else throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid asset');
+
+  // New clients submit the displayed price. A settings change must never
+  // silently charge a different amount from the user's confirmation.
+  if (req.body.expectedCredits !== undefined) {
+    const expected = req.body.expectedCredits;
+    if (expected === null || expected === '' || !Number.isFinite(Number(expected)) || Number(expected) < 0) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid expected credits');
+    }
+    if (Number(expected) !== amount) {
+      throw new ApiError(StatusCodes.CONFLICT, 'The unlock price has changed. Please review the updated price and try again.');
+    }
+  }
 
   await chargeUserWallet({ userId: session.user, amount });
   await Transaction.create({
@@ -1541,11 +1553,16 @@ export const unlockSessionAsset = catchAsync(async (req, res) => {
     description: `Unlock ${asset} for session ${session.sessionCode}`
   });
 
-  if (asset === 'recording') session.recordingPriceUnlocked = true;
-  else session.transcriptPriceUnlocked = true;
+  if (asset === 'recording') {
+    session.recordingPriceUnlocked = true;
+    session.unlockChargeRecording = amount;
+  } else {
+    session.transcriptPriceUnlocked = true;
+    session.unlockChargeTranscript = amount;
+  }
 
   await session.save();
-  return sendResponse(res, { message: `${asset} unlocked`, data: session });
+  return sendResponse(res, { message: `${asset} unlocked`, data: sessionForUserResponse(session, usage) });
 });
 
 // ============= Ongoing session for user =============
@@ -1560,7 +1577,7 @@ export const getOngoing = catchAsync(async (req, res) => {
     return sendResponse(res, { data: null });
   }
   return sendResponse(res, {
-    data: isAdvisor ? session.toObject() : sessionForUserResponse(session)
+    data: isAdvisor ? session.toObject() : sessionForUserResponse(session, await getCreditUsage())
   });
 });
 
@@ -1573,7 +1590,9 @@ export const sessionSummary = catchAsync(async (req, res) => {
   const session = await reconcileTimedOutSession(sessionDoc);
 
   const review = await Review.findOne({ session: session._id }).lean();
-  return sendResponse(res, { data: { session: session.toObject(), review } });
+  const isUser = String(session.user?._id || session.user) === String(req.user._id);
+  const responseSession = isUser ? sessionForUserResponse(session, await getCreditUsage()) : session.toObject();
+  return sendResponse(res, { data: { session: responseSession, review } });
 });
 
 // ============= Save advisor session note =============

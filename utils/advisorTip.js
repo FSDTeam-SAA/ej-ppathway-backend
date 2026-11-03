@@ -1,4 +1,4 @@
-export const ADVISOR_TIP_TYPES = ['advisor_tip', 'advisor_tip_fiat'];
+export const ADVISOR_TIP_TYPES = ['advisor_tip', 'advisor_tip_fiat', 'advisor_tip_refund'];
 
 const legacyTipAmountUsdExpr = {
   $multiply: [
@@ -69,7 +69,7 @@ export const advisorTipBreakdown = (tip) => {
   const deductionsUsd = round2(Math.max(0, grossUsd - netUsd));
 
   return {
-    platform: direct ? 'direct' : tip.iapPlatform || 'unknown',
+    platform: direct ? 'direct' : tip.provider === 'flutterwave' ? 'flutterwave' : tip.iapPlatform || 'unknown',
     grossUsd,
     commissionUsd,
     taxUsd,
@@ -103,9 +103,9 @@ export const advisorTipBreakdownGroup = {
   commissionUsd: { $sum: advisorTipCommissionAmountUsdExpr },
   taxUsd: { $sum: advisorTipTaxAmountUsdExpr },
   netUsd: { $sum: advisorTipAmountUsdExpr },
-  count: { $sum: 1 },
+  count: { $sum: { $cond: [{ $eq: ['$type', 'advisor_tip_refund'] }, 0, 1] } },
   storeTipCount: {
-    $sum: { $cond: [{ $eq: ['$type', 'advisor_tip_fiat'] }, 1, 0] }
+    $sum: { $cond: [{ $and: [{ $eq: ['$type', 'advisor_tip_fiat'] }, { $ne: ['$provider', 'flutterwave'] }] }, 1, 0] }
   },
   appStoreCount: {
     $sum: {

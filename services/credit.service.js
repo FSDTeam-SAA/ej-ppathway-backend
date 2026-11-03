@@ -8,6 +8,7 @@ import {
   DEFAULT_CREDIT_USD_RATE,
   getPlatformSettings
 } from '../models/platformSetting.model.js';
+import { resolveCreditUsage, syncUsageBlockPrices } from './creditUsagePricing.service.js';
 
 export const CREDIT_PACKS = DEFAULT_CREDIT_PACKS;
 export const CREDIT_USAGE = DEFAULT_CREDIT_USAGE;
@@ -57,6 +58,7 @@ const normalizeTipPack = (pack, index = 0) => {
     id,
     label,
     amountUsd,
+    flutterwavePriceNgn: Number(pack.flutterwavePriceNgn ?? 0),
     revenueCatProductId: String(pack.revenueCatProductId || id).trim(),
     appleProductId: String(pack.appleProductId || id).trim(),
     googleProductId: String(pack.googleProductId || id).trim(),
@@ -75,18 +77,15 @@ export const listTipPacks = async ({ includeInactive = false } = {}) => {
 
 export const getCreditUsage = async () => {
   const settings = await getPlatformSettings();
-  const legacyRecording = Number(settings.creditUsage?.sessionRecording ?? DEFAULT_CREDIT_USAGE.sessionRecording);
-  return {
-    chatTranscript: Number(settings.creditUsage?.chatTranscript ?? DEFAULT_CREDIT_USAGE.chatTranscript),
-    videoRecording: Number(settings.creditUsage?.videoRecording ?? legacyRecording),
-    audioRecording: Number(settings.creditUsage?.audioRecording ?? legacyRecording),
-    sessionRecording: legacyRecording
-  };
+  return resolveCreditUsage(settings.creditUsage);
 };
 
 export const listCreditUsageBlocks = async ({ includeInactive = false } = {}) => {
   const settings = await getPlatformSettings();
-  return (settings.creditUsageBlocks || DEFAULT_CREDIT_USAGE_BLOCKS)
+  return syncUsageBlockPrices(
+    settings.creditUsageBlocks || DEFAULT_CREDIT_USAGE_BLOCKS,
+    resolveCreditUsage(settings.creditUsage)
+  )
     .map(normalizeUsageBlock)
     .filter((block) => includeInactive || block.isActive)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.durationMinutes - b.durationMinutes);

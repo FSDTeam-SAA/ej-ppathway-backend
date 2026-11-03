@@ -29,8 +29,8 @@ const advisorEarningAmountExpr = () => ({ $switch: { branches: [
 
 // Money the platform collects from users.
 // Money owed to / earned by advisors.
-const ADVISOR_TYPES = ['advisor_payout', 'advisor_tip', 'advisor_tip_fiat'];
-const REFUND_TYPES = ['subscription_refund', 'credit_pack_refund'];
+const ADVISOR_TYPES = ['advisor_payout', ...ADVISOR_TIP_TYPES];
+const REFUND_TYPES = ['subscription_refund', 'credit_pack_refund', 'tip_refund'];
 
 const periodBounds = () => {
   const now = new Date();
@@ -60,7 +60,7 @@ const sumAdvisorTypes = async (match = {}) => {
 
 const periodStats = async (since) => {
   const m = since ? { createdAt: { $gte: since } } : {};
-  const [g, a, r, paid, tips] = await Promise.all([
+  const [g, a, r, paid, tips, duplicateTips] = await Promise.all([
     sumTypes(REVENUE_TYPES, m),
     sumAdvisorTypes(m),
     sumTypes(REFUND_TYPES, m),
@@ -68,13 +68,14 @@ const periodStats = async (since) => {
     Transaction.aggregate([
       { $match: { type: 'advisor_tip_fiat', status: 'completed', ...m } },
       { $group: { _id: null, amount: { $sum: advisorTipAmountUsdExpr } } }
-    ])
+    ]),
+    sumTypes(['tip_checkout'], { 'metadata.refundRequired': true, ...m })
   ]);
   return {
     gross: g.amount,
     advisorPayouts: a.amount,
     refunds: r.amount,
-    net: round2(g.amount + (tips[0]?.amount || 0) - paid.amount - r.amount)
+    net: round2(g.amount + (tips[0]?.amount || 0) + duplicateTips.amount - paid.amount - r.amount)
   };
 };
 

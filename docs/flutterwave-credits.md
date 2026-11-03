@@ -1,7 +1,8 @@
 # Flutterwave credit purchases (NGN)
 
-Only user credit packs use this integration. Apple/Google purchases, paid tips,
-subscriptions, advisor earnings and Hyperwallet payouts retain their providers.
+This document covers user credit packs. Optional Nigeria-only Flutterwave tips
+are documented in [flutterwave-tips.md](flutterwave-tips.md). Apple/Google IAP
+and Hyperwallet payouts retain their providers.
 
 ## Setup
 

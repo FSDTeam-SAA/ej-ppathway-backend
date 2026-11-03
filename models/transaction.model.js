@@ -3,6 +3,9 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 export const TX_TYPES = [
+  'tip_checkout',          // pending/verified Flutterwave tip payment attempt
+  'tip_refund',
+  'advisor_tip_refund',
   'credit_pack_purchase',  // user purchased a fixed credit pack
   'credit_pack_refund',    // cash refund plus proportional purchased-credit reversal
   'wallet_topup',          // user added funds via Stripe
@@ -129,6 +132,11 @@ transactionSchema.index(
     partialFilterExpression: { type: 'tip_fiat' }
   }
 );
+
+transactionSchema.index({ session: 1, provider: 1 }, {
+  name: 'unique_pending_flutterwave_tip', unique: true,
+  partialFilterExpression: { type: 'tip_checkout', status: 'pending' }
+});
 
 const Transaction = mongoose.model('Transaction', transactionSchema);
 export default Transaction;
