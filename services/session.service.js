@@ -46,7 +46,7 @@ export const refundToUserWallet = async ({ userId, amount }) => {
       totalSpent: { $round: [{ $max: [0, { $subtract: [{ $ifNull: ['$totalSpent', 0] }, refund] }] }, 2] },
       updatedAt: '$$NOW'
     } }
-  ], { returnDocument: 'after' });
+  ], { returnDocument: 'after', updatePipeline: true });
   if (!wallet) throw new Error('Wallet not found');
   return wallet;
 };
