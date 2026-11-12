@@ -3,6 +3,7 @@ import { auth } from '../middlewares/auth.js';
 import {
   createBooking,
   advisorAvailability,
+  advisorUtcSchedule,
   myUserSessions,
   myAdvisorSessions,
   advisorBookingsCalendar,
@@ -25,6 +26,8 @@ import {
 } from '../controllers/session.controller.js';
 
 const router = Router();
+
+router.get('/advisors/:advisorId/schedule', advisorUtcSchedule);
 
 router.use(auth());
 

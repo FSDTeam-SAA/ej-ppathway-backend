@@ -556,7 +556,7 @@ const reserveSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }
 
 const releaseSlotLocks = (sessionId) => SessionSlotLock.deleteMany({ session: sessionId });
 
-export const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes, type }) => {
+export const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes, type, scheduleOnly = false }) => {
   const advisor = await User.findOne({ _id: advisorId, role: 'advisor' }).select('name timezone country status');
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone country');
@@ -585,7 +585,7 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
   const minStart = new Date(now.getTime() + settings.minNoticeMinutes * 60 * 1000);
   const maxStart = new Date(now.getTime() + settings.bookingWindowDays * 24 * 60 * 60 * 1000);
 
-  const bookedDocs = await Session.find({
+  const bookedDocs = scheduleOnly ? [] : await Session.find({
     advisor: advisorId,
     status: { $in: BOOKING_BLOCKING_STATUSES },
     scheduledFor: { $lt: searchEnd },
@@ -614,9 +614,20 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
     .filter(Boolean);
 
   const availableSlots = [];
+  // Absolute schedule intervals let every client render the same UTC day,
+  // including windows which cross midnight in the advisor's timezone.
+  const scheduleIntervals = [];
   for (let ms = searchStart.getTime(); ms < searchEnd.getTime(); ms += SLOT_BASE_MINUTES * 60 * 1000) {
     const start = new Date(ms);
     const end = new Date(ms + duration * 60 * 1000);
+    const onDisplayDate = localDateKey(viewerDateParts(start, viewer)) === dateKey;
+    if (onDisplayDate && matchingAvailabilitySlot(profile, start, timezone)) {
+      const minuteEnd = new Date(ms + 60000).toISOString();
+      const previous = scheduleIntervals.at(-1);
+      if (previous?.end === start.toISOString()) previous.end = minuteEnd;
+      else scheduleIntervals.push({ start: start.toISOString(), end: minuteEnd });
+    }
+    if (scheduleOnly) continue;
     if (start < minStart || start > maxStart) continue;
     if (!settings.sameDayBooking && localDateKey(zonedParts(start, timezone)) === localDateKey(zonedParts(now, timezone))) continue;
     if (localDateKey(viewerDateParts(start, viewer)) !== dateKey) continue;
@@ -645,7 +656,7 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
     }
   }
 
-  if (!availableSlots.length) {
+  if (!scheduleOnly && !availableSlots.length) {
     console.log('[availability:empty]', {
       advisorId: String(advisor._id),
       dateKey,
@@ -681,10 +692,25 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
         }
       : null,
     scheduleWindows: scheduleForDay && scheduleForDay.enabled !== false ? scheduleWindows : [],
+    scheduleIntervals,
     availableSlots,
     bookedSlots
   };
 };
+
+// Public profile schedule contains no bookings or customer information.
+export const advisorUtcSchedule = catchAsync(async (req, res) => {
+  const offset = parseOffsetMinutes(req.query.timezoneOffsetMinutes);
+  const data = await buildAdvisorAvailability({
+    advisorId: req.params.advisorId,
+    date: req.query.date,
+    durationMinutes: 5,
+    viewerTimezone: req.query.viewerTimezone || (offset == null ? 'UTC' : undefined),
+    viewerOffsetMinutes: offset,
+    scheduleOnly: true
+  });
+  return sendResponse(res, { data });
+});
 
 export const advisorAvailability = catchAsync(async (req, res) => {
   const data = await buildAdvisorAvailability({
