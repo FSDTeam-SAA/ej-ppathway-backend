@@ -56,7 +56,13 @@ const userIdsForQuery = async (q, roles = []) => {
 export const listSessions = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
   const filter = {};
-  if (req.query.tab === 'live') filter.status = 'live';
+  const upcoming = req.query.tab === 'upcoming';
+  const now = new Date();
+  if (upcoming) {
+    filter.status = { $in: ['pending', 'consent', 'waiting'] };
+    filter.scheduledFor = { $gte: now };
+  }
+  else if (req.query.tab === 'live') filter.status = 'live';
   else if (req.query.tab === 'completed') filter.status = 'completed';
   else if (req.query.tab === 'cancelled') filter.status = 'cancelled';
   else if (req.query.tab === 'disputed') filter.status = 'disputed';
@@ -67,11 +73,21 @@ export const listSessions = catchAsync(async (req, res) => {
   }
 
   if (['today', 'week', 'month'].includes(req.query.period)) {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    if (req.query.period === 'week') start.setDate(start.getDate() - start.getDay());
-    if (req.query.period === 'month') start.setDate(1);
-    filter.createdAt = { $gte: start };
+    if (upcoming) {
+      // Match the UTC booking dates shown in the Upcoming Sessions table.
+      const end = new Date(now);
+      end.setUTCHours(0, 0, 0, 0);
+      if (req.query.period === 'today') end.setUTCDate(end.getUTCDate() + 1);
+      if (req.query.period === 'week') end.setUTCDate(end.getUTCDate() + 7 - end.getUTCDay());
+      if (req.query.period === 'month') end.setUTCMonth(end.getUTCMonth() + 1, 1);
+      filter.scheduledFor.$lt = end;
+    } else {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      if (req.query.period === 'week') start.setDate(start.getDate() - start.getDay());
+      if (req.query.period === 'month') start.setDate(1);
+      filter.createdAt = { $gte: start };
+    }
   }
 
   if (['silver', 'gold', 'platinum'].includes(req.query.tier)) {
@@ -93,7 +109,7 @@ export const listSessions = catchAsync(async (req, res) => {
   const items = await Session.find(filter)
     .populate('user', 'name profilePhoto')
     .populate('advisor', 'name profilePhoto')
-    .sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+    .sort(upcoming ? { scheduledFor: 1, _id: 1 } : { createdAt: -1 }).skip(skip).limit(limit).lean();
   const advisorIds = [...new Set(items
     .map((s) => s.advisor?._id || s.advisor)
     .filter((id) => mongoose.isObjectIdOrHexString(id))

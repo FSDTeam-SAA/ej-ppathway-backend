@@ -9,6 +9,10 @@ export const initSocket = (httpServer) => {
     cors: { origin: '*', methods: ['GET', 'POST'] }
   });
 
+  // Public discovery invalidations only. Chat/session handlers and their
+  // authentication remain isolated on the default namespace below.
+  io.of('/advisor-discovery');
+
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token || socket.handshake.query?.token;

@@ -307,7 +307,7 @@ export const trackPaywall = catchAsync(async (req, res) => {
 // ===== Favorites =====
 export const addFavorite = catchAsync(async (req, res) => {
   const { advisorId } = req.params;
-  const advisor = await User.findOne({ _id: advisorId, role: 'advisor' });
+  const advisor = await User.findOne({ _id: advisorId, role: 'advisor', status: 'active' });
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   await Favorite.findOneAndUpdate(
     { user: req.user._id, advisor: advisorId },
@@ -326,7 +326,7 @@ export const removeFavorite = catchAsync(async (req, res) => {
 export const listFavorites = catchAsync(async (req, res) => {
   const favs = await Favorite.find({ user: req.user._id }).sort({ createdAt: -1 });
   const advisorIds = favs.map((f) => f.advisor);
-  const advisors = await User.find({ _id: { $in: advisorIds } });
+  const advisors = await User.find({ _id: { $in: advisorIds }, role: 'advisor', status: 'active' });
   const profiles = await AdvisorProfile.find({ user: { $in: advisorIds } });
   const map = new Map(profiles.map((p) => [String(p.user), p]));
   const data = advisors.map((a) => ({ user: a, profile: map.get(String(a._id)) || null }));

@@ -48,3 +48,56 @@ test('session list preserves missing-advisor rows and only queries valid advisor
   assert.equal(secondResponse.data.length, 3);
   assert.equal(AdvisorProfile.find.mock.callCount(), 1);
 });
+
+for (const [period, end] of [
+  [undefined, undefined],
+  ['today', '2026-11-15T00:00:00.000Z'],
+  ['week', '2026-11-15T00:00:00.000Z'],
+  ['month', '2026-12-01T00:00:00.000Z']
+]) {
+  test(`upcoming sessions use scheduled time, active booking statuses and chronological pagination (${period || 'all dates'})`, async (t) => {
+    const now = new Date('2026-11-14T10:30:00.000Z');
+    t.mock.timers.enable({ apis: ['Date'], now });
+    let countedFilter;
+    let listedFilter;
+    let sort;
+    let skip;
+    let limit;
+    t.mock.method(Session, 'countDocuments', async (filter) => {
+      countedFilter = filter;
+      return 12;
+    });
+    const booking = {
+      _id: 'booking', sessionCode: 'SES-123456',
+      user: { name: 'Seeker' }, advisor: null,
+      scheduledFor: '2026-11-14T11:00:00.000Z',
+      durationMinutes: 15, actualDurationSec: 0, type: 'call', status: 'waiting'
+    };
+    const chain = {
+      populate: () => chain,
+      sort: (value) => { sort = value; return chain; },
+      skip: (value) => { skip = value; return chain; },
+      limit: (value) => { limit = value; return chain; },
+      lean: async () => [booking]
+    };
+    t.mock.method(Session, 'find', (filter) => { listedFilter = filter; return chain; });
+    t.mock.method(Session, 'aggregate', async () => []);
+    const response = await new Promise((resolve, reject) => {
+      const res = { status: () => res, json: resolve };
+      listSessions({ query: { tab: 'upcoming', period, type: 'call', page: '2', limit: '10' } }, res, reject);
+    });
+    assert.deepEqual(listedFilter, {
+      status: { $in: ['pending', 'consent', 'waiting'] },
+      scheduledFor: { $gte: now, ...(end ? { $lt: new Date(end) } : {}) },
+      type: 'call'
+    });
+    assert.deepEqual(countedFilter, listedFilter);
+    assert.deepEqual(sort, { scheduledFor: 1, _id: 1 });
+    assert.equal(skip, 10);
+    assert.equal(limit, 10);
+    assert.equal(response.meta.total, 12);
+    assert.equal(response.data[0].sessionCode, booking.sessionCode);
+    assert.equal(response.data[0].durationMinutes, 15);
+    assert.equal(response.data[0].status, 'waiting');
+  });
+}

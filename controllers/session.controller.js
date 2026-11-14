@@ -557,7 +557,7 @@ const reserveSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }
 const releaseSlotLocks = (sessionId) => SessionSlotLock.deleteMany({ session: sessionId });
 
 export const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes, type, scheduleOnly = false }) => {
-  const advisor = await User.findOne({ _id: advisorId, role: 'advisor' }).select('name timezone country status');
+  const advisor = await User.findOne({ _id: advisorId, role: 'advisor', status: 'active' }).select('name timezone country status');
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: advisorId }).populate('user', 'timezone country');
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor profile missing');
@@ -1414,6 +1414,11 @@ export const rescheduleSession = catchAsync(async (req, res) => {
 
   if (!['pending', 'consent', 'waiting'].includes(session.status)) {
     throw new ApiError(StatusCodes.BAD_REQUEST, `Cannot reschedule session in status ${session.status}`);
+  }
+
+  const advisor = await User.findOne({ _id: session.advisor, role: 'advisor' }).select('status');
+  if (!advisor || advisor.status !== 'active') {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Advisor not available for rescheduling');
   }
 
   const profile = await AdvisorProfile.findOne({ user: session.advisor }).populate('user', 'timezone country');

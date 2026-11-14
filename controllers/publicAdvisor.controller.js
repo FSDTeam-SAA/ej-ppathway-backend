@@ -11,8 +11,10 @@ import Favorite from '../models/favorite.model.js';
 import { buildAdvisorAvailability } from './session.controller.js';
 import { getAdvisorCreditPricing, resolveAdvisorCreditPricing } from '../services/credit.service.js';
 
-const buildFilters = (q) => {
+const buildFilters = async (q) => {
+  const activeAdvisors = await User.find({ role: 'advisor', status: 'active' }).select('_id').lean();
   const filter = {
+    user: { $in: activeAdvisors.map((user) => user._id) },
     $and: [
       {
         $or: [
@@ -65,11 +67,12 @@ const withEffectivePricing = (profile, globalPricing) => profile
 const populateUser = async (profiles) => {
   const ids = profiles.map((p) => p.user);
   const [users, pricing] = await Promise.all([
-    User.find({ _id: { $in: ids } }).lean(),
+    User.find({ _id: { $in: ids }, role: 'advisor', status: 'active' }).lean(),
     getAdvisorCreditPricing()
   ]);
   const map = new Map(users.map((u) => [String(u._id), u]));
-  return profiles.map((p) => ({ profile: withEffectivePricing(p, pricing), user: map.get(String(p.user)) || null }));
+  return profiles.filter((p) => map.has(String(p.user)))
+    .map((p) => ({ profile: withEffectivePricing(p, pricing), user: map.get(String(p.user)) }));
 };
 
 const normalizeTags = (items = []) =>
@@ -80,7 +83,7 @@ const normalizeTags = (items = []) =>
 // Home featured = admin-curated picks, fallback to top tier+rating when none flagged
 export const featured = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
-  const filter = { ...buildFilters(req.query) };
+  const filter = await buildFilters(req.query);
 
   // Prefer admin-curated featured set when present; transparent fallback otherwise.
   const curatedFilter = { ...filter, isFeaturedOnHome: true };
@@ -101,7 +104,7 @@ export const featured = catchAsync(async (req, res) => {
 // Top rated
 export const topRated = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
-  const filter = buildFilters(req.query);
+  const filter = await buildFilters(req.query);
   const total = await AdvisorProfile.countDocuments(filter);
   const profiles = await AdvisorProfile.find(filter).sort({ avgRating: -1, ratingsCount: -1 }).skip(skip).limit(limit).lean();
   const data = await populateUser(profiles);
@@ -111,7 +114,7 @@ export const topRated = catchAsync(async (req, res) => {
 // Browser search
 export const searchAdvisors = catchAsync(async (req, res) => {
   const { skip, limit, page } = parsePagination(req.query);
-  const filter = buildFilters(req.query);
+  const filter = await buildFilters(req.query);
 
   let userIds = [];
   if (req.query.q) {
@@ -130,7 +133,7 @@ export const searchAdvisors = catchAsync(async (req, res) => {
 // Advisor details (public preview)
 export const getAdvisorDetails = catchAsync(async (req, res) => {
   const { advisorId } = req.params;
-  const user = await User.findOne({ _id: advisorId, role: 'advisor' }).lean();
+  const user = await User.findOne({ _id: advisorId, role: 'advisor', status: 'active' }).lean();
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: advisorId }).lean();
   if (profile?.profileReviewStatus && profile.profileReviewStatus !== 'approved') {
@@ -184,24 +187,20 @@ export const recommendedAdvisors = catchAsync(async (req, res) => {
   const { advisorId } = req.params;
   const { limit } = parsePagination(req.query);
 
+  const user = await User.findOne({ _id: advisorId, role: 'advisor', status: 'active' }).lean();
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
   const profile = await AdvisorProfile.findOne({ user: advisorId }).lean();
   if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+  if (profile.profileReviewStatus && profile.profileReviewStatus !== 'approved') {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+  }
 
   const expertise = normalizeTags(profile.expertise);
   const styles = normalizeTags(profile.styles);
   const languages = normalizeTags(profile.languages);
 
-  const approvedFilter = {
-    user: { $ne: profile.user },
-    $and: [
-      {
-        $or: [
-          { profileReviewStatus: 'approved' },
-          { profileReviewStatus: { $exists: false } }
-        ]
-      }
-    ]
-  };
+  const approvedFilter = await buildFilters({});
+  approvedFilter.user.$ne = profile.user;
 
   const matchFilters = [];
   if (expertise.length) matchFilters.push({ expertise: { $in: expertise } });

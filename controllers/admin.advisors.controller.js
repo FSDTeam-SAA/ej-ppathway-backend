@@ -859,6 +859,10 @@ export const suspendAdvisor = catchAsync(async (req, res) => {
     { returnDocument: 'after' }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+  req.app?.get('io')?.emit('advisor:status-changed', {
+    advisorId: String(user._id), status: user.status
+  });
+  req.app?.get('io')?.of?.('/advisor-discovery').emit('advisor:status-changed');
   await logAdminActivity({
     adminId: req.user?._id,
     action: 'advisor.deactivate',
@@ -876,6 +880,10 @@ export const unsuspendAdvisor = catchAsync(async (req, res) => {
     { returnDocument: 'after' }
   );
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
+  req.app?.get('io')?.emit('advisor:status-changed', {
+    advisorId: String(user._id), status: user.status
+  });
+  req.app?.get('io')?.of?.('/advisor-discovery').emit('advisor:status-changed');
   return sendResponse(res, { message: 'Advisor reactivated', data: user });
 });
 
