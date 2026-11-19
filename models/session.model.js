@@ -47,6 +47,15 @@ const sessionSchema = new Schema(
     waitingStartedAt: { type: Date },
     advisorJoinedAt: { type: Date },
     userJoinedAt: { type: Date },
+    // Advisor pressed "Start". Billing does NOT begin here; it begins at
+    // `startedAt`, once both participants are actually in the session room.
+    advisorReadyAt: { type: Date },
+    // Last time each participant was seen on the live session screen
+    // (heartbeat). Used to decide when both are connected.
+    userPresentAt: { type: Date },
+    advisorPresentAt: { type: Date },
+    // Set only when BOTH participants are connected. Timer and credit
+    // charging are measured from here.
     startedAt: { type: Date },
     endedAt: { type: Date },
     actualDurationSec: { type: Number, default: 0 },

@@ -144,6 +144,21 @@ export const listParticipants = async (roomName) => {
   }
 };
 
+/**
+ * Identities currently connected to a room.
+ * Returns null when LiveKit is not configured or the lookup failed, so callers
+ * can tell "nobody is there" apart from "we could not check".
+ */
+export const getRoomParticipantIdentities = async (roomName) => {
+  if (!roomService || !roomName) return null;
+  try {
+    const participants = await roomService.listParticipants(roomName);
+    return new Set((participants || []).map((p) => String(p.identity)));
+  } catch {
+    return null;
+  }
+};
+
 export const removeParticipant = async (roomName, identity) => {
   if (!roomService) return null;
   try {

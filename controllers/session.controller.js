@@ -12,7 +12,14 @@ import Wallet from '../models/wallet.model.js';
 import AdvisorProfile from '../models/advisorProfile.model.js';
 import Transaction from '../models/transaction.model.js';
 import Review from '../models/review.model.js';
-import { generateLiveKitToken, createRoom, deleteRoom, startRoomRecording, stopEgress } from '../config/livekit.js';
+import {
+  generateLiveKitToken,
+  createRoom,
+  deleteRoom,
+  startRoomRecording,
+  stopEgress,
+  getRoomParticipantIdentities
+} from '../config/livekit.js';
 import { settleSession, chargeUserWallet, refundToUserWallet } from '../services/session.service.js';
 import { resolveRecordingUrl } from '../services/recording.service.js';
 import { createNotification, broadcastSocket } from '../services/notification.service.js';
@@ -100,9 +107,11 @@ const sessionForUserResponse = (session, usage) => {
   return value;
 };
 
-const createAndBroadcastNotification = async (req, payload, sessionEvent) => {
+const createAndBroadcastNotification = async (req, payload, sessionEvent) =>
+  notifyAndBroadcast(req.app.get('io'), payload, sessionEvent);
+
+const notifyAndBroadcast = async (io, payload, sessionEvent) => {
   const notification = await createNotification(payload);
-  const io = req.app.get('io');
   if (io && notification) {
     const data = payload.data || {};
     const socketPayload = {
@@ -1099,7 +1108,171 @@ export const getLiveKitToken = catchAsync(async (req, res) => {
   return sendResponse(res, { data: { token, url, roomName } });
 });
 
+// ============= Session start: advisor ready -> both connected -> live =============
+//
+// Billing and the session timer start only when BOTH participants are in the
+// session room. Pressing "Start" as advisor only marks the advisor ready; the
+// user's waiting-room time is never charged and never shortens the session.
+
+const PRE_LIVE_STATUSES = ['pending', 'consent', 'waiting'];
+// A participant counts as present on the session screen if their last
+// heartbeat is this recent. Session screens heartbeat every few seconds
+// while waiting for the other side.
+const PRESENCE_WINDOW_MS = 30 * 1000;
+
+const firstMinuteHold = (session) =>
+  Math.min(session.holdAmount || session.estimatedCost || 0, Math.ceil(session.ratePerMin * 1));
+
+const seenRecently = (date, now = Date.now()) =>
+  Boolean(date) && now - new Date(date).getTime() <= PRESENCE_WINDOW_MS;
+
+const bothParticipantsConnected = async (session) => {
+  if (session.type === 'call' || session.type === 'video') {
+    // Media sessions: trust the LiveKit room itself when we can query it.
+    const identities = await getRoomParticipantIdentities(session.livekitRoom || `session_${session._id}`);
+    if (identities) {
+      return identities.has(String(session.user)) && identities.has(String(session.advisor));
+    }
+  }
+  return seenRecently(session.userPresentAt) && seenRecently(session.advisorPresentAt);
+};
+
+const startSessionRecording = async (session) => {
+  if (session.type !== 'call' && session.type !== 'video') return;
+  // The atomic claim prevents overlapping activations from creating two egress jobs.
+  const claimed = await Session.findOneAndUpdate(
+    {
+      _id: session._id,
+      status: 'live',
+      type: { $in: ['call', 'video'] },
+      $or: [{ egressId: { $exists: false } }, { egressId: null }, { egressId: '' }],
+      recordingStatus: { $nin: ['starting', 'recording', 'completed'] }
+    },
+    { $set: { recordingStatus: 'starting', recordingError: '' } },
+    { returnDocument: 'after' }
+  );
+  if (!claimed) return;
+
+  const roomName = claimed.livekitRoom || `session_${claimed._id}`;
+  const fileName = `${claimed._id}-${Date.now()}.mp4`;
+  const egress = await startRoomRecording(roomName, fileName, {
+    audioOnly: claimed.type === 'call'
+  });
+  if (egress?.egressId) {
+    const update = {
+      egressId: egress.egressId,
+      recordingStatus: 'recording',
+      recordingError: ''
+    };
+    // Best-effort S3 URL; the completion webhook remains authoritative.
+    if (egress.recordingUrl) update.recordingUrl = egress.recordingUrl;
+    await Session.updateOne({ _id: claimed._id, recordingStatus: 'starting' }, { $set: update });
+  } else {
+    const message = 'LiveKit did not return an egress ID';
+    console.error('Automatic session recording failed', {
+      sessionId: String(claimed._id),
+      type: claimed.type,
+      roomName,
+      message
+    });
+    await Session.updateOne(
+      { _id: claimed._id, recordingStatus: 'starting' },
+      { $set: { recordingStatus: 'failed', recordingError: message } }
+    );
+  }
+};
+
+/**
+ * Turn a session live if the advisor has started it and both participants
+ * are connected. Safe to call repeatedly and concurrently: only one caller
+ * wins the claim, charges the first minute and starts recording.
+ * Returns { session, activated }.
+ */
+export const activateSessionIfReady = async (session, io) => {
+  if (!session) return { session, activated: false };
+  if (session.status !== 'live' && !session.startedAt) {
+    session = await reconcileTimedOutSession(session);
+  }
+  if (
+    session.status === 'live' ||
+    session.startedAt ||
+    !PRE_LIVE_STATUSES.includes(session.status) ||
+    !session.advisorReadyAt
+  ) {
+    return { session, activated: false };
+  }
+  if (!(await bothParticipantsConnected(session))) return { session, activated: false };
+
+  const previousStatus = session.status;
+  const live = await Session.findOneAndUpdate(
+    {
+      _id: session._id,
+      status: { $in: PRE_LIVE_STATUSES },
+      $or: [{ startedAt: { $exists: false } }, { startedAt: null }]
+    },
+    { $set: { status: 'live', startedAt: new Date() } },
+    { returnDocument: 'after' }
+  );
+  if (!live) {
+    // Someone else activated (or closed) it first.
+    return { session: (await Session.findById(session._id)) || session, activated: false };
+  }
+
+  const holdAmount = firstMinuteHold(live);
+  if (holdAmount > 0) {
+    try {
+      const { creditsUsed, balanceUsed } = await chargeUserWallet({ userId: live.user, amount: holdAmount });
+      live.creditsUsed = round2((live.creditsUsed || 0) + creditsUsed);
+      live.chargedAmount = round2((live.chargedAmount || 0) + creditsUsed + balanceUsed);
+      await live.save();
+      await Transaction.create({
+        type: 'session_charge',
+        status: 'completed',
+        user: live.user,
+        advisor: live.advisor,
+        session: live._id,
+        amount: round2(creditsUsed + balanceUsed),
+        description: `Initial hold for session ${live.sessionCode}`
+      });
+    } catch (e) {
+      // Could not charge the first minute: undo the start, nothing was billed.
+      await Session.updateOne(
+        { _id: live._id, status: 'live' },
+        { $set: { status: previousStatus }, $unset: { startedAt: 1 } }
+      );
+      return { session: (await Session.findById(live._id)) || session, activated: false, insufficientFunds: true };
+    }
+  }
+
+  await startSessionRecording(live);
+  const fresh = (await Session.findById(live._id)) || live;
+
+  await notifyAndBroadcast(io, {
+    recipient: fresh.user,
+    type: 'session_started',
+    title: 'Session started',
+    body: 'You and your advisor are connected. Your session has started.',
+    data: { sessionId: fresh._id }
+  }, 'session:started');
+  if (io) {
+    const payload = { sessionId: String(fresh._id), type: 'session_started' };
+    broadcastSocket(io, fresh.advisor, 'session:updated', payload);
+    broadcastSocket(io, fresh.advisor, 'session:started', payload);
+  }
+
+  return { session: fresh, activated: true };
+};
+
+const markParticipantPresent = async (session, role) => {
+  const field = role === 'advisor' ? 'advisorPresentAt' : 'userPresentAt';
+  const now = new Date();
+  await Session.updateOne({ _id: session._id }, { $set: { [field]: now } });
+  session[field] = now;
+};
+
 // ============= Advisor starts session =============
+// Marks the advisor ready. The session goes live (timer + credits) only once
+// the user has joined too — see activateSessionIfReady.
 export const advisorStartSession = catchAsync(async (req, res) => {
   let session = await Session.findById(req.params.id);
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
@@ -1110,93 +1283,47 @@ export const advisorStartSession = catchAsync(async (req, res) => {
   }
 
   if (session.status === 'live') return sendResponse(res, { data: session });
-  if (!['waiting', 'consent', 'pending'].includes(session.status))
+  if (!PRE_LIVE_STATUSES.includes(session.status))
     throw new ApiError(StatusCodes.BAD_REQUEST, `Cannot start session in status ${session.status}`);
 
-  // pre-charge a small hold for first minute (cap at remaining wallet)
-  const holdAmount = Math.min(session.holdAmount || session.estimatedCost || 0, Math.ceil(session.ratePerMin * 1));
+  // Nothing is charged yet, but refuse to open the session when the user
+  // cannot even cover the first minute.
+  const holdAmount = firstMinuteHold(session);
   if (holdAmount > 0) {
-    try {
-      const { creditsUsed, balanceUsed } = await chargeUserWallet({ userId: session.user, amount: holdAmount });
-      session.creditsUsed = round2((session.creditsUsed || 0) + creditsUsed);
-      session.chargedAmount = round2((session.chargedAmount || 0) + creditsUsed + balanceUsed);
-      await Transaction.create({
-        type: 'session_charge',
-        status: 'completed',
-        user: session.user,
-        advisor: session.advisor,
-        session: session._id,
-        amount: round2(creditsUsed + balanceUsed),
-        description: `Initial hold for session ${session.sessionCode}`
-      });
-    } catch (e) {
-      throw new ApiError(StatusCodes.PAYMENT_REQUIRED, 'User has insufficient funds');
-    }
+    const wallet = await Wallet.findOne({ user: session.user }).lean();
+    const available = Math.max(0, wallet?.balance || 0) + Math.max(0, wallet?.freeCredits || 0);
+    if (available < holdAmount) throw new ApiError(StatusCodes.PAYMENT_REQUIRED, 'User has insufficient funds');
   }
 
-  session.status = 'live';
-  session.startedAt = new Date();
+  const now = new Date();
+  const firstReady = !session.advisorReadyAt;
+  session.advisorReadyAt = session.advisorReadyAt || now;
+  session.advisorPresentAt = now;
+  if (!session.advisorJoinedAt) session.advisorJoinedAt = now;
+  if (session.status === 'pending' || session.status === 'consent') {
+    session.status = 'waiting';
+    session.waitingStartedAt = session.waitingStartedAt || now;
+  }
   await session.save();
 
-  // Call and video sessions are always recorded once they are live. The atomic
-  // claim prevents overlapping advisor-start requests from creating two egress jobs.
-  if (session.type === 'call' || session.type === 'video') {
-    const claimed = await Session.findOneAndUpdate(
-      {
-        _id: session._id,
-        status: 'live',
-        type: { $in: ['call', 'video'] },
-        $or: [{ egressId: { $exists: false } }, { egressId: null }, { egressId: '' }],
-        recordingStatus: { $nin: ['starting', 'recording', 'completed'] }
-      },
-      { $set: { recordingStatus: 'starting', recordingError: '' } },
-      { returnDocument: 'after' }
-    );
-
-    if (claimed) {
-      const roomName = claimed.livekitRoom || `session_${claimed._id}`;
-      const fileName = `${claimed._id}-${Date.now()}.mp4`;
-      const egress = await startRoomRecording(roomName, fileName, {
-        audioOnly: claimed.type === 'call'
-      });
-      if (egress?.egressId) {
-        const update = {
-          egressId: egress.egressId,
-          recordingStatus: 'recording',
-          recordingError: ''
-        };
-        // Best-effort S3 URL; the completion webhook remains authoritative.
-        if (egress.recordingUrl) update.recordingUrl = egress.recordingUrl;
-        await Session.updateOne(
-          { _id: claimed._id, recordingStatus: 'starting' },
-          { $set: update }
-        );
-      } else {
-        const message = 'LiveKit did not return an egress ID';
-        console.error('Automatic session recording failed', {
-          sessionId: String(claimed._id),
-          type: claimed.type,
-          roomName,
-          message
-        });
-        await Session.updateOne(
-          { _id: claimed._id, recordingStatus: 'starting' },
-          { $set: { recordingStatus: 'failed', recordingError: message } }
-        );
-      }
-    }
-    session = await Session.findById(session._id);
+  const io = req.app.get('io');
+  if (firstReady) {
+    await notifyAndBroadcast(io, {
+      recipient: session.user,
+      type: 'session_updated',
+      title: 'Your advisor is ready',
+      body: 'Join the session now. Your time starts once you are both connected.',
+      data: { sessionId: session._id }
+    }, 'session:advisor_ready');
   }
 
-  await createAndBroadcastNotification(req, {
-    recipient: session.user,
-    type: 'session_started',
-    title: 'Session started',
-    body: 'Your advisor has started the session',
-    data: { sessionId: session._id }
-  }, 'session:started');
-
-  return sendResponse(res, { message: 'Session live', data: session });
+  const result = await activateSessionIfReady(session, io);
+  return sendResponse(res, {
+    message: result.activated || result.session.status === 'live'
+      ? 'Session live'
+      : 'Advisor ready. Waiting for the client to join',
+    data: result.session
+  });
 });
 
 // ============= End session =============
@@ -1207,6 +1334,18 @@ export const endSession = catchAsync(async (req, res) => {
     String(session.user) !== String(req.user._id) &&
     String(session.advisor) !== String(req.user._id)
   ) throw new ApiError(StatusCodes.FORBIDDEN, 'Forbidden');
+
+  // Leaving the session screen before both sides connected: nothing was
+  // billed, so just drop this participant's presence. The booking stays open
+  // until its scheduled window ends.
+  if (PRE_LIVE_STATUSES.includes(session.status) && !session.startedAt) {
+    const field = String(session.advisor) === String(req.user._id) ? 'advisorPresentAt' : 'userPresentAt';
+    await Session.updateOne({ _id: session._id }, { $unset: { [field]: 1 } });
+    return sendResponse(res, {
+      message: 'Left before the session started. No credits were charged.',
+      data: { notStarted: true, session: await Session.findById(session._id) }
+    });
+  }
 
   if (session.status !== 'live') throw new ApiError(StatusCodes.BAD_REQUEST, 'Session is not live');
 
@@ -1257,6 +1396,30 @@ export const sessionHeartbeat = catchAsync(async (req, res) => {
     String(session.user) !== String(req.user._id) &&
     String(session.advisor) !== String(req.user._id)
   ) throw new ApiError(StatusCodes.FORBIDDEN, 'Forbidden');
+
+  // Not live yet: this heartbeat is a presence ping from the session screen.
+  // Nothing is charged; the session goes live once both sides are present.
+  if (PRE_LIVE_STATUSES.includes(session.status) && !session.startedAt) {
+    const role = String(session.advisor) === String(req.user._id) ? 'advisor' : 'user';
+    await markParticipantPresent(session, role);
+    const result = await activateSessionIfReady(session, req.app.get('io'));
+    if (!result.activated) {
+      const ended = !PRE_LIVE_STATUSES.includes(result.session.status) && result.session.status !== 'live';
+      return sendResponse(res, {
+        data: {
+          ended,
+          waiting: !ended && result.session.status !== 'live',
+          advisorReady: Boolean(result.session.advisorReadyAt),
+          insufficientFunds: Boolean(result.insufficientFunds),
+          session: result.session
+        }
+      });
+    }
+    return sendResponse(res, {
+      data: { ended: false, waiting: false, activated: true, elapsedSec: 0, session: result.session }
+    });
+  }
+
   if (session.status !== 'live') return sendResponse(res, { data: { ended: true, session } });
 
   const elapsedSec = Math.max(0, Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000));

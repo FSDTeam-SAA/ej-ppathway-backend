@@ -9,6 +9,7 @@ import { findCreditPackByRevenueCatProduct } from '../services/credit.service.js
 import { applyPaymentWebhook } from '../services/payout.service.js';
 import { isAllowedTipProduct, reverseIapTipByStoreTransactionId } from '../services/iapTip.service.js';
 import { createNotification } from '../services/notification.service.js';
+import { activateSessionIfReady } from './session.controller.js';
 
 /**
  * Resolve which session an egress event belongs to.
@@ -46,6 +47,15 @@ export const livekitWebhook = async (req, res) => {
   try {
     const event = await receiveWebhookEvent(req.body, req.get('Authorization'));
     if (!event) return res.status(200).json({ ok: true, skipped: true });
+
+    // The second participant connecting is what starts a call/video session
+    // (timer + credits). Heartbeats also do this; the webhook just makes it instant.
+    if (event.event === 'participant_joined' && event.room?.name) {
+      const session = await findSessionForEgress({ roomName: event.room.name });
+      if (session && !session.startedAt) {
+        await activateSessionIfReady(session, req.app.get('io'));
+      }
+    }
 
     if (event.event === 'egress_ended' || event.event === 'egress_updated') {
       const info = event.egressInfo;
