@@ -29,7 +29,10 @@ const sessionSchema = new Schema(
     // Booking timing
     scheduledFor: { type: Date, index: true },
     advisorTimezone: { type: String }, // Zone snapshot; changing a profile never shifts this booking's UTC instant.
-    durationMinutes: { type: Number, default: 15 },     // user-selected duration
+    durationMinutes: { type: Number, default: 15 },     // user-selected duration (+ extensions)
+    // Set only when a late start had to be shortened so it ends before the
+    // advisor's next appointment; holds the originally booked duration.
+    bookedDurationMinutes: { type: Number },
     instantStart: { type: Boolean, default: false },
 
     // LiveKit

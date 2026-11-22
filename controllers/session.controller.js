@@ -455,12 +455,25 @@ const isWithinDaySchedule = (weeklySchedule, date, timezone) => {
   return !!matchingScheduleSlot(weeklySchedule, date, timezone);
 };
 
-const sessionRange = (session) => {
+// The stretch of the advisor's calendar a booking really occupies. A session
+// only goes live once both participants connect, so it may start before or
+// after its booked slot; extensions add to durationMinutes. Cover both the
+// booked slot and the actual live window so nothing can be booked over it.
+export const sessionOccupiedRange = (session) => {
   if (!session?.scheduledFor) return null;
-  const start = new Date(session.scheduledFor);
-  const end = new Date(start.getTime() + (Number(session.durationMinutes) || 0) * 60 * 1000);
-  return { start, end };
+  const scheduled = new Date(session.scheduledFor);
+  const durationMs = (Number(session.durationMinutes) || 0) * 60 * 1000;
+  const scheduledEnd = new Date(scheduled.getTime() + durationMs);
+  const started = session.startedAt ? new Date(session.startedAt) : null;
+  if (!started || Number.isNaN(started.getTime())) return { start: scheduled, end: scheduledEnd };
+  const liveEnd = new Date(started.getTime() + durationMs);
+  return {
+    start: started < scheduled ? started : scheduled,
+    end: liveEnd > scheduledEnd ? liveEnd : scheduledEnd
+  };
 };
+
+const sessionRange = sessionOccupiedRange;
 
 const rangesOverlap = (startA, endA, startB, endB) => startA < endB && endA > startB;
 
@@ -565,6 +578,100 @@ const reserveSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }
 
 const releaseSlotLocks = (sessionId) => SessionSlotLock.deleteMany({ session: sessionId });
 
+/**
+ * Lock extra minutes for a session that already holds locks (an extension).
+ * The unique (advisor, slotStart) index makes this atomic against a booking
+ * racing for the same minutes. On conflict only the locks inserted here are
+ * removed; the session's original booking locks are kept.
+ */
+const reserveAdditionalSlotLocks = async ({ advisorId, sessionId, start, durationMinutes }) => {
+  const wanted = lockStartsForRange(start, durationMinutes);
+  if (!wanted.length) return [];
+  const owned = await SessionSlotLock.find({ session: sessionId, slotStart: { $in: wanted } })
+    .select('slotStart')
+    .lean();
+  const ownedMs = new Set((owned || []).map((lock) => new Date(lock.slotStart).getTime()));
+  const slotStarts = wanted.filter((slotStart) => !ownedMs.has(slotStart.getTime()));
+  if (!slotStarts.length) return [];
+  try {
+    await SessionSlotLock.insertMany(
+      slotStarts.map((slotStart) => ({ advisor: advisorId, session: sessionId, slotStart })),
+      { ordered: true }
+    );
+  } catch (error) {
+    await SessionSlotLock.deleteMany({ session: sessionId, slotStart: { $in: slotStarts } });
+    if (error?.code === 11000 || error?.writeErrors?.some((item) => item?.code === 11000)) {
+      throw new ApiError(
+        StatusCodes.CONFLICT,
+        'Your advisor has another appointment at that time, so the session cannot be extended that long.'
+      );
+    }
+    throw error;
+  }
+  return slotStarts;
+};
+
+// ============= Advisor's next appointment (extensions + late starts) =============
+const UPCOMING_BOOKING_STATUSES = ['pending', 'consent', 'waiting', 'scheduled', 'live'];
+export const MAX_EXTENSION_MINUTES = 60;
+
+/**
+ * The advisor's next confirmed appointment after `session`, or null.
+ * Bookings whose window has already passed (never reconciled to expired)
+ * are ignored so they cannot block anything.
+ */
+const findNextBooking = async (session, now = new Date()) => {
+  if (!session?.advisor || !session?.scheduledFor) return null;
+  const candidates = await Session.find({
+    advisor: session.advisor,
+    _id: { $ne: session._id },
+    status: { $in: UPCOMING_BOOKING_STATUSES },
+    scheduledFor: { $gte: new Date(session.scheduledFor) }
+  })
+    .sort({ scheduledFor: 1 })
+    .limit(10)
+    .select('scheduledFor durationMinutes startedAt status')
+    .lean();
+  return (candidates || []).find((candidate) => {
+    const range = sessionOccupiedRange(candidate);
+    return range && range.end > now;
+  }) || null;
+};
+
+const advisorBufferMs = async (advisorId) => {
+  const profile = await AdvisorProfile.findOne({ user: advisorId }).select('availabilitySettings').lean();
+  return availabilitySettings(profile).bufferMinutes * 60 * 1000;
+};
+
+/**
+ * Whole minutes left between `from` and the advisor's next appointment
+ * (minus the advisor's buffer). null when there is no next appointment.
+ */
+const minutesBeforeNextBooking = async (session, from, now = new Date()) => {
+  const next = await findNextBooking(session, now);
+  if (!next) return { minutes: null, nextBookingAt: null };
+  const bufferMs = await advisorBufferMs(session.advisor);
+  const gapMs = new Date(next.scheduledFor).getTime() - bufferMs - new Date(from).getTime();
+  return {
+    minutes: Math.max(0, Math.floor(gapMs / 60000)),
+    nextBookingAt: new Date(next.scheduledFor)
+  };
+};
+
+/**
+ * How far a live session may be extended without running into the advisor's
+ * next appointment. { available, maxMinutes, nextBookingAt }.
+ */
+export const computeExtensionWindow = async (session, now = new Date()) => {
+  if (session?.status !== 'live' || !session.startedAt) {
+    return { available: false, maxMinutes: 0, nextBookingAt: null };
+  }
+  const currentEnd = liveEndTime(session);
+  const { minutes, nextBookingAt } = await minutesBeforeNextBooking(session, currentEnd, now);
+  const maxMinutes = minutes === null ? MAX_EXTENSION_MINUTES : Math.min(MAX_EXTENSION_MINUTES, minutes);
+  return { available: maxMinutes >= 1, maxMinutes, nextBookingAt };
+};
+
 export const buildAdvisorAvailability = async ({ advisorId, date, durationMinutes, viewerTimezone, viewerOffsetMinutes, type, scheduleOnly = false }) => {
   const advisor = await User.findOne({ _id: advisorId, role: 'advisor', status: 'active' }).select('name timezone country status');
   if (!advisor) throw new ApiError(StatusCodes.NOT_FOUND, 'Advisor not found');
@@ -598,7 +705,18 @@ export const buildAdvisorAvailability = async ({ advisorId, date, durationMinute
     advisor: advisorId,
     status: { $in: BOOKING_BLOCKING_STATUSES },
     scheduledFor: { $lt: searchEnd },
-    $expr: { $gt: [{ $add: ['$scheduledFor', { $multiply: [{ $ifNull: ['$durationMinutes', 0] }, 60000] }] }, searchStart] }
+    // A session that went live late ends at startedAt + duration, not at its booked end.
+    $expr: {
+      $gt: [
+        {
+          $add: [
+            { $max: ['$scheduledFor', { $ifNull: ['$startedAt', '$scheduledFor'] }] },
+            { $multiply: [{ $ifNull: ['$durationMinutes', 0] }, 60000] }
+          ]
+        },
+        searchStart
+      ]
+    }
   })
     .populate('user', 'name profilePhoto')
     .sort({ scheduledFor: 1 });
@@ -962,6 +1080,9 @@ export const getSession = catchAsync(async (req, res) => {
     if (hasRecordedTip) {
       responseData.tipCount = Math.max(1, Number(responseData.tipCount || 0));
     }
+    // Lets the app disable or limit "Need more time?" when the advisor has
+    // another appointment right after this session.
+    responseData.extension = await computeExtensionWindow(session);
   }
   return sendResponse(res, {
     data: responseData
@@ -1127,14 +1248,19 @@ const seenRecently = (date, now = Date.now()) =>
   Boolean(date) && now - new Date(date).getTime() <= PRESENCE_WINDOW_MS;
 
 const bothParticipantsConnected = async (session) => {
+  // Both sides must have the session screen open: the screen heartbeats every
+  // few seconds. The waiting room never heartbeats, so a user who is still
+  // waiting (or only fetched a LiveKit token) is never counted as joined.
+  if (!seenRecently(session.userPresentAt) || !seenRecently(session.advisorPresentAt)) return false;
   if (session.type === 'call' || session.type === 'video') {
-    // Media sessions: trust the LiveKit room itself when we can query it.
+    // Media sessions: additionally require both to be in the LiveKit room
+    // when it can be queried, so a stale heartbeat alone cannot start billing.
     const identities = await getRoomParticipantIdentities(session.livekitRoom || `session_${session._id}`);
     if (identities) {
       return identities.has(String(session.user)) && identities.has(String(session.advisor));
     }
   }
-  return seenRecently(session.userPresentAt) && seenRecently(session.advisorPresentAt);
+  return true;
 };
 
 const startSessionRecording = async (session) => {
@@ -1203,6 +1329,21 @@ export const activateSessionIfReady = async (session, io) => {
   }
   if (!(await bothParticipantsConnected(session))) return { session, activated: false };
 
+  // A session that starts late would otherwise run past its booked slot and
+  // into the advisor's next appointment. Shorten it to end before that
+  // appointment (and the advisor's buffer); refuse to start if no time is left.
+  const startAt = new Date();
+  const bookedDuration = Number(session.durationMinutes) || 0;
+  const { minutes: minutesAvailable } = await minutesBeforeNextBooking(session, startAt, startAt);
+  if (minutesAvailable !== null && minutesAvailable < 1) {
+    return { session, activated: false, blockedByNextBooking: true };
+  }
+  const liveSet = { status: 'live', startedAt: startAt };
+  if (minutesAvailable !== null && minutesAvailable < bookedDuration) {
+    liveSet.durationMinutes = minutesAvailable;
+    liveSet.bookedDurationMinutes = bookedDuration;
+  }
+
   const previousStatus = session.status;
   const live = await Session.findOneAndUpdate(
     {
@@ -1210,7 +1351,7 @@ export const activateSessionIfReady = async (session, io) => {
       status: { $in: PRE_LIVE_STATUSES },
       $or: [{ startedAt: { $exists: false } }, { startedAt: null }]
     },
-    { $set: { status: 'live', startedAt: new Date() } },
+    { $set: liveSet },
     { returnDocument: 'after' }
   );
   if (!live) {
@@ -1238,7 +1379,10 @@ export const activateSessionIfReady = async (session, io) => {
       // Could not charge the first minute: undo the start, nothing was billed.
       await Session.updateOne(
         { _id: live._id, status: 'live' },
-        { $set: { status: previousStatus }, $unset: { startedAt: 1 } }
+        {
+          $set: { status: previousStatus, durationMinutes: bookedDuration },
+          $unset: { startedAt: 1, bookedDurationMinutes: 1 }
+        }
       );
       return { session: (await Session.findById(live._id)) || session, activated: false, insufficientFunds: true };
     }
@@ -1247,11 +1391,14 @@ export const activateSessionIfReady = async (session, io) => {
   await startSessionRecording(live);
   const fresh = (await Session.findById(live._id)) || live;
 
+  const shortened = Number(fresh.bookedDurationMinutes) > Number(fresh.durationMinutes);
   await notifyAndBroadcast(io, {
     recipient: fresh.user,
     type: 'session_started',
     title: 'Session started',
-    body: 'You and your advisor are connected. Your session has started.',
+    body: shortened
+      ? `You and your advisor are connected. Your session runs for ${fresh.durationMinutes} minutes because your advisor has another appointment afterwards.`
+      : 'You and your advisor are connected. Your session has started.',
     data: { sessionId: fresh._id }
   }, 'session:started');
   if (io) {
@@ -1411,6 +1558,7 @@ export const sessionHeartbeat = catchAsync(async (req, res) => {
           waiting: !ended && result.session.status !== 'live',
           advisorReady: Boolean(result.session.advisorReadyAt),
           insufficientFunds: Boolean(result.insufficientFunds),
+          blockedByNextBooking: Boolean(result.blockedByNextBooking),
           session: result.session
         }
       });
@@ -1481,14 +1629,35 @@ export const sessionHeartbeat = catchAsync(async (req, res) => {
 });
 
 // ============= Extend session =============
+// An extension must never run into the advisor's next confirmed appointment:
+// it is refused when the next appointment follows immediately and limited to
+// the free time before it otherwise.
 export const extendSession = catchAsync(async (req, res) => {
-  const { minutes } = req.body; // 5|10|15
-  const session = await Session.findById(req.params.id);
+  const minutes = Number(req.body?.minutes);
+  let session = await Session.findById(req.params.id);
   if (!session) throw new ApiError(StatusCodes.NOT_FOUND, 'Session not found');
   if (String(session.user) !== String(req.user._id)) throw new ApiError(StatusCodes.FORBIDDEN, 'Only the user can extend');
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_EXTENSION_MINUTES) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid minutes');
+  }
+  session = await reconcileTimedOutSession(session);
   if (session.status !== 'live') throw new ApiError(StatusCodes.BAD_REQUEST, 'Session is not live');
 
-  const cost = Math.ceil((Number(minutes) || 0) * session.ratePerMin);
+  const window = await computeExtensionWindow(session);
+  if (!window.available) {
+    throw new ApiError(
+      StatusCodes.CONFLICT,
+      'Your advisor has another appointment right after this session, so it cannot be extended.'
+    );
+  }
+  if (minutes > window.maxMinutes) {
+    throw new ApiError(
+      StatusCodes.CONFLICT,
+      `Only ${window.maxMinutes} more minute${window.maxMinutes === 1 ? '' : 's'} can be added before your advisor's next appointment.`
+    );
+  }
+
+  const cost = Math.ceil(minutes * session.ratePerMin);
   if (cost <= 0) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid minutes');
 
   // verify availability of funds
@@ -1497,19 +1666,39 @@ export const extendSession = catchAsync(async (req, res) => {
     throw new ApiError(StatusCodes.PAYMENT_REQUIRED, 'Insufficient balance to extend');
   }
 
-  session.durationMinutes = (session.durationMinutes || 0) + Number(minutes);
-  session.extensions.push({ minutes: Number(minutes), cost });
-  await session.save();
+  // Hold the added minutes on the advisor's calendar so no booking can be
+  // made over them, then apply the extension only if nothing changed meanwhile.
+  const previousDuration = Number(session.durationMinutes) || 0;
+  const lockedSlots = await reserveAdditionalSlotLocks({
+    advisorId: session.advisor,
+    sessionId: session._id,
+    start: liveEndTime(session),
+    durationMinutes: minutes
+  });
+  const updated = await Session.findOneAndUpdate(
+    { _id: session._id, status: 'live', durationMinutes: previousDuration },
+    {
+      $set: { durationMinutes: previousDuration + minutes },
+      $push: { extensions: { minutes, cost, addedAt: new Date() } }
+    },
+    { returnDocument: 'after' }
+  );
+  if (!updated) {
+    if (lockedSlots.length) {
+      await SessionSlotLock.deleteMany({ session: session._id, slotStart: { $in: lockedSlots } });
+    }
+    throw new ApiError(StatusCodes.CONFLICT, 'The session changed. Please try again.');
+  }
 
   await createAndBroadcastNotification(req, {
-    recipient: session.advisor,
+    recipient: updated.advisor,
     type: 'session_updated',
     title: 'Session updated',
-    body: `Session extended by ${Number(minutes)} minutes`,
-    data: { sessionId: session._id }
+    body: `Session extended by ${minutes} minutes`,
+    data: { sessionId: updated._id }
   }, 'session:updated');
 
-  return sendResponse(res, { message: 'Session extended', data: session });
+  return sendResponse(res, { message: 'Session extended', data: updated });
 });
 
 // ============= Cancel session (user or advisor) =============

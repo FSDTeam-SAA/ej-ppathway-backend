@@ -5,6 +5,7 @@ import Wallet from '../models/wallet.model.js';
 import Session from '../models/session.model.js';
 import Transaction from '../models/transaction.model.js';
 import Notification from '../models/notification.model.js';
+import AdvisorProfile from '../models/advisorProfile.model.js';
 import {
   activateSessionIfReady,
   advisorStartSession,
@@ -114,12 +115,40 @@ test('a stale advisor presence does not start the session', async (t) => {
   assert.equal(claim.mock.callCount(), 0);
 });
 
+const chain = (value) => {
+  const query = {
+    sort: () => query,
+    limit: () => query,
+    select: () => query,
+    lean: async () => value,
+    then: (resolve, reject) => Promise.resolve(value).then(resolve, reject)
+  };
+  return query;
+};
+
+const mockCalendar = (t, { bookings = [], bufferMinutes = 0 } = {}) => {
+  t.mock.method(Session, 'find', () => chain(bookings));
+  t.mock.method(AdvisorProfile, 'findOne', () => chain({ availabilitySettings: { bufferMinutes } }));
+};
+
+test('a media session does not start from the LiveKit room alone without the user on the session screen', async (t) => {
+  const session = chatSession({ type: 'call', advisorReadyAt: recent(), advisorPresentAt: recent() });
+  const claim = t.mock.method(Session, 'findOneAndUpdate', async () => null);
+  const charge = mockWallet(t);
+  const result = await activateSessionIfReady(session, null);
+  assert.equal(result.activated, false);
+  assert.equal(claim.mock.callCount(), 0);
+  assert.equal(charge.mock.callCount(), 0);
+});
+
 test('session goes live and charges the first minute once both are connected', async (t) => {
   const session = chatSession({ advisorReadyAt: recent(), advisorPresentAt: recent(), userPresentAt: recent() });
   const live = chatSession({ ...session, status: 'live', startedAt: new Date() });
+  mockCalendar(t);
   const claim = t.mock.method(Session, 'findOneAndUpdate', async (filter, update) => {
     assert.deepEqual(update.$set.status, 'live');
     assert.ok(update.$set.startedAt instanceof Date);
+    assert.equal(update.$set.durationMinutes, undefined, 'full duration kept when the advisor is free afterwards');
     return live;
   });
   t.mock.method(Session, 'findById', async () => live);

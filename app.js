@@ -70,6 +70,8 @@ app.get('/api/v1/health', (_req, res) => {
     success: true,
     message: 'OK',
     time: new Date().toISOString(),
+    // Lets us confirm which session logic a deployed server is running.
+    features: ['session-start-both-connected', 'extension-next-booking-guard'],
     jobs: getJobQueueStatus()
   });
 });
